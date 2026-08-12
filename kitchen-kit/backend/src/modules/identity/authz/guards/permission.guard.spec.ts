@@ -1,79 +1,63 @@
-import {
-  ExecutionContext,
-  ForbiddenException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { AuthenticatedPrincipal } from '../../auth/auth.types';
-import { AuthorizationService } from '../authorization.service';
+import { TenantContextService } from '../../context/tenant-context.service';
 import { RequiredPermissions } from '../decorators/require-permission.decorator';
 import { PermissionGuard } from './permission.guard';
 
-function ctxWith(principal?: AuthenticatedPrincipal): ExecutionContext {
+function ctx(): ExecutionContext {
   return {
-    switchToHttp: () => ({ getRequest: () => ({ principal }) }),
+    switchToHttp: () => ({ getRequest: () => ({}) }),
     getHandler: () => undefined,
     getClass: () => undefined,
   } as unknown as ExecutionContext;
 }
 
-const authed: AuthenticatedPrincipal = {
-  userId: 'u-1',
-  sessionId: 's-1',
-  tenantId: 't-1',
-  membershipId: 'm-1',
-};
+const requireAll = (...codes: string[]): RequiredPermissions => ({
+  codes,
+  mode: 'all',
+});
 
 describe('PermissionGuard', () => {
   let reflector: { getAllAndOverride: jest.Mock };
-  let authz: { getEffectivePermissions: jest.Mock };
+  let tenantContext: { require: jest.Mock };
   let guard: PermissionGuard;
-
-  const requireAll = (...codes: string[]): RequiredPermissions => ({
-    codes,
-    mode: 'all',
-  });
 
   beforeEach(() => {
     reflector = { getAllAndOverride: jest.fn() };
-    authz = { getEffectivePermissions: jest.fn() };
+    tenantContext = { require: jest.fn() };
     guard = new PermissionGuard(
       reflector as unknown as Reflector,
-      authz as unknown as AuthorizationService,
+      tenantContext as unknown as TenantContextService,
     );
   });
 
-  it('allows routes without @RequirePermission metadata', async () => {
+  it('allows routes without @RequirePermission metadata (no context query)', async () => {
     reflector.getAllAndOverride.mockReturnValue(undefined);
-    await expect(guard.canActivate(ctxWith(authed))).resolves.toBe(true);
+    await expect(guard.canActivate(ctx())).resolves.toBe(true);
+    expect(tenantContext.require).not.toHaveBeenCalled();
   });
 
-  it('401s when there is no principal at all', async () => {
+  it('propagates the context guard rejection (e.g. no tenant context → 403)', async () => {
     reflector.getAllAndOverride.mockReturnValue(
       requireAll('identity.role.read'),
     );
-    await expect(guard.canActivate(ctxWith(undefined))).rejects.toBeInstanceOf(
-      UnauthorizedException,
+    tenantContext.require.mockRejectedValue(
+      new ForbiddenException('No active tenant context.'),
+    );
+    await expect(guard.canActivate(ctx())).rejects.toBeInstanceOf(
+      ForbiddenException,
     );
   });
 
-  it('403s when authenticated but no active tenant context', async () => {
+  it('403s when the required permission is missing', async () => {
     reflector.getAllAndOverride.mockReturnValue(
       requireAll('identity.role.read'),
     );
-    await expect(
-      guard.canActivate(ctxWith({ userId: 'u-1', sessionId: 's-1' })),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it('403s when the permission is missing', async () => {
-    reflector.getAllAndOverride.mockReturnValue(
-      requireAll('identity.role.read'),
-    );
-    authz.getEffectivePermissions.mockResolvedValue(
-      new Set(['identity.role.create']),
-    );
-    await expect(guard.canActivate(ctxWith(authed))).rejects.toBeInstanceOf(
+    tenantContext.require.mockResolvedValue({
+      context: {},
+      permissions: new Set(['identity.role.create']),
+    });
+    await expect(guard.canActivate(ctx())).rejects.toBeInstanceOf(
       ForbiddenException,
     );
   });
@@ -82,10 +66,11 @@ describe('PermissionGuard', () => {
     reflector.getAllAndOverride.mockReturnValue(
       requireAll('identity.role.read', 'identity.role.create'),
     );
-    authz.getEffectivePermissions.mockResolvedValue(
-      new Set(['identity.role.read', 'identity.role.create']),
-    );
-    await expect(guard.canActivate(ctxWith(authed))).resolves.toBe(true);
+    tenantContext.require.mockResolvedValue({
+      context: {},
+      permissions: new Set(['identity.role.read', 'identity.role.create']),
+    });
+    await expect(guard.canActivate(ctx())).resolves.toBe(true);
   });
 
   it('supports ANY (OR) semantics', async () => {
@@ -93,7 +78,10 @@ describe('PermissionGuard', () => {
       codes: ['a', 'b'],
       mode: 'any',
     });
-    authz.getEffectivePermissions.mockResolvedValue(new Set(['b']));
-    await expect(guard.canActivate(ctxWith(authed))).resolves.toBe(true);
+    tenantContext.require.mockResolvedValue({
+      context: {},
+      permissions: new Set(['b']),
+    });
+    await expect(guard.canActivate(ctx())).resolves.toBe(true);
   });
 });

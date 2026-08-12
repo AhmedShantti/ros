@@ -3,12 +3,12 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Request } from 'express';
-import { AuthenticatedPrincipal } from '../../auth/auth.types';
-import { AuthorizationService } from '../authorization.service';
+import {
+  AuthorizedRequest,
+  TenantContextService,
+} from '../../context/tenant-context.service';
 import {
   PERMISSIONS_KEY,
   RequiredPermissions,
@@ -16,17 +16,18 @@ import {
 
 /**
  * Authorization guard. Runs AFTER JwtAuthGuard (which establishes the principal
- * and returns 401 for auth failures). This guard only ever returns 403:
- *   - authenticated but no active tenant/membership context, or
+ * and returns 401 for auth failures). It consumes the single, authoritative
+ * tenant authorization context (TenantContextService, memoized per request), so
+ * it neither re-resolves tenant/membership nor trusts any client-supplied
+ * role/permission/tenant data. It only ever returns 403:
+ *   - no valid active tenant context, or
  *   - authenticated with context but missing the required permission(s).
- * Role/permission data is resolved from the DB via the server-side principal;
- * nothing from the client body/query is trusted.
  */
 @Injectable()
 export class PermissionGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly authz: AuthorizationService,
+    private readonly tenantContext: TenantContextService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -39,23 +40,13 @@ export class PermissionGuard implements CanActivate {
       return true;
     }
 
-    const request = context
-      .switchToHttp()
-      .getRequest<Request & { principal?: AuthenticatedPrincipal }>();
-    const principal = request.principal;
-    if (!principal) {
-      // JwtAuthGuard should have run first; defensive 401.
-      throw new UnauthorizedException();
-    }
-    if (!principal.tenantId || !principal.membershipId) {
-      throw new ForbiddenException('No active tenant context.');
-    }
+    const request = context.switchToHttp().getRequest<AuthorizedRequest>();
+    const { permissions } = await this.tenantContext.require(request);
 
-    const effective = await this.authz.getEffectivePermissions(principal);
     const ok =
       required.mode === 'any'
-        ? required.codes.some((code) => effective.has(code))
-        : required.codes.every((code) => effective.has(code));
+        ? required.codes.some((code) => permissions.has(code))
+        : required.codes.every((code) => permissions.has(code));
 
     if (!ok) {
       throw new ForbiddenException('Insufficient permission.');
