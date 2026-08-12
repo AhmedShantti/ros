@@ -1,0 +1,19 @@
+// ROS Identity bounded context — Prisma schema.
+// Source of truth: ROS_DrawDB_Compatible_v3.sql (SRS-derived) with two ratified
+// overrides recorded in docs/adr/0001-identity-tenancy-and-sessions.md:
+//   1. Multi-tenant MEMBERSHIP model (users are tenant-agnostic).
+//   2. identity.sessions extended with refresh-token rotation/reuse fields.
+// IDs are ULIDs stored as UUID (String @db.Uuid). Money is never modelled here.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["identity"]
+}
+
+// Models are introduced per-phase (Phase 2 onwards) alongside their migrations.

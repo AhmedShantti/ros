@@ -21,6 +21,38 @@
   <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
   [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
+## ROS Identity service
+
+This is the ROS (Restaurant Operating System) backend — a NestJS + Prisma 7 +
+PostgreSQL modular monolith. It currently hosts the **Identity / Auth** bounded
+context. Architecture decisions live in [`docs/adr`](./docs/adr).
+
+### Environment
+
+Copy `.env.example` to `.env` and fill in real values (`.env` is gitignored):
+
+- `DATABASE_URL` — PostgreSQL connection. The runtime application role should be
+  a **non-superuser** so `FORCE ROW LEVEL SECURITY` applies.
+- `JWT_ACCESS_SECRET` — long random secret (`openssl rand -base64 64`).
+- `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `NODE_ENV`, `PORT`.
+
+Required variables are validated at boot (`src/config/env.validation.ts`); a
+missing/malformed value aborts startup.
+
+### Database setup
+
+Target: plain PostgreSQL (RLS + multi-schema). The e2e suite and integration
+tests require a reachable database.
+
+```bash
+npm run prisma:validate     # offline schema check
+npm run prisma:generate     # regenerate the client (also runs on install)
+npm run prisma:migrate      # apply migrations (needs a reachable DB)
+npm run prisma:status
+```
+
+---
+
 ## Description
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
