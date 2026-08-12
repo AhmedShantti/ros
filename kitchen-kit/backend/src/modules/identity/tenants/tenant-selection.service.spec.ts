@@ -33,11 +33,12 @@ describe('TenantSelectionService.select', () => {
     findUnique = jest.fn();
     sessionUpdate = jest.fn().mockResolvedValue(undefined);
     const prisma = {
-      $transaction: jest.fn((cb: (tx: unknown) => unknown) =>
-        cb({
-          membership: { findUnique },
-          session: { update: sessionUpdate },
-        }),
+      withAuthContext: jest.fn(
+        (_scope: unknown, fn: (tx: unknown) => unknown) =>
+          fn({
+            membership: { findUnique },
+            session: { update: sessionUpdate },
+          }),
       ),
     } as unknown as PrismaService;
     tokens = { sign: jest.fn().mockResolvedValue('scoped-token') };

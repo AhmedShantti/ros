@@ -165,14 +165,14 @@ describe('Tenants & memberships (e2e)', () => {
   });
 
   it('rejects selection when the membership is inactive', async () => {
-    await memberships.setStatus(membershipAId, 'inactive');
+    await memberships.setStatus(tenantAId, membershipAId, 'inactive');
     const { accessToken } = await login();
     await request(http)
       .post('/auth/tenant')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ tenantId: tenantAId })
       .expect(403);
-    await memberships.setStatus(membershipAId, 'active'); // restore
+    await memberships.setStatus(tenantAId, membershipAId, 'active'); // restore
   });
 
   it('lets a user with multiple memberships select each authorized tenant', async () => {

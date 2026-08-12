@@ -12,6 +12,8 @@ import { TenantsService } from './../src/modules/identity/tenants/tenants.servic
 import { UsersService } from './../src/modules/identity/users/users.service';
 import { newId } from './../src/common/ids';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { PrismaClient } from './../src/generated/prisma/client';
+import { createMigratorClient } from './rls-admin';
 
 interface Tokens {
   accessToken: string;
@@ -25,6 +27,7 @@ const password = 's3cure-passphrase';
 describe('RBAC (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let admin: PrismaClient; // migrator/superuser client for RLS-table arrange
   let http: App;
   let roles: RolesService;
   let memberships: MembershipsService;
@@ -75,6 +78,7 @@ describe('RBAC (e2e)', () => {
     await app.init();
 
     prisma = app.get(PrismaService);
+    admin = createMigratorClient(app);
     http = app.getHttpServer();
     roles = app.get(RolesService);
     memberships = app.get(MembershipsService);
@@ -155,9 +159,9 @@ describe('RBAC (e2e)', () => {
     await roles.addPermissions(tenantBId, roleViewerBId, [BIZ_PERM]);
     await membershipRoles.assign(tenantBId, mBId, roleViewerBId);
 
-    // A protected system role (seeded out-of-band).
+    // A protected system role (seeded out-of-band by the migration role).
     systemRoleId = (
-      await prisma.role.create({
+      await admin.role.create({
         data: {
           id: newId(),
           tenantId: null,
@@ -175,9 +179,10 @@ describe('RBAC (e2e)', () => {
     await prisma.tenant
       .deleteMany({ where: { id: { in: [tenantAId, tenantBId] } } })
       .catch(() => undefined);
-    await prisma.role
+    await admin.role
       .delete({ where: { id: systemRoleId } })
       .catch(() => undefined);
+    await admin.$disconnect();
     await app.close();
   });
 
@@ -278,7 +283,7 @@ describe('RBAC (e2e)', () => {
     const perm = await prisma.permission.findUniqueOrThrow({
       where: { code: IDENTITY_PERMISSIONS.ROLE_READ },
     });
-    await prisma.rolePermission.delete({
+    await admin.rolePermission.delete({
       where: {
         roleId_permissionId: { roleId: roleReaderAId, permissionId: perm.id },
       },
@@ -313,7 +318,7 @@ describe('RBAC (e2e)', () => {
 
   it('8. a cross-tenant role grants nothing even if wrongly attached', async () => {
     // Simulate a bad row: tenant B role attached to a tenant A membership.
-    await prisma.membershipRole.create({
+    await admin.membershipRole.create({
       data: { membershipId: mAId, roleId: roleViewerBId },
     });
     try {
@@ -326,7 +331,7 @@ describe('RBAC (e2e)', () => {
       ).body as PermsBody;
       expect(perms.permissions).not.toContain(BIZ_PERM);
     } finally {
-      await prisma.membershipRole.delete({
+      await admin.membershipRole.delete({
         where: {
           membershipId_roleId: { membershipId: mAId, roleId: roleViewerBId },
         },

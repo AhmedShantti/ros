@@ -5,38 +5,45 @@ import {
   MembershipStatus,
   Prisma,
 } from '../../../generated/prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
 
 export type MembershipWithTenant = Prisma.MembershipGetPayload<{
   include: { tenant: true };
 }>;
 
+/**
+ * Data access for memberships. Every method takes the transaction client of an
+ * open `withAuthContext` scope so the query runs under the RLS tenant/user
+ * context (memberships is RLS-protected).
+ */
 @Injectable()
 export class MembershipsRepository {
-  constructor(private readonly prisma: PrismaService) {}
-
-  findByIdWithTenant(id: string): Promise<MembershipWithTenant | null> {
-    return this.prisma.membership.findUnique({
+  findByIdWithTenant(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<MembershipWithTenant | null> {
+    return tx.membership.findUnique({
       where: { id },
       include: { tenant: true },
     });
   }
 
   /** Selectable = active membership whose tenant is also active. */
-  listSelectableByUser(userId: string): Promise<MembershipWithTenant[]> {
-    return this.prisma.membership.findMany({
+  listSelectableByUser(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ): Promise<MembershipWithTenant[]> {
+    return tx.membership.findMany({
       where: { userId, status: 'active', tenant: { status: 'active' } },
       include: { tenant: true },
       orderBy: { createdAt: 'asc' },
     });
   }
 
-  create(input: {
-    userId: string;
-    tenantId: string;
-    status?: MembershipStatus;
-  }): Promise<Membership> {
-    return this.prisma.membership.create({
+  create(
+    tx: Prisma.TransactionClient,
+    input: { userId: string; tenantId: string; status?: MembershipStatus },
+  ): Promise<Membership> {
+    return tx.membership.create({
       data: {
         id: newId(),
         userId: input.userId,
@@ -46,7 +53,11 @@ export class MembershipsRepository {
     });
   }
 
-  setStatus(id: string, status: MembershipStatus): Promise<Membership> {
-    return this.prisma.membership.update({ where: { id }, data: { status } });
+  setStatus(
+    tx: Prisma.TransactionClient,
+    id: string,
+    status: MembershipStatus,
+  ): Promise<Membership> {
+    return tx.membership.update({ where: { id }, data: { status } });
   }
 }

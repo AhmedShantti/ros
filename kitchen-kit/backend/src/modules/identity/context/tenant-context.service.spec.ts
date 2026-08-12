@@ -29,7 +29,10 @@ describe('TenantContextService', () => {
   beforeEach(() => {
     findFirst = jest.fn();
     const prisma = {
-      membership: { findFirst },
+      withAuthContext: jest.fn(
+        (_scope: unknown, fn: (tx: unknown) => unknown) =>
+          fn({ membership: { findFirst } }),
+      ),
     } as unknown as PrismaService;
     service = new TenantContextService(prisma);
   });

@@ -36,24 +36,31 @@ export class TenantSelectionService {
     sessionId: string,
     tenantId: string,
   ): Promise<SelectTenantResult> {
-    const membership = await this.prisma.$transaction(async (tx) => {
-      const found = await tx.membership.findUnique({
-        where: { userId_tenantId: { userId, tenantId } },
-        include: { tenant: true },
-      });
-      if (
-        !found ||
-        found.status !== 'active' ||
-        found.tenant.status !== 'active'
-      ) {
-        throw new ForbiddenException('You do not have access to this tenant.');
-      }
-      await tx.session.update({
-        where: { id: sessionId },
-        data: { membershipId: found.id },
-      });
-      return found;
-    });
+    // User-scoped RLS context: the membership is read via the memberships SELECT
+    // policy (user_id = app.user_id) because no tenant is active yet.
+    const membership = await this.prisma.withAuthContext(
+      { userId },
+      async (tx) => {
+        const found = await tx.membership.findUnique({
+          where: { userId_tenantId: { userId, tenantId } },
+          include: { tenant: true },
+        });
+        if (
+          !found ||
+          found.status !== 'active' ||
+          found.tenant.status !== 'active'
+        ) {
+          throw new ForbiddenException(
+            'You do not have access to this tenant.',
+          );
+        }
+        await tx.session.update({
+          where: { id: sessionId },
+          data: { membershipId: found.id },
+        });
+        return found;
+      },
+    );
 
     const accessToken = await this.tokens.sign({
       sub: userId,

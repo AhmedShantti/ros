@@ -94,7 +94,10 @@ export class AuthService {
     // Preserve tenant context across rotation, but only if the membership (and
     // its tenant) is still active; otherwise the refreshed token drops it.
     const context = session.membershipId
-      ? await this.memberships.resolveActiveContext(session.membershipId)
+      ? await this.memberships.resolveActiveContext(
+          user.id,
+          session.membershipId,
+        )
       : null;
 
     const accessToken = await this.tokens.sign({

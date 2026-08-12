@@ -55,34 +55,41 @@ export class TenantContextService {
       throw new ForbiddenException('No active tenant context.');
     }
 
-    const membership = await this.prisma.membership.findFirst({
-      where: {
-        id: principal.membershipId,
-        userId: principal.userId,
-        tenantId: principal.tenantId,
-        status: 'active',
-        tenant: { status: 'active' },
-      },
-      select: {
-        id: true,
-        membershipRoles: {
+    // Resolve under the transaction-local RLS context (tenant + user). The same
+    // context both validates the membership and gates the nested role/permission
+    // reads at the database level.
+    const membership = await this.prisma.withAuthContext(
+      { userId: principal.userId, tenantId: principal.tenantId },
+      (tx) =>
+        tx.membership.findFirst({
           where: {
-            role: {
-              OR: [{ tenantId: principal.tenantId }, { isSystem: true }],
-            },
+            id: principal.membershipId,
+            userId: principal.userId,
+            tenantId: principal.tenantId,
+            status: 'active',
+            tenant: { status: 'active' },
           },
           select: {
-            role: {
+            id: true,
+            membershipRoles: {
+              where: {
+                role: {
+                  OR: [{ tenantId: principal.tenantId }, { isSystem: true }],
+                },
+              },
               select: {
-                rolePermissions: {
-                  select: { permission: { select: { code: true } } },
+                role: {
+                  select: {
+                    rolePermissions: {
+                      select: { permission: { select: { code: true } } },
+                    },
+                  },
                 },
               },
             },
           },
-        },
-      },
-    });
+        }),
+    );
 
     if (!membership) {
       throw new ForbiddenException('Invalid tenant context.');

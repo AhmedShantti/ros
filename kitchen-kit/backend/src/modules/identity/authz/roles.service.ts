@@ -10,6 +10,11 @@ import { Prisma, Role } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PermissionsService } from './permissions.service';
 
+/**
+ * Tenant role administration. All writes run under a tenant-scoped RLS context
+ * (app.tenant_id) so PostgreSQL is the final boundary: even if a check were
+ * missed, the roles / role_permissions policies reject cross-tenant writes.
+ */
 @Injectable()
 export class RolesService {
   constructor(
@@ -17,22 +22,24 @@ export class RolesService {
     private readonly permissions: PermissionsService,
   ) {}
 
-  /** Create a tenant-owned role. tenantId comes from the server-side principal,
-   *  never the client; isSystem is always false here (system roles are seeded). */
+  /** Create a tenant-owned role. tenantId comes from the server-side principal;
+   *  isSystem is always false (system roles are seeded by the migration role). */
   async createTenantRole(
     tenantId: string,
     input: { name: string; description?: string },
   ): Promise<Role> {
     try {
-      return await this.prisma.role.create({
-        data: {
-          id: newId(),
-          tenantId,
-          name: input.name,
-          description: input.description ?? null,
-          isSystem: false,
-        },
-      });
+      return await this.prisma.withAuthContext({ tenantId }, (tx) =>
+        tx.role.create({
+          data: {
+            id: newId(),
+            tenantId,
+            name: input.name,
+            description: input.description ?? null,
+            isSystem: false,
+          },
+        }),
+      );
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -46,48 +53,49 @@ export class RolesService {
 
   /** Roles visible to a tenant: its own roles plus shared system roles. */
   listForTenant(tenantId: string): Promise<Role[]> {
-    return this.prisma.role.findMany({
-      where: { OR: [{ tenantId }, { isSystem: true }] },
-      orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
-    });
+    return this.prisma.withAuthContext({ tenantId }, (tx) =>
+      tx.role.findMany({ orderBy: [{ isSystem: 'desc' }, { name: 'asc' }] }),
+    );
   }
 
   /**
-   * Grant permissions to a tenant-owned role. Rejects modification of system
-   * roles (403) and of roles that do not belong to the acting tenant (404, so a
-   * caller cannot probe other tenants' role ids).
+   * Grant permissions to a tenant-owned role. Rejects system roles (403) and
+   * roles not in the acting tenant (404, so foreign role ids can't be probed).
    */
   async addPermissions(
     actingTenantId: string,
     roleId: string,
     permissionCodes: string[],
   ): Promise<void> {
-    const role = await this.prisma.role.findUnique({ where: { id: roleId } });
-    if (!role) {
-      throw new NotFoundException('Role not found.');
-    }
-    if (role.isSystem) {
-      throw new ForbiddenException('System roles cannot be modified.');
-    }
-    if (role.tenantId !== actingTenantId) {
-      throw new NotFoundException('Role not found.');
-    }
-
     const permissions = await this.permissions.findByCodes(permissionCodes);
     if (permissions.length !== new Set(permissionCodes).size) {
       throw new BadRequestException('Unknown permission code.');
     }
 
-    await this.prisma.$transaction(
-      permissions.map((permission) =>
-        this.prisma.rolePermission.upsert({
-          where: {
-            roleId_permissionId: { roleId, permissionId: permission.id },
-          },
-          update: {},
-          create: { roleId, permissionId: permission.id },
-        }),
-      ),
+    await this.prisma.withAuthContext(
+      { tenantId: actingTenantId },
+      async (tx) => {
+        // Under RLS a foreign-tenant role is simply invisible → treated as 404.
+        const role = await tx.role.findUnique({ where: { id: roleId } });
+        if (!role) {
+          throw new NotFoundException('Role not found.');
+        }
+        if (role.isSystem) {
+          throw new ForbiddenException('System roles cannot be modified.');
+        }
+        if (role.tenantId !== actingTenantId) {
+          throw new NotFoundException('Role not found.');
+        }
+        for (const permission of permissions) {
+          await tx.rolePermission.upsert({
+            where: {
+              roleId_permissionId: { roleId, permissionId: permission.id },
+            },
+            update: {},
+            create: { roleId, permissionId: permission.id },
+          });
+        }
+      },
     );
   }
 }

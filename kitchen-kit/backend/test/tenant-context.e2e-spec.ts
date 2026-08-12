@@ -12,6 +12,8 @@ import { MembershipsService } from './../src/modules/identity/memberships/member
 import { TenantsService } from './../src/modules/identity/tenants/tenants.service';
 import { UsersService } from './../src/modules/identity/users/users.service';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { PrismaClient } from './../src/generated/prisma/client';
+import { createMigratorClient } from './rls-admin';
 
 interface Tokens {
   accessToken: string;
@@ -36,6 +38,7 @@ function tamperClaim(token: string, key: string, value: string): string {
 describe('TenantContext (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let admin: PrismaClient; // migrator/superuser client for RLS-table arrange
   let http: App;
   let tokens: AccessTokenService;
 
@@ -85,6 +88,7 @@ describe('TenantContext (e2e)', () => {
     await app.init();
 
     prisma = app.get(PrismaService);
+    admin = createMigratorClient(app);
     http = app.getHttpServer();
     tokens = app.get(AccessTokenService);
 
@@ -137,6 +141,7 @@ describe('TenantContext (e2e)', () => {
     await prisma.tenant
       .deleteMany({ where: { id: { in: [tenantAId, tenantBId] } } })
       .catch(() => undefined);
+    await admin.$disconnect();
     await app.close();
   });
 
@@ -159,12 +164,12 @@ describe('TenantContext (e2e)', () => {
 
   it('3. inactive membership is rejected', async () => {
     const token = await scoped(emailU, tenantAId);
-    await prisma.membership.update({
+    await admin.membership.update({
       where: { id: mUAId },
       data: { status: 'inactive' },
     });
     expect(await perms(token)).toBe(403);
-    await prisma.membership.update({
+    await admin.membership.update({
       where: { id: mUAId },
       data: { status: 'active' },
     });
@@ -252,7 +257,7 @@ describe('TenantContext (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ name })
       .expect(201);
-    const created = await prisma.role.findFirstOrThrow({ where: { name } });
+    const created = await admin.role.findFirstOrThrow({ where: { name } });
     expect(created.tenantId).toBe(tenantAId);
   });
 
