@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessTokenService } from '../auth/access-token.service';
+import { AuditService } from '../../governance/audit/audit.service';
 import { TenantSelectionService } from './tenant-selection.service';
 
 function membership(
@@ -46,9 +47,11 @@ describe('TenantSelectionService.select', () => {
       getOrThrow: jest.fn().mockReturnValue('15m'),
     } as unknown as ConfigService;
 
+    const audit = { emit: jest.fn() } as unknown as AuditService;
     service = new TenantSelectionService(
       prisma,
       tokens as unknown as AccessTokenService,
+      audit,
       config,
     );
   });

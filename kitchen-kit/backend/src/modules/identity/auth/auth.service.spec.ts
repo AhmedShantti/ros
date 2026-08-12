@@ -7,6 +7,7 @@ import { SessionsService } from '../sessions/sessions.service';
 import { TerminalsService } from '../terminals/terminals.service';
 import { UsersRepository } from '../users/users.repository';
 import { AccessTokenService } from './access-token.service';
+import { AuditService } from '../../governance/audit/audit.service';
 import { AuthService } from './auth.service';
 
 function activeUser(overrides: Record<string, unknown> = {}) {
@@ -59,6 +60,7 @@ describe('AuthService.login', () => {
     const terminals = {
       findInTenant: jest.fn().mockResolvedValue(null),
     } as unknown as TerminalsService;
+    const audit = { emit: jest.fn() } as unknown as AuditService;
 
     service = new AuthService(
       prisma as unknown as PrismaService,
@@ -68,6 +70,7 @@ describe('AuthService.login', () => {
       tokens as unknown as AccessTokenService,
       memberships,
       terminals,
+      audit,
       config,
     );
   });

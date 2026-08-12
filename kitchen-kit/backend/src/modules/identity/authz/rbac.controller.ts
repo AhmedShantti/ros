@@ -25,6 +25,11 @@ import type {
 } from '../context/tenant-context';
 import { TenantContextGuard } from '../context/tenant-context.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import {
+  AUDIT_ACTION,
+  AUDIT_ENTITY,
+} from '../../governance/audit/audit.constants';
+import { AuditService } from '../../governance/audit/audit.service';
 import { RequirePermission } from './decorators/require-permission.decorator';
 import { AddPermissionsDto } from './dto/add-permissions.dto';
 import { AssignRoleDto } from './dto/assign-role.dto';
@@ -48,6 +53,7 @@ export class RbacController {
   constructor(
     private readonly roles: RolesService,
     private readonly membershipRoles: MembershipRolesService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Effective permissions of the caller's active membership. */
@@ -93,6 +99,16 @@ export class RbacController {
     @Body() dto: AssignRoleDto,
   ): Promise<void> {
     await this.membershipRoles.assign(ctx.tenantId, membershipId, dto.roleId);
+    await this.audit.emit({
+      tenantId: ctx.tenantId,
+      action: AUDIT_ACTION.ROLE_ASSIGNED,
+      entityType: AUDIT_ENTITY.MEMBERSHIP,
+      actorType: 'user',
+      actorId: ctx.userId,
+      entityId: membershipId,
+      terminalId: ctx.terminalId ?? null,
+      metadata: { roleId: dto.roleId },
+    });
   }
 
   @Delete('memberships/:membershipId/roles/:roleId')

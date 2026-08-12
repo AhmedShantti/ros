@@ -5,6 +5,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { newId } from '../../../common/ids';
+import {
+  AUDIT_ACTION,
+  AUDIT_ENTITY,
+  SENTINEL_TENANT_ID,
+} from '../../governance/audit/audit.constants';
+import { AuditService } from '../../governance/audit/audit.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { assertPasswordMeetsPolicy } from '../credentials/password-policy';
@@ -22,6 +28,7 @@ export class PasswordService {
     private readonly prisma: PrismaService,
     private readonly users: UsersRepository,
     private readonly credentials: CredentialsService,
+    private readonly audit: AuditService,
     @Inject(PASSWORD_RESET_NOTIFIER)
     private readonly notifier: PasswordResetNotifier,
   ) {}
@@ -64,6 +71,16 @@ export class PasswordService {
         data: { revokedAt: new Date() },
       });
     });
+
+    await this.audit.emit({
+      tenantId: SENTINEL_TENANT_ID,
+      action: AUDIT_ACTION.PASSWORD_CHANGED,
+      entityType: AUDIT_ENTITY.USER,
+      actorType: 'user',
+      actorId: userId,
+      entityId: userId,
+      metadata: { otherSessionsRevoked: true },
+    });
   }
 
   /**
@@ -88,6 +105,16 @@ export class PasswordService {
       },
     });
     await this.notifier.notify({ userId: user.id, email: normalized, token });
+
+    await this.audit.emit({
+      tenantId: SENTINEL_TENANT_ID,
+      action: AUDIT_ACTION.PASSWORD_RESET_REQUESTED,
+      entityType: AUDIT_ENTITY.USER,
+      actorType: 'user',
+      actorId: user.id,
+      entityId: user.id,
+      metadata: { result: 'issued' },
+    });
   }
 
   /**
@@ -122,6 +149,16 @@ export class PasswordService {
         where: { userId: row.userId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+    });
+
+    await this.audit.emit({
+      tenantId: SENTINEL_TENANT_ID,
+      action: AUDIT_ACTION.PASSWORD_RESET_COMPLETED,
+      entityType: AUDIT_ENTITY.USER,
+      actorType: 'user',
+      actorId: row.userId,
+      entityId: row.userId,
+      metadata: { allSessionsRevoked: true },
     });
   }
 }

@@ -1,6 +1,11 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { parseDurationMs } from '../../../common/duration';
+import {
+  AUDIT_ACTION,
+  AUDIT_ENTITY,
+} from '../../governance/audit/audit.constants';
+import { AuditService } from '../../governance/audit/audit.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessTokenService } from '../auth/access-token.service';
 import { SelectTenantResult } from '../memberships/membership.view';
@@ -13,6 +18,7 @@ export class TenantSelectionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: AccessTokenService,
+    private readonly audit: AuditService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
@@ -67,6 +73,16 @@ export class TenantSelectionService {
       sid: sessionId,
       tid: membership.tenantId,
       mid: membership.id,
+    });
+
+    await this.audit.emit({
+      tenantId: membership.tenantId,
+      action: AUDIT_ACTION.TENANT_SELECTED,
+      entityType: AUDIT_ENTITY.TENANT,
+      actorType: 'user',
+      actorId: userId,
+      entityId: membership.tenantId,
+      metadata: { membershipId: membership.id, sessionId },
     });
 
     return {

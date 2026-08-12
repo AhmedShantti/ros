@@ -14,6 +14,11 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import {
+  AUDIT_ACTION,
+  AUDIT_ENTITY,
+} from '../../governance/audit/audit.constants';
+import { AuditService } from '../../governance/audit/audit.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequirePermission } from '../authz/decorators/require-permission.decorator';
 import { PermissionGuard } from '../authz/guards/permission.guard';
@@ -41,15 +46,30 @@ export class TerminalController {
   constructor(
     private readonly terminals: TerminalsService,
     private readonly terminalSessions: TerminalSessionService,
+    private readonly audit: AuditService,
   ) {}
 
   @Post('terminals')
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_MANAGE)
-  register(
+  async register(
     @CurrentTenantContext() ctx: TenantContext,
     @Body() dto: RegisterTerminalDto,
   ) {
-    return this.terminals.register(ctx.tenantId, dto);
+    const terminal = await this.terminals.register(ctx.tenantId, dto);
+    await this.audit.emit({
+      tenantId: ctx.tenantId,
+      action: AUDIT_ACTION.TERMINAL_REGISTERED,
+      entityType: AUDIT_ENTITY.TERMINAL,
+      actorType: 'user',
+      actorId: ctx.userId,
+      entityId: terminal.id,
+      terminalId: terminal.id,
+      metadata: {
+        terminalType: terminal.terminalType,
+        branchId: terminal.branchId,
+      },
+    });
+    return terminal;
   }
 
   @Get('terminals')

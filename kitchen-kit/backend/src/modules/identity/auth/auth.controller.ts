@@ -67,7 +67,7 @@ export class AuthController {
   async logout(
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
   ): Promise<void> {
-    await this.auth.logout(principal.sessionId);
+    await this.auth.logout(principal.userId, principal.sessionId);
   }
 
   @UseGuards(JwtAuthGuard)

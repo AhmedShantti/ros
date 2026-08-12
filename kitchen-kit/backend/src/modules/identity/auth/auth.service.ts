@@ -2,6 +2,12 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { parseDurationMs } from '../../../common/duration';
 import { User } from '../../../generated/prisma/client';
+import {
+  AUDIT_ACTION,
+  AUDIT_ENTITY,
+  SENTINEL_TENANT_ID,
+} from '../../governance/audit/audit.constants';
+import { AuditService } from '../../governance/audit/audit.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { MembershipsService } from '../memberships/memberships.service';
@@ -26,6 +32,7 @@ export class AuthService {
     private readonly tokens: AccessTokenService,
     private readonly memberships: MembershipsService,
     private readonly terminals: TerminalsService,
+    private readonly audit: AuditService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
@@ -58,6 +65,17 @@ export class AuthService {
     );
 
     if (!user || !credential || !passwordOk || user.status !== 'active') {
+      // Enumeration-safe: anonymous actor, no email/credential stored.
+      await this.audit.emit({
+        tenantId: SENTINEL_TENANT_ID,
+        action: AUDIT_ACTION.LOGIN_FAILURE,
+        entityType: AUDIT_ENTITY.USER,
+        actorType: 'anonymous',
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        reasonCode: 'invalid_credentials',
+        metadata: { result: 'failure' },
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -69,6 +87,18 @@ export class AuthService {
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
+    });
+
+    await this.audit.emit({
+      tenantId: SENTINEL_TENANT_ID,
+      action: AUDIT_ACTION.LOGIN_SUCCESS,
+      entityType: AUDIT_ENTITY.USER,
+      actorType: 'user',
+      actorId: user.id,
+      entityId: user.id,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      metadata: { result: 'success', sessionId: session.id },
     });
 
     return this.buildTokens(accessToken, refreshToken, user);
@@ -125,8 +155,17 @@ export class AuthService {
   }
 
   /** Revoke the caller's current session server-side. Idempotent. */
-  async logout(sessionId: string): Promise<void> {
+  async logout(userId: string, sessionId: string): Promise<void> {
     await this.sessions.revoke(sessionId);
+    await this.audit.emit({
+      tenantId: SENTINEL_TENANT_ID,
+      action: AUDIT_ACTION.LOGOUT,
+      entityType: AUDIT_ENTITY.SESSION,
+      actorType: 'user',
+      actorId: userId,
+      entityId: sessionId,
+      metadata: { result: 'success' },
+    });
   }
 
   /** Current authenticated user; credential-free view. Surfaces the (advisory)

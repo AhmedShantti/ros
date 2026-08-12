@@ -13,7 +13,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["identity"]
+  schemas  = ["governance", "identity"]
 }
 
 // ---------------------------------------------------------------------------
@@ -336,4 +336,44 @@ model DeviceFingerprint {
   @@index([terminalId])
   @@map("device_fingerprints")
   @@schema("identity")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 12 — Governance audit trail (append-only, hash-chained, per-tenant)
+// governance.audit_entries from the approved SQL. tenant_id is NOT NULL; global/
+// anonymous identity-auth events use the reserved sentinel tenant
+// 00000000-0000-0000-0000-000000000000 (ADR 0007). No FKs (matches the approved
+// DDL) — the sentinel tenant has no tenants row.
+// ---------------------------------------------------------------------------
+model AuditEntry {
+  id             String   @id @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  branchId       String?  @map("branch_id") @db.Uuid
+  sequenceNo     BigInt   @map("sequence_no")
+  occurredAt     DateTime @map("occurred_at") @db.Timestamptz(6)
+  recordedAt     DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  actorId        String?  @map("actor_id") @db.Uuid
+  actorType      String   @map("actor_type") @db.VarChar(16)
+  impersonatedBy String?  @map("impersonated_by") @db.Uuid
+  action         String   @db.VarChar(80)
+  entityType     String   @map("entity_type") @db.VarChar(48)
+  entityId       String?  @map("entity_id") @db.Uuid
+  beforeState    Json?    @map("before_state") @db.JsonB
+  afterState     Json?    @map("after_state") @db.JsonB
+  reasonCode     String?  @map("reason_code") @db.VarChar(48)
+  reasonText     String?  @map("reason_text")
+  approverId     String?  @map("approver_id") @db.Uuid
+  approvalId     String?  @map("approval_id") @db.Uuid
+  ipAddress      String?  @map("ip_address") @db.Inet
+  userAgent      String?  @map("user_agent")
+  terminalId     String?  @map("terminal_id") @db.Uuid
+  correlationId  String   @map("correlation_id") @db.Uuid
+  causationId    String?  @map("causation_id") @db.Uuid
+  entryHash      Bytes    @map("entry_hash")
+  previousHash   Bytes?   @map("previous_hash")
+
+  @@unique([tenantId, sequenceNo], map: "uq_audit_sequence")
+  @@index([tenantId, sequenceNo])
+  @@map("audit_entries")
+  @@schema("governance")
 }

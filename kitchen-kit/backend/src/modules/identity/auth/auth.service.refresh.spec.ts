@@ -7,6 +7,7 @@ import { SessionsService } from '../sessions/sessions.service';
 import { TerminalsService } from '../terminals/terminals.service';
 import { UsersRepository } from '../users/users.repository';
 import { AccessTokenService } from './access-token.service';
+import { AuditService } from '../../governance/audit/audit.service';
 import { AuthService } from './auth.service';
 
 function activeUser(overrides: Record<string, unknown> = {}) {
@@ -51,6 +52,7 @@ describe('AuthService refresh/logout', () => {
     const terminals = {
       findInTenant: jest.fn().mockResolvedValue(null),
     } as unknown as TerminalsService;
+    const audit = { emit: jest.fn() } as unknown as AuditService;
 
     service = new AuthService(
       {} as unknown as PrismaService,
@@ -60,6 +62,7 @@ describe('AuthService refresh/logout', () => {
       tokens as unknown as AccessTokenService,
       memberships,
       terminals,
+      audit,
       config,
     );
   });
@@ -88,7 +91,7 @@ describe('AuthService refresh/logout', () => {
   });
 
   it('logout revokes the current session', async () => {
-    await service.logout('sid-9');
+    await service.logout('user-9', 'sid-9');
     expect(sessions.revoke).toHaveBeenCalledWith('sid-9');
   });
 });

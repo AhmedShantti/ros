@@ -2,6 +2,7 @@ import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { UsersRepository } from '../users/users.repository';
+import { AuditService } from '../../governance/audit/audit.service';
 import { PasswordService } from './password.service';
 
 function activeUser(overrides: Record<string, unknown> = {}) {
@@ -47,10 +48,12 @@ describe('PasswordService', () => {
       rotatePassword: jest.fn().mockResolvedValue(undefined),
     };
     notifier = { notify: jest.fn() };
+    const audit = { emit: jest.fn() } as unknown as AuditService;
     service = new PasswordService(
       prisma,
       users as unknown as UsersRepository,
       credentials as unknown as CredentialsService,
+      audit,
       notifier,
     );
   });

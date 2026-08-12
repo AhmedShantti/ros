@@ -3,6 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { parseDurationMs } from '../../../common/duration';
 import { newId } from '../../../common/ids';
 import { Session } from '../../../generated/prisma/client';
+import {
+  AUDIT_ACTION,
+  AUDIT_ENTITY,
+  SENTINEL_TENANT_ID,
+} from '../../governance/audit/audit.constants';
+import { AuditService } from '../../governance/audit/audit.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { generateRefreshToken, hashRefreshToken } from './refresh-token';
 
@@ -25,6 +31,7 @@ export class SessionsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
     config: ConfigService,
   ) {
     this.refreshTtlMs = parseDurationMs(
@@ -91,6 +98,19 @@ export class SessionsService {
       this.logger.warn(
         `Refresh token reuse detected: session=${current.id} user=${current.userId}`,
       );
+      // Security event — safe identifiers only, never the token.
+      await this.audit.emit({
+        tenantId: SENTINEL_TENANT_ID,
+        action: AUDIT_ACTION.REFRESH_REUSE_DETECTED,
+        entityType: AUDIT_ENTITY.SESSION,
+        actorType: 'user',
+        actorId: current.userId,
+        entityId: current.id,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        reasonCode: 'refresh_reuse',
+        metadata: { chainRevoked: true },
+      });
       throw new UnauthorizedException('Invalid refresh token');
     }
     if (current.revokedAt) {
