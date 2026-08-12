@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { AuthThrottlerGuard } from '../../common/throttler/auth-throttler.guard';
 import { AccessTokenService } from './auth/access-token.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
@@ -51,6 +53,19 @@ import { UsersService } from './users/users.service';
         },
       }),
     }),
+    // Rate limiting for sensitive auth endpoints. Config-driven so production can
+    // tighten without a code change; storage is in-memory per process.
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [
+          {
+            ttl: Number(config.get<string>('AUTH_THROTTLE_TTL') ?? '60000'),
+            limit: Number(config.get<string>('AUTH_THROTTLE_LIMIT') ?? '50'),
+          },
+        ],
+      }),
+    }),
   ],
   controllers: [
     AuthController,
@@ -80,6 +95,7 @@ import { UsersService } from './users/users.service';
     TerminalsService,
     TerminalSessionService,
     PasswordService,
+    AuthThrottlerGuard,
     {
       provide: PASSWORD_RESET_NOTIFIER,
       useClass: LoggingPasswordResetNotifier,

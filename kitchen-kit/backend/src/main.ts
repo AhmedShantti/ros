@@ -2,10 +2,15 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
+
+  // Security headers. CSP is disabled so the Swagger UI at /docs keeps working;
+  // enable a tailored CSP when a fixed front-end origin is known.
+  app.use(helmet({ contentSecurityPolicy: false }));
 
   // Reject unknown/invalid input at the edge; strip properties not in the DTO.
   app.useGlobalPipes(

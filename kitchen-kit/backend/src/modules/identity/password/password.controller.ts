@@ -11,8 +11,10 @@ import {
   ApiBearerAuth,
   ApiNoContentResponse,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { AuthThrottlerGuard } from '../../../common/throttler/auth-throttler.guard';
 import type { AuthenticatedPrincipal } from '../auth/auth.types';
 import { CurrentPrincipal } from '../auth/decorators/current-principal.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -28,8 +30,9 @@ export class PasswordController {
 
   /** Authenticated password change (proves the current password). */
   @Post('change')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AuthThrottlerGuard)
   @ApiBearerAuth()
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.' })
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiNoContentResponse({
     description: 'Password changed; other sessions revoked.',
@@ -51,10 +54,12 @@ export class PasswordController {
 
   /** Forgot-password request. Always a generic 202 (no account enumeration). */
   @Post('forgot')
+  @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiAcceptedResponse({
     description: 'If the account exists, a reset token has been issued.',
   })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.' })
   async forgot(@Body() dto: ForgotPasswordDto): Promise<{ status: string }> {
     await this.passwords.requestReset(dto.email);
     return { status: 'accepted' };
@@ -62,6 +67,7 @@ export class PasswordController {
 
   /** Complete a password reset with a single-use token. */
   @Post('reset')
+  @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiNoContentResponse({
     description: 'Password reset; all sessions revoked.',
@@ -69,6 +75,7 @@ export class PasswordController {
   @ApiUnauthorizedResponse({
     description: 'Invalid, expired, or already-used reset token.',
   })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.' })
   async reset(@Body() dto: ResetPasswordDto): Promise<void> {
     await this.passwords.resetPassword(dto.token, dto.newPassword);
   }

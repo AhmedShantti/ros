@@ -15,7 +15,9 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { ApiTooManyRequestsResponse } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { AuthThrottlerGuard } from '../../../common/throttler/auth-throttler.guard';
 import { AuthService } from './auth.service';
 import type { AuthenticatedPrincipal } from './auth.types';
 import { CurrentPrincipal } from './decorators/current-principal.decorator';
@@ -29,9 +31,11 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('login')
+  @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ description: 'Access token, refresh token, and user.' })
   @ApiUnauthorizedResponse({ description: 'Invalid credentials.' })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.' })
   login(@Body() dto: LoginDto, @Req() req: Request) {
     return this.auth.login(dto, {
       ipAddress: req.ip ?? null,
@@ -40,11 +44,13 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ description: 'A rotated access + refresh token pair.' })
   @ApiUnauthorizedResponse({
     description: 'Invalid, expired, revoked, or reused refresh token.',
   })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.' })
   refresh(@Body() dto: RefreshDto, @Req() req: Request) {
     return this.auth.refresh(dto.refreshToken, {
       ipAddress: req.ip ?? null,
