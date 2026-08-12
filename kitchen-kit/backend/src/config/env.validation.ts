@@ -22,9 +22,16 @@ export enum NodeEnv {
  * Secret VALUES are never logged — only the names of the offending variables.
  */
 export class EnvironmentVariables {
+  // Migration/owner connection (Prisma CLI + migrations).
   @IsString()
   @IsNotEmpty()
   DATABASE_URL!: string;
+
+  // Runtime application connection (non-superuser; RLS-constrained). Used by
+  // PrismaService from Phase 8 onwards; required in the contract from the start.
+  @IsString()
+  @IsNotEmpty()
+  APP_DATABASE_URL!: string;
 
   // Long random secret (openssl rand -base64 64). Kept out of source control.
   @IsString()

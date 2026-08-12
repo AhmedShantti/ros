@@ -1,0 +1,27 @@
+# Local development database for the ROS Identity service.
+# Host port 5544 avoids clashing with any local Postgres already on 5432.
+# Passwords are supplied via backend/.env (gitignored) — none are committed.
+services:
+  db:
+    image: postgres:16
+    container_name: ros-postgres
+    environment:
+      POSTGRES_DB: ros
+      POSTGRES_USER: ${ROS_DB_MIGRATOR_USER:-ros_migrator}
+      POSTGRES_PASSWORD: ${ROS_DB_MIGRATOR_PASSWORD:?set ROS_DB_MIGRATOR_PASSWORD in backend/.env}
+      # Consumed by the init script to create the non-superuser app role.
+      ROS_APP_USER: ${ROS_DB_APP_USER:-ros_app}
+      ROS_APP_PASSWORD: ${ROS_DB_APP_PASSWORD:?set ROS_DB_APP_PASSWORD in backend/.env}
+    ports:
+      - '5544:5432'
+    volumes:
+      - ros-pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${ROS_DB_MIGRATOR_USER:-ros_migrator} -d ros']
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  ros-pgdata:
