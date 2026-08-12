@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { IdentityModule } from './modules/identity/identity.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -13,8 +14,9 @@ import { PrismaModule } from './prisma/prisma.module';
     }),
     PrismaModule,
     HealthModule,
-    // Identity bounded context (auth, users, sessions, tenants, rbac, …) is
-    // added incrementally from Phase 2 onwards.
+    // Identity bounded context (users, credentials, auth, sessions, tenants,
+    // rbac, terminals) — grown incrementally from Phase 2 onwards.
+    IdentityModule,
   ],
 })
 export class AppModule {}

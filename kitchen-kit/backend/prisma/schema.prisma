@@ -16,4 +16,59 @@ datasource db {
   schemas  = ["identity"]
 }
 
-// Models are introduced per-phase (Phase 2 onwards) alongside their migrations.
+// ---------------------------------------------------------------------------
+// Phase 2 — Users & Credentials
+// Users are tenant-agnostic (membership model, ADR 0001); email is globally
+// unique. Passwords/PINs live only in Credential as Argon2id hashes.
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  active
+  disabled
+  locked
+
+  @@schema("identity")
+}
+
+enum CredentialType {
+  password
+  pin
+  oauth
+
+  @@schema("identity")
+}
+
+model User {
+  id              String     @id @db.Uuid
+  email           String     @unique @db.VarChar(255)
+  phone           String?    @db.VarChar(24)
+  displayName     String     @map("display_name") @db.VarChar(120)
+  preferredLocale String     @default("ar") @map("preferred_locale") @db.VarChar(10)
+  status          UserStatus @default(active)
+  lastLoginAt     DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  credentials Credential[]
+
+  @@map("users")
+  @@schema("identity")
+}
+
+model Credential {
+  id             String         @id @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  credentialType CredentialType @map("credential_type")
+  secretHash     String         @map("secret_hash")
+  pinForTerminal Boolean        @default(false) @map("pin_for_terminal")
+  mustReset      Boolean        @default(false) @map("must_reset")
+  rotatedAt      DateTime       @default(now()) @map("rotated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // One credential per type per user (one password, one pin, …); rotation
+  // updates the row in place rather than inserting duplicates.
+  @@unique([userId, credentialType])
+  @@map("credentials")
+  @@schema("identity")
+}
