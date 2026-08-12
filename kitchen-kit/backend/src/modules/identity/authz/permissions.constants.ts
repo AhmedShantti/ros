@@ -17,6 +17,8 @@ export const IDENTITY_PERMISSIONS = {
   ROLE_CREATE: 'identity.role.create',
   ROLE_UPDATE: 'identity.role.update',
   ROLE_ASSIGN: 'identity.role.assign',
+  TERMINAL_READ: 'identity.terminal.read',
+  TERMINAL_MANAGE: 'identity.terminal.manage',
 } as const;
 
 export const IDENTITY_PERMISSION_DEFS: PermissionDef[] = [
@@ -39,5 +41,15 @@ export const IDENTITY_PERMISSION_DEFS: PermissionDef[] = [
     code: IDENTITY_PERMISSIONS.ROLE_ASSIGN,
     module: 'identity',
     description: 'Assign or remove roles on memberships',
+  },
+  {
+    code: IDENTITY_PERMISSIONS.TERMINAL_READ,
+    module: 'identity',
+    description: 'Read terminals within the tenant',
+  },
+  {
+    code: IDENTITY_PERMISSIONS.TERMINAL_MANAGE,
+    module: 'identity',
+    description: 'Register, update, and revoke terminals',
   },
 ];

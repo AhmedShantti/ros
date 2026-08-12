@@ -6,6 +6,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { MembershipsService } from '../memberships/memberships.service';
 import { SessionContext, SessionsService } from '../sessions/sessions.service';
+import { TerminalsService } from '../terminals/terminals.service';
 import { SafeUser, toSafeUser } from '../users/user.view';
 import { UsersRepository } from '../users/users.repository';
 import { UsersService } from '../users/users.service';
@@ -24,6 +25,7 @@ export class AuthService {
     private readonly sessions: SessionsService,
     private readonly tokens: AccessTokenService,
     private readonly memberships: MembershipsService,
+    private readonly terminals: TerminalsService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
@@ -100,10 +102,24 @@ export class AuthService {
         )
       : null;
 
+    // Preserve terminal binding across rotation, but only while the terminal is
+    // still active (a revoked/disabled terminal drops from the refreshed token).
+    let terminalId: string | undefined;
+    if (context && session.terminalId) {
+      const terminal = await this.terminals.findInTenant(
+        context.tenantId,
+        session.terminalId,
+      );
+      if (terminal?.status === 'active') {
+        terminalId = terminal.id;
+      }
+    }
+
     const accessToken = await this.tokens.sign({
       sub: user.id,
       sid: session.id,
       ...(context ? { tid: context.tenantId, mid: context.membershipId } : {}),
+      ...(terminalId ? { trm: terminalId } : {}),
     });
     return this.buildTokens(accessToken, nextRefreshToken, user);
   }

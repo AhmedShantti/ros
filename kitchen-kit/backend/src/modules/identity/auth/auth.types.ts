@@ -7,6 +7,7 @@ export interface AccessTokenPayload {
   sid: string; // session id
   tid?: string; // selected tenant id (present once tenant context established)
   mid?: string; // membership id backing the tenant context
+  trm?: string; // bound terminal id (present only for POS/terminal sessions)
   iat?: number;
   exp?: number;
 }

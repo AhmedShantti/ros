@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { MembershipsService } from '../memberships/memberships.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { TerminalsService } from '../terminals/terminals.service';
 import { UsersRepository } from '../users/users.repository';
 import { AccessTokenService } from './access-token.service';
 import { AuthService } from './auth.service';
@@ -55,6 +56,9 @@ describe('AuthService.login', () => {
     const memberships = {
       resolveActiveContext: jest.fn().mockResolvedValue(null),
     } as unknown as MembershipsService;
+    const terminals = {
+      findInTenant: jest.fn().mockResolvedValue(null),
+    } as unknown as TerminalsService;
 
     service = new AuthService(
       prisma as unknown as PrismaService,
@@ -63,6 +67,7 @@ describe('AuthService.login', () => {
       sessions as unknown as SessionsService,
       tokens as unknown as AccessTokenService,
       memberships,
+      terminals,
       config,
     );
   });

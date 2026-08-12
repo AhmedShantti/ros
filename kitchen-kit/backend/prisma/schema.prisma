@@ -102,9 +102,11 @@ model Session {
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   membership Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  terminal   Terminal?   @relation(fields: [terminalId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([membershipId])
+  @@index([terminalId])
   @@map("sessions")
   @@schema("identity")
 }
@@ -150,6 +152,7 @@ model Tenant {
   owner       User?        @relation("TenantOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   memberships Membership[]
   roles       Role[]
+  terminals   Terminal[]
 
   @@map("tenants")
   @@schema("identity")
@@ -242,5 +245,73 @@ model MembershipRole {
   @@id([membershipId, roleId])
   @@index([roleId])
   @@map("membership_roles")
+  @@schema("identity")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9 — Terminal / device identity (POS security boundary)
+// Terminals are tenant-scoped (RLS) and record a branch_id (branch-level authz
+// deferred — see docs/adr/0004-terminal-identity.md). Device fingerprints are
+// stored ONLY as hashes. Activation/pairing is intentionally deferred (not in
+// the approved schema). Sessions bind to a terminal via session.terminal_id.
+// ---------------------------------------------------------------------------
+
+enum TerminalStatus {
+  active
+  disabled
+  revoked
+
+  @@schema("identity")
+}
+
+enum TerminalType {
+  pos
+  kds
+  kiosk
+  handheld
+
+  @@schema("identity")
+}
+
+model Terminal {
+  id           String         @id @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  // References org.branches(id) in the full schema; the org context is not
+  // modelled here, so this is a recorded UUID (no cross-context FK). Branch-level
+  // authorization is deferred (ADR 0004).
+  branchId     String         @map("branch_id") @db.Uuid
+  name         String         @db.VarChar(64)
+  terminalType TerminalType   @map("terminal_type")
+  status       TerminalStatus @default(active)
+  lastSeenAt   DateTime?      @map("last_seen_at") @db.Timestamptz(6)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fingerprints DeviceFingerprint[]
+  sessions     Session[]
+
+  // Prevent duplicate terminal registration within a branch (409 on conflict).
+  @@unique([tenantId, branchId, name])
+  @@index([tenantId])
+  @@index([branchId])
+  @@map("terminals")
+  @@schema("identity")
+}
+
+model DeviceFingerprint {
+  id              String   @id @db.Uuid
+  terminalId      String   @map("terminal_id") @db.Uuid
+  // SHA-256 hash of the raw device fingerprint — the raw value is never stored.
+  fingerprintHash String   @map("fingerprint_hash")
+  os              String?  @db.VarChar(32)
+  appVersion      String?  @map("app_version") @db.VarChar(32)
+  registeredAt    DateTime @default(now()) @map("registered_at") @db.Timestamptz(6)
+
+  terminal Terminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+
+  // Idempotent re-registration of the same device on the same terminal.
+  @@unique([terminalId, fingerprintHash])
+  @@index([terminalId])
+  @@map("device_fingerprints")
   @@schema("identity")
 }

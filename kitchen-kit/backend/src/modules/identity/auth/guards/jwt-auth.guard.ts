@@ -35,6 +35,8 @@ export class JwtAuthGuard implements CanActivate {
         // Tenant context is only present after a validated tenant selection.
         ...(payload.tid ? { tenantId: payload.tid } : {}),
         ...(payload.mid ? { membershipId: payload.mid } : {}),
+        // Terminal binding is only present for POS/terminal sessions.
+        ...(payload.trm ? { terminalId: payload.trm } : {}),
       };
     } catch {
       throw new UnauthorizedException();

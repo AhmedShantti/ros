@@ -12,6 +12,9 @@ import { RbacController } from './authz/rbac.controller';
 import { RolesService } from './authz/roles.service';
 import { TenantContextGuard } from './context/tenant-context.guard';
 import { TenantContextService } from './context/tenant-context.service';
+import { TerminalController } from './terminals/terminal.controller';
+import { TerminalSessionService } from './terminals/terminal-session.service';
+import { TerminalsService } from './terminals/terminals.service';
 import { CredentialsService } from './credentials/credentials.service';
 import { MembershipsRepository } from './memberships/memberships.repository';
 import { MembershipsService } from './memberships/memberships.service';
@@ -43,7 +46,12 @@ import { UsersService } from './users/users.service';
       }),
     }),
   ],
-  controllers: [AuthController, TenantController, RbacController],
+  controllers: [
+    AuthController,
+    TenantController,
+    RbacController,
+    TerminalController,
+  ],
   providers: [
     UsersService,
     UsersRepository,
@@ -62,6 +70,8 @@ import { UsersService } from './users/users.service';
     TenantContextService,
     TenantContextGuard,
     PermissionGuard,
+    TerminalsService,
+    TerminalSessionService,
   ],
   exports: [
     UsersService,
@@ -77,6 +87,8 @@ import { UsersService } from './users/users.service';
     TenantContextService,
     TenantContextGuard,
     PermissionGuard,
+    TerminalsService,
+    TerminalSessionService,
   ],
 })
 export class IdentityModule {}
