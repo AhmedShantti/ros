@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { parseDurationMs } from '../../../common/duration';
+import { User } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { SessionContext, SessionsService } from '../sessions/sessions.service';
@@ -66,13 +67,38 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
-    return {
-      tokenType: 'Bearer',
-      accessToken,
-      refreshToken,
-      expiresIn: this.accessTtlSeconds,
-      user: toSafeUser(user),
-    };
+    return this.buildTokens(accessToken, refreshToken, user);
+  }
+
+  /**
+   * Exchange a valid refresh token for a new access + refresh token pair. The
+   * old refresh token is invalidated (rotation). Any invalid/expired/revoked/
+   * reused token is a generic 401 (see SessionsService.rotate). If the account
+   * has since become inactive, the freshly minted session is revoked and 401.
+   */
+  async refresh(
+    refreshToken: string,
+    ctx: SessionContext,
+  ): Promise<AuthTokens> {
+    const { session, refreshToken: nextRefreshToken } =
+      await this.sessions.rotate(refreshToken, ctx);
+
+    const user = await this.users.findById(session.userId);
+    if (!user || user.status !== 'active') {
+      await this.sessions.revoke(session.id);
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const accessToken = await this.tokens.sign({
+      sub: user.id,
+      sid: session.id,
+    });
+    return this.buildTokens(accessToken, nextRefreshToken, user);
+  }
+
+  /** Revoke the caller's current session server-side. Idempotent. */
+  async logout(sessionId: string): Promise<void> {
+    await this.sessions.revoke(sessionId);
   }
 
   /** Current authenticated user; credential-free view. */
@@ -82,5 +108,19 @@ export class AuthService {
       throw new UnauthorizedException();
     }
     return toSafeUser(user);
+  }
+
+  private buildTokens(
+    accessToken: string,
+    refreshToken: string,
+    user: User,
+  ): AuthTokens {
+    return {
+      tokenType: 'Bearer',
+      accessToken,
+      refreshToken,
+      expiresIn: this.accessTtlSeconds,
+      user: toSafeUser(user),
+    };
   }
 }

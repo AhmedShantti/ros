@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -19,6 +20,7 @@ import { AuthService } from './auth.service';
 import type { AuthenticatedPrincipal } from './auth.types';
 import { CurrentPrincipal } from './decorators/current-principal.decorator';
 import { LoginDto } from './dto/login.dto';
+import { RefreshDto } from './dto/refresh.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('auth')
@@ -35,6 +37,31 @@ export class AuthController {
       ipAddress: req.ip ?? null,
       userAgent: req.headers['user-agent'] ?? null,
     });
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ description: 'A rotated access + refresh token pair.' })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid, expired, revoked, or reused refresh token.',
+  })
+  refresh(@Body() dto: RefreshDto, @Req() req: Request) {
+    return this.auth.refresh(dto.refreshToken, {
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse({ description: 'Current session revoked.' })
+  @ApiUnauthorizedResponse({ description: 'Missing/invalid/expired token.' })
+  async logout(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+  ): Promise<void> {
+    await this.auth.logout(principal.sessionId);
   }
 
   @UseGuards(JwtAuthGuard)
