@@ -4,9 +4,10 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 
-// Matches the AUTH_THROTTLE_LIMIT default in IdentityModule. Each test app has
-// its OWN in-memory throttler store, so this suite cannot affect (or be affected
-// by) other suites — and it mutates no global state (no process.env changes).
+// Matches the AUTH_THROTTLE_LIMIT the e2e run configures in test/setup-e2e.ts
+// (the production-safe code default is stricter). Each test app has its OWN
+// in-memory throttler store, so this suite cannot affect (or be affected by)
+// other suites.
 const LIMIT = 50;
 
 describe('Auth rate limiting (e2e)', () => {

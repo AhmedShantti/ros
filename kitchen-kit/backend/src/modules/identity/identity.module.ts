@@ -42,26 +42,45 @@ import { UsersService } from './users/users.service';
   imports: [
     JwtModule.registerAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService): JwtModuleOptions => ({
-        secret: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-        signOptions: {
-          // TTL string like "15m"; jsonwebtoken's type is the narrow ms
-          // StringValue, so we assert the validated config value to it.
-          expiresIn: config.getOrThrow<string>('JWT_ACCESS_TTL') as NonNullable<
-            JwtModuleOptions['signOptions']
-          >['expiresIn'],
-        },
-      }),
+      useFactory: (config: ConfigService): JwtModuleOptions => {
+        const issuer = config.getOrThrow<string>('JWT_ISSUER');
+        const audience = config.getOrThrow<string>('JWT_AUDIENCE');
+        return {
+          secret: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+          // Pin the algorithm + issuer + audience on BOTH sign and verify so a
+          // token is only accepted if it was minted by this service with the
+          // expected symmetric algorithm (Phase 14 — no algorithm confusion, no
+          // cross-service token reuse). Token claims (sub/sid/tid/mid/trm) are
+          // unchanged.
+          signOptions: {
+            algorithm: 'HS256',
+            // TTL string like "15m"; jsonwebtoken's type is the narrow ms
+            // StringValue, so we assert the validated config value to it.
+            expiresIn: config.getOrThrow<string>(
+              'JWT_ACCESS_TTL',
+            ) as NonNullable<JwtModuleOptions['signOptions']>['expiresIn'],
+            issuer,
+            audience,
+          },
+          // Merged into every JwtService.verifyAsync() call (see mergeJwtOptions).
+          verifyOptions: {
+            algorithms: ['HS256'],
+            issuer,
+            audience,
+          },
+        };
+      },
     }),
-    // Rate limiting for sensitive auth endpoints. Config-driven so production can
-    // tighten without a code change; storage is in-memory per process.
+    // Rate limiting for sensitive auth endpoints. Config-driven (validated at
+    // boot) so production can tighten without a code change; storage is
+    // in-memory per process. Defaults are production-safe (see env.validation).
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         throttlers: [
           {
-            ttl: Number(config.get<string>('AUTH_THROTTLE_TTL') ?? '60000'),
-            limit: Number(config.get<string>('AUTH_THROTTLE_LIMIT') ?? '50'),
+            ttl: config.get<number>('AUTH_THROTTLE_TTL', 60_000),
+            limit: config.get<number>('AUTH_THROTTLE_LIMIT', 10),
           },
         ],
       }),

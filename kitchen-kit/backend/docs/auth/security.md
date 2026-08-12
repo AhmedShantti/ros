@@ -2,11 +2,13 @@
 
 ## JWT (access token)
 - Payload = IDs only: `sub, sid`, optional `tid, mid, trm`, `iat/exp`. No password/refresh/secret.
-- Symmetric secret `JWT_ACCESS_SECRET` (validated `@MinLength(32)` at boot). TTL `JWT_ACCESS_TTL`.
-- Any verification failure → generic 401. Tenant/permission authority is re-validated server-side
-  (the token is not trusted blindly).
-- **Hardening backlog:** pin `algorithms:['HS256']` on verify + `algorithm` on sign; add
-  issuer/audience.
+- Symmetric secret `JWT_ACCESS_SECRET` (validated `@MinLength(32)` at boot). TTL `JWT_ACCESS_TTL`
+  (short-lived; access-token revocation is intentionally not implemented — logout revokes the
+  refresh token).
+- **Pinned (Phase 14):** algorithm `HS256` on both sign and verify (`algorithms:['HS256']`), plus
+  issuer `JWT_ISSUER` and audience `JWT_AUDIENCE` — a token minted with a different algorithm,
+  issuer, or audience is rejected. Any verification failure → generic 401. Tenant/permission
+  authority is re-validated server-side (the token is not trusted blindly).
 
 ## Refresh token
 - Opaque `randomBytes(64)` (512-bit), **not** a JWT. Stored **only** as a SHA-256 hash (`@unique`);
@@ -22,7 +24,13 @@
   revokes **all** sessions; disabled accounts stay disabled.
 - **Forgot:** always returns `202` regardless of whether the email exists (no enumeration); the
   notifier logs only `userId`, never the token.
-- **Hardening backlog:** pin Argon2 `memoryCost/timeCost/parallelism`; ship a real notifier.
+- **Pinned (Phase 14):** Argon2id parameters are explicit — `memoryCost 65536` (64 MiB),
+  `timeCost 3`, `parallelism 4` — so a library default change cannot silently weaken hashing.
+- **Notifier:** the dev `LoggingPasswordResetNotifier` records only `userId`. Production MUST wire a
+  real provider by overriding `PASSWORD_RESET_NOTIFIER` in `IdentityModule` (contract in
+  `password-reset.notifier.ts`): deliver the token securely, never log/persist/return it, read
+  provider credentials from secret management, and never let a delivery failure reveal account
+  existence.
 
 ## Terminal / device (ADR-0004)
 - Registration is a `TERMINAL_MANAGE` action; `tenantId` from context, not the body.
@@ -34,8 +42,12 @@
 ## Rate limiting & headers (ADR-0006)
 - `AuthThrottlerGuard` on login/refresh/password-change/forgot/reset. Key = IP+email where present,
   else IP. Over-limit → 429. Configured by `AUTH_THROTTLE_TTL`/`AUTH_THROTTLE_LIMIT`.
-- **Defaults are lenient (60000ms / 50) — production MUST tighten** (≈5–10 / 60s) and set Express
-  `trust proxy` so `req.ip` is correct behind a proxy.
+- **Phase 14:** the throttle vars are **validated at boot** (invalid → fail fast) and the **code
+  default is production-safe** (`10 / 60s`); development/test opt into a looser limit explicitly
+  (`.env` / `test/setup-e2e.ts`). Tune the production limit via env.
+- **Proxy trust:** `TRUST_PROXY` is unset by default → Express trusts **no** `X-Forwarded-*` header,
+  so a client cannot spoof its source IP (which the limiter keys on). Behind a trusted proxy set
+  `TRUST_PROXY` to a hop count (e.g. `1`), `true`, or a subnet.
 - Helmet enabled (CSP disabled for Swagger). Global ValidationPipe: whitelist + forbidNonWhitelisted
   + transform.
 
@@ -43,7 +55,10 @@
 - Per-tenant SHA-256 hash chain in `governance.audit_entries`; append-only for `ros_app`
   (UPDATE/DELETE/TRUNCATE revoked + no update/delete policy); sentinel tenant `000…0` for global
   auth events; metadata is allow-listed and secret-redacted.
-- **Accepted limitations:** no production chain verifier; best-effort (emit-after-commit) writes
-  (a missing audit is possible, a false one is not); incomplete event coverage; single global
-  sentinel chain is a throughput bottleneck; the DB owner/superuser can rewrite the chain. Treat as
-  tamper-evident, **not** compliance-grade.
+- **Phase 14:** an internal `verifyAuditChain` utility (`audit-verify.ts`) recomputes and validates
+  a tenant's chain (content tampering, broken linkage, sequence gaps) — used by tests/ops only,
+  **not** exposed as an HTTP endpoint. A tamper-detection unit test now covers the property.
+- **Accepted limitations (unchanged):** the verifier is not run in production automatically;
+  best-effort (emit-after-commit) writes (a missing audit is possible, a false one is not);
+  incomplete event coverage; single global sentinel chain is a throughput bottleneck; the DB
+  owner/superuser can still rewrite the chain. Treat as tamper-evident, **not** compliance-grade.

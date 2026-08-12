@@ -5,14 +5,27 @@ import { Prisma } from '../../../generated/prisma/client';
 import { assertPasswordMeetsPolicy } from './password-policy';
 
 /**
+ * Explicit production Argon2id parameters (ADR-0005). Pinned so a library
+ * default change can never silently weaken hashing. 64 MiB memory, 3 iterations,
+ * parallelism 4 — these match the previously-relied-upon defaults, so existing
+ * stored hashes (which self-describe their own parameters) continue to verify.
+ */
+const ARGON2_OPTIONS: argon2.HashOptions = {
+  type: argon2.argon2id,
+  memoryCost: 65_536, // KiB = 64 MiB
+  timeCost: 3,
+  parallelism: 4,
+};
+
+/**
  * Owns password authentication material. Passwords are only ever stored as
  * Argon2id hashes; plaintext is hashed here and never logged or returned.
  */
 @Injectable()
 export class CredentialsService {
-  /** Hash a plaintext password with Argon2id. */
+  /** Hash a plaintext password with Argon2id using the pinned parameters. */
   async hashPassword(password: string): Promise<string> {
-    return argon2.hash(password, { type: argon2.argon2id });
+    return argon2.hash(password, ARGON2_OPTIONS);
   }
 
   /** Constant-time-ish verify; returns false on any malformed/invalid hash. */
