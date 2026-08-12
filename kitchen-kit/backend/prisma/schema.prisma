@@ -49,10 +49,11 @@ model User {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  credentials  Credential[]
-  sessions     Session[]
-  memberships  Membership[]
-  ownedTenants Tenant[]     @relation("TenantOwner")
+  credentials         Credential[]
+  sessions            Session[]
+  memberships         Membership[]
+  ownedTenants        Tenant[]             @relation("TenantOwner")
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
   @@schema("identity")
@@ -73,6 +74,27 @@ model Credential {
   // updates the row in place rather than inserting duplicates.
   @@unique([userId, credentialType])
   @@map("credentials")
+  @@schema("identity")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 10 — Password reset tokens
+// Opaque single-use tokens for the forgot-password flow; only a SHA-256 hash is
+// stored (raw token never persisted). Global identity data (users are
+// tenant-agnostic, ADR 0001) → not RLS-scoped, like users/credentials/sessions.
+// ---------------------------------------------------------------------------
+model PasswordResetToken {
+  id         String    @id @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
   @@schema("identity")
 }
 

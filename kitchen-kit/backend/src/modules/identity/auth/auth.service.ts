@@ -129,13 +129,18 @@ export class AuthService {
     await this.sessions.revoke(sessionId);
   }
 
-  /** Current authenticated user; credential-free view. */
-  async me(userId: string): Promise<SafeUser> {
+  /** Current authenticated user; credential-free view. Surfaces the (advisory)
+   *  must_reset flag from the password credential without exposing any hash. */
+  async me(userId: string): Promise<SafeUser & { mustReset: boolean }> {
     const user = await this.users.findById(userId);
     if (!user) {
       throw new UnauthorizedException();
     }
-    return toSafeUser(user);
+    const credential = await this.prisma.credential.findUnique({
+      where: { userId_credentialType: { userId, credentialType: 'password' } },
+      select: { mustReset: true },
+    });
+    return { ...toSafeUser(user), mustReset: credential?.mustReset ?? false };
   }
 
   private buildTokens(

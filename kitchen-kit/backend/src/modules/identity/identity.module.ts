@@ -15,6 +15,12 @@ import { TenantContextService } from './context/tenant-context.service';
 import { TerminalController } from './terminals/terminal.controller';
 import { TerminalSessionService } from './terminals/terminal-session.service';
 import { TerminalsService } from './terminals/terminals.service';
+import { PasswordController } from './password/password.controller';
+import { PasswordService } from './password/password.service';
+import {
+  LoggingPasswordResetNotifier,
+  PASSWORD_RESET_NOTIFIER,
+} from './password/password-reset.notifier';
 import { CredentialsService } from './credentials/credentials.service';
 import { MembershipsRepository } from './memberships/memberships.repository';
 import { MembershipsService } from './memberships/memberships.service';
@@ -51,6 +57,7 @@ import { UsersService } from './users/users.service';
     TenantController,
     RbacController,
     TerminalController,
+    PasswordController,
   ],
   providers: [
     UsersService,
@@ -72,6 +79,11 @@ import { UsersService } from './users/users.service';
     PermissionGuard,
     TerminalsService,
     TerminalSessionService,
+    PasswordService,
+    {
+      provide: PASSWORD_RESET_NOTIFIER,
+      useClass: LoggingPasswordResetNotifier,
+    },
   ],
   exports: [
     UsersService,
@@ -89,6 +101,7 @@ import { UsersService } from './users/users.service';
     PermissionGuard,
     TerminalsService,
     TerminalSessionService,
+    PasswordService,
   ],
 })
 export class IdentityModule {}
