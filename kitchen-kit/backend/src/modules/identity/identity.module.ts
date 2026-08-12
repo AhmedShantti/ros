@@ -5,6 +5,12 @@ import { AccessTokenService } from './auth/access-token.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { AuthorizationService } from './authz/authorization.service';
+import { PermissionGuard } from './authz/guards/permission.guard';
+import { MembershipRolesService } from './authz/membership-roles.service';
+import { PermissionsService } from './authz/permissions.service';
+import { RbacController } from './authz/rbac.controller';
+import { RolesService } from './authz/roles.service';
 import { CredentialsService } from './credentials/credentials.service';
 import { MembershipsRepository } from './memberships/memberships.repository';
 import { MembershipsService } from './memberships/memberships.service';
@@ -36,7 +42,7 @@ import { UsersService } from './users/users.service';
       }),
     }),
   ],
-  controllers: [AuthController, TenantController],
+  controllers: [AuthController, TenantController, RbacController],
   providers: [
     UsersService,
     UsersRepository,
@@ -49,6 +55,11 @@ import { UsersService } from './users/users.service';
     MembershipsRepository,
     MembershipsService,
     TenantSelectionService,
+    PermissionsService,
+    RolesService,
+    MembershipRolesService,
+    AuthorizationService,
+    PermissionGuard,
   ],
   exports: [
     UsersService,
@@ -58,6 +69,11 @@ import { UsersService } from './users/users.service';
     JwtAuthGuard,
     TenantsService,
     MembershipsService,
+    PermissionsService,
+    RolesService,
+    MembershipRolesService,
+    AuthorizationService,
+    PermissionGuard,
   ],
 })
 export class IdentityModule {}

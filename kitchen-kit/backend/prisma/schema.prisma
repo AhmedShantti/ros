@@ -149,6 +149,7 @@ model Tenant {
 
   owner       User?        @relation("TenantOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   memberships Membership[]
+  roles       Role[]
 
   @@map("tenants")
   @@schema("identity")
@@ -162,12 +163,84 @@ model Membership {
   createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sessions Session[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions        Session[]
+  membershipRoles MembershipRole[]
 
   @@unique([userId, tenantId])
   @@index([tenantId])
   @@map("memberships")
+  @@schema("identity")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — RBAC
+// Authorization path: Membership -> MembershipRole -> Role -> RolePermission ->
+// Permission (ADR 0001). Roles are tenant-scoped (tenant_id NULL = system role,
+// is_system = true). Permissions are global, keyed by a stable dot-notation code.
+// ---------------------------------------------------------------------------
+
+model Role {
+  id          String   @id @db.Uuid
+  // NULL tenant_id = platform/system role, shared across tenants.
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  name        String   @db.VarChar(64)
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+  membershipRoles MembershipRole[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+  @@schema("identity")
+}
+
+model Permission {
+  id          String   @id @db.Uuid
+  code        String   @unique @db.VarChar(80)
+  description String
+  module      String   @db.VarChar(32)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+  @@schema("identity")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+  @@schema("identity")
+}
+
+model MembershipRole {
+  membershipId String   @map("membership_id") @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  // Optional branch scoping carried from the approved user_roles design; not yet
+  // consumed by permission resolution (branch context arrives with org/RLS).
+  branchId     String?  @map("branch_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([membershipId, roleId])
+  @@index([roleId])
+  @@map("membership_roles")
   @@schema("identity")
 }
