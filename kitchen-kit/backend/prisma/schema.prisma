@@ -50,6 +50,7 @@ model User {
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   credentials Credential[]
+  sessions    Session[]
 
   @@map("users")
   @@schema("identity")
@@ -70,5 +71,35 @@ model Credential {
   // updates the row in place rather than inserting duplicates.
   @@unique([userId, credentialType])
   @@map("credentials")
+  @@schema("identity")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3/4 — Sessions
+// Extends the approved schema (ADR 0001) with refresh-token rotation/reuse
+// fields. The client holds an opaque refresh token; we store only its hash.
+// ---------------------------------------------------------------------------
+model Session {
+  id               String    @id @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  terminalId       String?   @map("terminal_id") @db.Uuid
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  issuedAt         DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  lastUsedAt       DateTime? @map("last_used_at") @db.Timestamptz(6)
+  reuseDetectedAt  DateTime? @map("reuse_detected_at") @db.Timestamptz(6)
+  ipAddress        String?   @map("ip_address") @db.Inet
+  userAgent        String?   @map("user_agent")
+
+  // Rotation lineage: the session that superseded this one (1:1).
+  replacedBySessionId String?  @unique @map("replaced_by_session_id") @db.Uuid
+  replacedBy          Session? @relation("SessionRotation", fields: [replacedBySessionId], references: [id], onDelete: SetNull)
+  replaces            Session? @relation("SessionRotation")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
   @@schema("identity")
 }

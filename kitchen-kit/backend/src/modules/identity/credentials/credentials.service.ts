@@ -24,6 +24,24 @@ export class CredentialsService {
     }
   }
 
+  private dummyHash?: Promise<string>;
+
+  /**
+   * Timing-equalised verify used by login. When there is no stored hash (unknown
+   * account or no password credential) we still spend an Argon2id verification
+   * against a throwaway hash, so login latency does not reveal whether the
+   * account exists. Always returns false when {@link hash} is null.
+   */
+  async verifyPasswordSafe(
+    hash: string | null,
+    password: string,
+  ): Promise<boolean> {
+    this.dummyHash ??= this.hashPassword('timing-guard-placeholder-secret');
+    const target = hash ?? (await this.dummyHash);
+    const matches = await this.verifyPassword(target, password);
+    return hash !== null && matches;
+  }
+
   /**
    * Create the password credential for a freshly created user. Runs inside the
    * caller's transaction so a user can never exist without its credential.
