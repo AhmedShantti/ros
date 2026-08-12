@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
+import { MembershipsService } from '../memberships/memberships.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { UsersRepository } from '../users/users.repository';
 import { AccessTokenService } from './access-token.service';
@@ -51,12 +52,17 @@ describe('AuthService.login', () => {
       getOrThrow: jest.fn().mockReturnValue('15m'),
     } as unknown as ConfigService;
 
+    const memberships = {
+      resolveActiveContext: jest.fn().mockResolvedValue(null),
+    } as unknown as MembershipsService;
+
     service = new AuthService(
       prisma as unknown as PrismaService,
       repo as unknown as UsersRepository,
       credentials as unknown as CredentialsService,
       sessions as unknown as SessionsService,
       tokens as unknown as AccessTokenService,
+      memberships,
       config,
     );
   });

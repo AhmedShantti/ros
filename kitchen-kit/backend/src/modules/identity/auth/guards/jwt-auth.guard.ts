@@ -29,7 +29,13 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const payload = await this.tokens.verify(token);
-      request.principal = { userId: payload.sub, sessionId: payload.sid };
+      request.principal = {
+        userId: payload.sub,
+        sessionId: payload.sid,
+        // Tenant context is only present after a validated tenant selection.
+        ...(payload.tid ? { tenantId: payload.tid } : {}),
+        ...(payload.mid ? { membershipId: payload.mid } : {}),
+      };
     } catch {
       throw new UnauthorizedException();
     }

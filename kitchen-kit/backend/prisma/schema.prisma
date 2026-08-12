@@ -49,8 +49,10 @@ model User {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  credentials Credential[]
-  sessions    Session[]
+  credentials  Credential[]
+  sessions     Session[]
+  memberships  Membership[]
+  ownedTenants Tenant[]     @relation("TenantOwner")
 
   @@map("users")
   @@schema("identity")
@@ -83,6 +85,7 @@ model Session {
   id               String    @id @db.Uuid
   userId           String    @map("user_id") @db.Uuid
   terminalId       String?   @map("terminal_id") @db.Uuid
+  membershipId     String?   @map("membership_id") @db.Uuid
   refreshTokenHash String    @unique @map("refresh_token_hash")
   issuedAt         DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
   expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
@@ -97,9 +100,74 @@ model Session {
   replacedBy          Session? @relation("SessionRotation", fields: [replacedBySessionId], references: [id], onDelete: SetNull)
   replaces            Session? @relation("SessionRotation")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  membership Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([membershipId])
   @@map("sessions")
+  @@schema("identity")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — Tenants & Memberships
+// Users are tenant-agnostic (ADR 0001). A Membership is the authorization link
+// between a User and a Tenant; only an ACTIVE membership permits tenant
+// selection. Roles/permissions attach in Phase 6.
+// ---------------------------------------------------------------------------
+
+enum TenantStatus {
+  active
+  suspended
+  closed
+
+  @@schema("identity")
+}
+
+enum MembershipStatus {
+  active
+  inactive
+  suspended
+
+  @@schema("identity")
+}
+
+model Tenant {
+  id              String       @id @db.Uuid
+  slug            String       @unique @db.VarChar(64)
+  legalName       String       @map("legal_name") @db.VarChar(255)
+  defaultCurrency String       @map("default_currency") @db.Char(3)
+  defaultLocale   String       @default("ar") @map("default_locale") @db.VarChar(10)
+  // References fiscal.country_packs(code) in the full schema; kept as a plain
+  // column here to preserve the Identity bounded-context boundary.
+  countryPackCode String       @map("country_pack_code") @db.VarChar(8)
+  status          TenantStatus @default(active)
+  ownerUserId     String?      @map("owner_user_id") @db.Uuid
+  settings        Json         @default("{}") @db.JsonB
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  owner       User?        @relation("TenantOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  memberships Membership[]
+
+  @@map("tenants")
+  @@schema("identity")
+}
+
+model Membership {
+  id        String           @id @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  status    MembershipStatus @default(active)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions Session[]
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@map("memberships")
   @@schema("identity")
 }

@@ -127,6 +127,8 @@ export class SessionsService {
           refreshTokenHash: hashRefreshToken(newRefreshToken),
           expiresAt: new Date(Date.now() + this.refreshTtlMs),
           terminalId: current.terminalId,
+          // Carry tenant selection across rotation; refresh re-validates it.
+          membershipId: current.membershipId,
           ipAddress: ctx.ipAddress ?? null,
           userAgent: ctx.userAgent ?? null,
         },

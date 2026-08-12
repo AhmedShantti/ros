@@ -6,7 +6,12 @@ import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { CredentialsService } from './credentials/credentials.service';
+import { MembershipsRepository } from './memberships/memberships.repository';
+import { MembershipsService } from './memberships/memberships.service';
 import { SessionsService } from './sessions/sessions.service';
+import { TenantController } from './tenants/tenant.controller';
+import { TenantSelectionService } from './tenants/tenant-selection.service';
+import { TenantsService } from './tenants/tenants.service';
 import { UsersRepository } from './users/users.repository';
 import { UsersService } from './users/users.service';
 
@@ -31,7 +36,7 @@ import { UsersService } from './users/users.service';
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, TenantController],
   providers: [
     UsersService,
     UsersRepository,
@@ -40,6 +45,10 @@ import { UsersService } from './users/users.service';
     AccessTokenService,
     AuthService,
     JwtAuthGuard,
+    TenantsService,
+    MembershipsRepository,
+    MembershipsService,
+    TenantSelectionService,
   ],
   exports: [
     UsersService,
@@ -47,6 +56,8 @@ import { UsersService } from './users/users.service';
     SessionsService,
     AccessTokenService,
     JwtAuthGuard,
+    TenantsService,
+    MembershipsService,
   ],
 })
 export class IdentityModule {}

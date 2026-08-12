@@ -5,6 +5,8 @@ import { SafeUser } from '../users/user.view';
 export interface AccessTokenPayload {
   sub: string; // user id
   sid: string; // session id
+  tid?: string; // selected tenant id (present once tenant context established)
+  mid?: string; // membership id backing the tenant context
   iat?: number;
   exp?: number;
 }

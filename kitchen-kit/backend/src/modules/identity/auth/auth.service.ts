@@ -4,6 +4,7 @@ import { parseDurationMs } from '../../../common/duration';
 import { User } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
+import { MembershipsService } from '../memberships/memberships.service';
 import { SessionContext, SessionsService } from '../sessions/sessions.service';
 import { SafeUser, toSafeUser } from '../users/user.view';
 import { UsersRepository } from '../users/users.repository';
@@ -22,6 +23,7 @@ export class AuthService {
     private readonly credentials: CredentialsService,
     private readonly sessions: SessionsService,
     private readonly tokens: AccessTokenService,
+    private readonly memberships: MembershipsService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
@@ -89,9 +91,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
+    // Preserve tenant context across rotation, but only if the membership (and
+    // its tenant) is still active; otherwise the refreshed token drops it.
+    const context = session.membershipId
+      ? await this.memberships.resolveActiveContext(session.membershipId)
+      : null;
+
     const accessToken = await this.tokens.sign({
       sub: user.id,
       sid: session.id,
+      ...(context ? { tid: context.tenantId, mid: context.membershipId } : {}),
     });
     return this.buildTokens(accessToken, nextRefreshToken, user);
   }
