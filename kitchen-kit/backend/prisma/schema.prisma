@@ -13,7 +13,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["governance", "identity"]
+  schemas  = ["catalogue", "governance", "identity", "inventory", "kitchen", "org", "production"]
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +54,13 @@ model User {
   memberships         Membership[]
   ownedTenants        Tenant[]             @relation("TenantOwner")
   passwordResetTokens PasswordResetToken[]
+  countSessionsStarted CountSession[]  @relation("CountStartedBy")
+  countSessionsPosted  CountSession[]  @relation("CountPostedBy")
+  wasteRecorded        WasteRecord[]
+  movementsPerformed   StockMovement[]
+
+  // Production Spec back-relations (virtual; no DDL impact).
+  publishedRecipeVersions RecipeVersion[] @relation("RecipeVersionPublisher")
 
   @@map("users")
   @@schema("identity")
@@ -175,6 +182,38 @@ model Tenant {
   memberships Membership[]
   roles       Role[]
   terminals   Terminal[]
+
+  // Organisation back-relations (ADR 0008 D-09). Prisma requires both sides of a
+  // relation to be declared; these add no column and no behaviour to `tenants`.
+  brands          Brand[]
+  branches        Branch[]
+  warehouses      Warehouse[]
+  centralKitchens CentralKitchen[]
+
+  // Catalogue back-relations (Phase 16). Prisma requires both sides of a
+  // relation; these add no column and no behaviour to `tenants`.
+  locations      Location[]
+  stockItems          StockItem[]
+  stockItemCategories StockItemCategory[]
+  stockBatches        StockBatch[]
+  stockMovements      StockMovement[]
+  stockLevels         StockLevel[]
+  countSessions       CountSession[]
+  wasteRecords        WasteRecord[]
+  reasonCodes         ReasonCode[]
+  reorderConfigs      StockItemReorderConfig[]
+  stockLevelBatchAllocs StockLevelBatchAllocation[]
+  menus          Menu[]
+  menuItems      MenuItem[]
+  modifierGroups ModifierGroup[]
+  priceLists     PriceList[]
+
+  // Production Spec back-relations (virtual; no DDL impact).
+  recipes                Recipe[]
+  recipeVersions         RecipeVersion[]
+  recipeLines            RecipeLine[]
+  substituteGroups       SubstituteGroup[]
+  substituteGroupMembers SubstituteGroupMember[]
 
   @@map("tenants")
   @@schema("identity")
@@ -308,12 +347,19 @@ model Terminal {
   lastSeenAt   DateTime?      @map("last_seen_at") @db.Timestamptz(6)
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  fingerprints DeviceFingerprint[]
-  sessions     Session[]
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fingerprints    DeviceFingerprint[]
+  sessions        Session[]
+  // Stations that use this terminal as their KDS display (ADR 0008 D-16).
+  // Back-relation only — no column, no behaviour change on `terminals`.
+  displayStations Station[]
 
   // Prevent duplicate terminal registration within a branch (409 on conflict).
   @@unique([tenantId, branchId, name])
+  // ADR 0008 D-16: supporting key for the composite FK from org.stations, which
+  // makes a station's display terminal structurally same-branch (and therefore
+  // same-tenant). Additive index only.
+  @@unique([branchId, id])
   @@index([tenantId])
   @@index([branchId])
   @@map("terminals")
@@ -376,4 +422,1375 @@ model AuditEntry {
   @@index([tenantId, sequenceNo])
   @@map("audit_entries")
   @@schema("governance")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 15 — Organisation bounded context (ADR 0008, Accepted 2026-08-15).
+//
+// Tenant ownership (D-08): brands, branches, warehouses and central kitchens are
+// TENANT-owned (direct tenant_id → direct RLS anchor). Stations, tables,
+// operating hours, print routing and station routing rules carry NO tenant_id —
+// exactly as the approved SQL defines them — and inherit the tenant boundary
+// through their parent branch (ADR 0003 child-inheritance precedent).
+//
+// Composite tenant-safe FKs (D-09): PostgreSQL evaluates referential-integrity
+// checks with row security DISABLED, so a plain FK cannot stop a row pointing at
+// another tenant's parent. Every edge where the child carries its own tenant_id,
+// or references a SIBLING the branch-anchored RLS predicate does not validate,
+// uses a composite FK backed by a `@@unique([<parent key>, id])` target.
+// ---------------------------------------------------------------------------
+
+/// Branch availability flag (D-03). Deliberately NOT a state machine: the SRS
+/// defines no branch lifecycle, so there are no transitions, guards or effects.
+enum BranchStatus {
+  active
+  inactive
+
+  @@schema("org")
+}
+
+/// Warehouse classification (D-17). Values are taken verbatim from the approved
+/// SQL's comment. No CHECK correlates this with `branch_id` — the sources define
+/// no such rule.
+enum WarehouseType {
+  branch
+  central
+  virtual
+
+  @@schema("org")
+}
+
+/// Brand — aggregate root (SRS §7.3 #4). Belongs to exactly one tenant.
+model Brand {
+  id              String   @id @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  name            String   @db.VarChar(120)
+  theme           Json     @default("{}") @db.JsonB
+  defaultSettings Json     @default("{}") @map("default_settings") @db.JsonB
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  branches Branch[]
+
+  // D-09 composite-FK target.
+
+  // Production Spec back-relations (virtual; no DDL impact).
+  recipes Recipe[]
+  @@unique([tenantId, id])
+  // D-15 natural key. Tenant-prefixed, so a 409 can never disclose another
+  // tenant's brand names.
+  @@unique([tenantId, name])
+  @@map("brands")
+  @@schema("org")
+}
+
+/// Branch — aggregate root (SRS §7.3 #5); contains OperatingHours, Tables and
+/// PrintRouting. Belongs to one brand, one timezone, one base currency.
+model Branch {
+  id       String @id @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  brandId  String @map("brand_id") @db.Uuid
+  /// Immutable after creation: FR-POS-002 embeds `<branch_code>` in offline-
+  /// generated order numbers, so changing it would make historical human-readable
+  /// identifiers ambiguous. Enforced in BranchesService (not accepted on update).
+  code     String @db.VarChar(16)
+  name     String @db.VarChar(120)
+  /// IANA zone (e.g. Africa/Cairo).
+  timezone String @db.VarChar(48)
+
+  baseCurrency          String       @map("base_currency") @db.Char(3)
+  countryCode           String       @map("country_code") @db.Char(2)
+  address               Json?        @db.JsonB
+  status                BranchStatus @default(active)
+  /// FR-MNU-031 flag carried by the approved branch table. Stored only — the
+  /// auto-86 behaviour belongs to Catalogue + Inventory.
+  automaticAvailability Boolean      @default(true) @map("automatic_availability")
+  createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  /// D-09: composite FK — a branch can never point at another tenant's brand.
+  brand  Brand  @relation(fields: [tenantId, brandId], references: [tenantId, id])
+
+  warehouses     Warehouse[]
+  stations       Station[]
+  menuBranches   MenuBranch[]
+  availabilityRules AvailabilityRule[]
+  locations      Location[]
+  tables         BranchTable[]
+  operatingHours OperatingHours[]
+  printRouting   PrintRouting[]
+  routingRules   StationRoutingRule[]
+
+  // Production Spec back-relations (virtual; no DDL impact).
+  recipes Recipe[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code], map: "uq_branch_code")
+  @@index([tenantId, brandId])
+  @@map("branches")
+  @@schema("org")
+}
+
+/// Warehouse — aggregate root (SRS §7.3 #6). TENANT-owned (D-08), optionally
+/// attached to one branch.
+model Warehouse {
+  id            String        @id @db.Uuid
+  tenantId      String        @map("tenant_id") @db.Uuid
+  name          String        @db.VarChar(120)
+  warehouseType WarehouseType @default(branch) @map("warehouse_type")
+  /// NULL = standalone warehouse.
+  branchId      String?       @map("branch_id") @db.Uuid
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  branch Branch? @relation(fields: [tenantId, branchId], references: [tenantId, id])
+
+  centralKitchens CentralKitchen[]
+  locations       Location[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+  @@index([tenantId, branchId])
+  @@map("warehouses")
+  @@schema("org")
+}
+
+/// Central Kitchen — TENANT-owned (D-08), bound to exactly one warehouse.
+/// SRS §7.3 defines no Central Kitchen aggregate; treated as a root because the
+/// approved SQL gives it its own tenant-scoped table.
+model CentralKitchen {
+  id          String @id @db.Uuid
+  tenantId    String @map("tenant_id") @db.Uuid
+  warehouseId String @map("warehouse_id") @db.Uuid
+  name        String @db.VarChar(120)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  warehouse Warehouse @relation(fields: [tenantId, warehouseId], references: [tenantId, id])
+  locations Location[]
+
+  /// P15-1: supporting key for the org.locations composite FK. Branches and
+  /// warehouses already carried (tenant_id, id); central kitchens did not.
+  /// Additive index only — no column, no behaviour change.
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+  /// D-15: one central kitchen per warehouse (the approved SQL's NOT NULL
+  /// warehouse_id implies 1:1 but does not enforce it).
+  @@unique([warehouseId])
+  @@map("central_kitchens")
+  @@schema("org")
+}
+
+/// Station — Organisation aggregate root (D-07), owning StationRoutingRules.
+/// Tenant scope is inherited through the branch; no tenant_id column.
+model Station {
+  id                String   @id @db.Uuid
+  branchId          String   @map("branch_id") @db.Uuid
+  name              String   @db.VarChar(64)
+  capacityConfig    Json     @default("{}") @map("capacity_config") @db.JsonB
+  displayTerminalId String?  @map("display_terminal_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  branch          Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  /// D-16: composite FK — the display terminal must belong to the same branch,
+  /// and therefore to the same tenant.
+  displayTerminal Terminal? @relation(fields: [branchId, displayTerminalId], references: [branchId, id])
+
+  printRouting PrintRouting[]
+  routingRules StationRoutingRule[]
+
+  // D-09 composite-FK target for print routing and station routing rules.
+  @@unique([branchId, id])
+  @@unique([branchId, name])
+  @@map("stations")
+  @@schema("org")
+}
+
+/// Branch table — physical/service location under a branch. `status` is
+/// deliberately ABSENT (D-05): live table state is order-driven, high-churn and
+/// owned by Sales.
+model BranchTable {
+  id           String  @id @db.Uuid
+  branchId     String  @map("branch_id") @db.Uuid
+  label        String  @db.VarChar(16)
+  section      String? @db.VarChar(64)
+  seatCapacity Int?    @map("seat_capacity") @db.SmallInt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, label], map: "uq_table_label")
+  @@map("tables")
+  @@schema("org")
+}
+
+/// Operating hours — one row per interval. Multiple rows per weekday model split
+/// shifts; overlapping intervals are rejected in the service layer (D-04). A
+/// `closes_at` earlier than `opens_at` denotes an overnight interval (SRS
+/// glossary, "Business Day"). `day_of_week` is 0 = Sunday … 6 = Saturday (D-04).
+model OperatingHours {
+  id                 String   @id @db.Uuid
+  branchId           String   @map("branch_id") @db.Uuid
+  dayOfWeek          Int      @map("day_of_week") @db.SmallInt
+  opensAt            DateTime @map("opens_at") @db.Time(6)
+  closesAt           DateTime @map("closes_at") @db.Time(6)
+  businessDayCutover DateTime @default(dbgenerated("'00:00:00'::time without time zone")) @map("business_day_cutover") @db.Time(6)
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, dayOfWeek])
+  @@map("operating_hours")
+  @@schema("org")
+}
+
+/// Print routing — configuration only. No priority and no active flag: neither
+/// the SRS nor the approved SQL defines them.
+model PrintRouting {
+  id            String  @id @db.Uuid
+  branchId      String  @map("branch_id") @db.Uuid
+  documentType  String  @map("document_type") @db.VarChar(24)
+  printerTarget String  @map("printer_target") @db.VarChar(64)
+  /// NULL = branch-level default (no specific station).
+  stationId     String? @map("station_id") @db.Uuid
+
+  branch  Branch   @relation(fields: [branchId], references: [id])
+  /// D-09: composite FK — a rule can only target a station in its own branch.
+  station Station? @relation(fields: [branchId, stationId], references: [branchId, id])
+
+  // D-15. Prisma emits a plain UNIQUE here, under which PostgreSQL treats NULLs
+  // as distinct — so branch-level defaults (station_id IS NULL) would not be
+  // de-duplicated. The migration REPLACES this index with
+  // `UNIQUE NULLS NOT DISTINCT`, which Prisma cannot express. See
+  // migration.sql and docs/organisation/rls.md.
+  @@unique([branchId, documentType, stationId])
+  @@map("print_routing")
+  @@schema("org")
+}
+
+/// Station routing rule — Organisation-side configuration only. Resolution
+/// (FR-KDS-010) belongs to Kitchen Ops. `menu_item_id` / `category_id` carry no
+/// FK because Catalogue does not exist yet, exactly as the approved SQL defines.
+/// Lives in the `kitchen` schema per SRS §25.1 (D-06).
+model StationRoutingRule {
+  id         String  @id @db.Uuid
+  branchId   String  @map("branch_id") @db.Uuid
+  stationId  String  @map("station_id") @db.Uuid
+  menuItemId String? @map("menu_item_id") @db.Uuid
+  categoryId String? @map("category_id") @db.Uuid
+  priority   Int     @default(0) @db.SmallInt
+
+  branch  Branch  @relation(fields: [branchId], references: [id])
+  /// D-09: composite FK — a rule can only target a station in its own branch.
+  station Station @relation(fields: [branchId, stationId], references: [branchId, id])
+
+  @@index([branchId, stationId])
+  @@map("station_routing_rules")
+  @@schema("kitchen")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 16 — Catalogue bounded context ("what can be sold", SRS §5.3).
+// Ratified design gate: docs/catalogue/PHASE_16_DISCOVERY.md + the C-01…C-11
+// ratification. Plan: docs/catalogue/PHASE_16_PLAN.md.
+//
+// Ubiquitous language (SRS §5.3): "Item" here means SELLABLE. In Inventory it
+// means STOCKABLE. No Inventory, Production Spec, Fiscal, Sales or Combo entity
+// is created by this phase.
+//
+// Tenancy: tables that reference a SIBLING or cross-aggregate entity carry
+// tenant_id so a composite tenant-safe FK (D-09) can be expressed; pure children
+// inherit through their parent via EXISTS (ADR 0003). No tenant_id was added
+// "merely because it feels safer".
+// ---------------------------------------------------------------------------
+
+/// C-06: branch_group is deliberately absent — ADR 0008 D-10 deferred branch
+/// groups, so FR-MNU-020's fourth scope is not implementable and is not claimed.
+enum PriceListScope {
+  tenant
+  brand
+  branch
+
+  @@schema("catalogue")
+}
+
+/// Menu (FR-MNU-001/002/003). Applicability = branch assignment + order_types
+/// + active_window + priority + is_active. No implicit tenant-global resolution.
+model Menu {
+  id           String   @id @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  /// Localised: {"ar": "...", "en": "..."}
+  name         Json     @db.JsonB
+  /// FR-MNU-002. Vocabulary is owned by Sales (sales.order_type_enum) but stored
+  /// as text here by the approved design — no Sales dependency is created.
+  orderTypes   String[] @default([]) @map("order_types")
+  /// FR-MNU-002 time windows; opaque per the approved SQL.
+  activeWindow Json?    @map("active_window") @db.JsonB
+  /// FR-MNU-003 explicit priority ordering.
+  priority     Int      @default(0) @db.SmallInt
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant       @relation(fields: [tenantId], references: [id])
+  branches   MenuBranch[]
+  categories Category[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@map("menus")
+  @@schema("catalogue")
+}
+
+/// C-01: explicit menu↔branch assignment. FR-MNU-002 [M] requires menus to be
+/// assignable to branches; the approved SQL modelled order types and time
+/// windows but had no branch axis at all.
+model MenuBranch {
+  id        String   @id @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  menuId    String   @map("menu_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  menu   Menu   @relation(fields: [tenantId, menuId], references: [tenantId, id])
+  branch Branch @relation(fields: [tenantId, branchId], references: [tenantId, id])
+
+  @@unique([tenantId, menuId, branchId])
+  @@index([tenantId, branchId])
+  @@map("menu_branches")
+  @@schema("catalogue")
+}
+
+/// Category / sub-category (FR-MNU-001). Menu-scoped; self-referencing parent
+/// gives the optional sub-category level. No lifecycle column (C-09).
+model Category {
+  id               String  @id @db.Uuid
+  tenantId         String  @map("tenant_id") @db.Uuid
+  menuId           String  @map("menu_id") @db.Uuid
+  parentCategoryId String? @map("parent_category_id") @db.Uuid
+  name             Json    @db.JsonB
+  /// FR-MNU-007 category-level sort order.
+  sortOrder        Int     @default(0) @map("sort_order") @db.SmallInt
+  colour           String? @db.VarChar(9)
+
+  menu     Menu       @relation(fields: [tenantId, menuId], references: [tenantId, id])
+  parent   Category?  @relation("CategoryTree", fields: [tenantId, parentCategoryId], references: [tenantId, id])
+  children Category[] @relation("CategoryTree")
+
+  placements MenuItemPlacement[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, menuId])
+  @@map("categories")
+  @@schema("catalogue")
+}
+
+/// MenuItem — the canonical sellable identity (C-02). TENANT-scoped and reusable
+/// across menus: it deliberately has NO category_id, because an item that
+/// appears on both the Main and Delivery menus must remain ONE identity (the
+/// shared ItemId kernel with Production Spec, SRS §5.3.1). Placement on menus is
+/// the separate `MenuItemPlacement` relation.
+model MenuItem {
+  id                 String   @id @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  /// FR-MNU-005 surfaces. `names` = customer-facing/POS. The RECEIPT surface has
+  /// no column in the approved SQL — documented gap, not invented here.
+  names              Json     @db.JsonB
+  kitchenNames       Json     @default("{}") @map("kitchen_names") @db.JsonB
+  aggregatorNames    Json     @default("{}") @map("aggregator_names") @db.JsonB
+  description        Json?    @db.JsonB
+  /// C-04: NULLABLE and FK-less. FR-MNU-004 requires a tax class, but Fiscal is
+  /// outside Phase 16 and `fiscal.tax_classes` does not exist. Informational
+  /// until Fiscal lands; never validated or resolved by this phase.
+  taxClassId         String?  @map("tax_class_id") @db.Uuid
+  revenueAccountCode String?  @map("revenue_account_code") @db.VarChar(32)
+  barcodePlu         String?  @map("barcode_plu") @db.VarChar(32)
+  allergens          String[] @default([])
+  dietaryTags        String[] @default([]) @map("dietary_tags")
+  /// FR-MNU-007 item-level sort order.
+  sortOrder          Int      @default(0) @map("sort_order") @db.SmallInt
+  colour             String?  @db.VarChar(9)
+  /// FR-MNU-004 behavioural flags. `isCombo` is retained because FR-MNU-004 [M]
+  /// requires it, but NO combo tables exist — Combo is deferred (C-08).
+  isCombo            Boolean  @default(false) @map("is_combo")
+  isOpenPrice        Boolean  @default(false) @map("is_open_price")
+  isWeighed          Boolean  @default(false) @map("is_weighed")
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  variants          MenuItemVariant[]
+  images            MenuItemImage[]
+  placements        MenuItemPlacement[]
+  modifierGroupLinks ModifierGroupLink[]
+  availabilityRules AvailabilityRule[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@map("menu_items")
+  @@schema("catalogue")
+}
+
+/// C-02: placement of a tenant-scoped MenuItem into a menu-scoped Category.
+/// One item may be placed in many categories/menus without duplicating identity.
+/// Carries no sort order — FR-MNU-007's two axes are already served by
+/// `menu_items.sort_order` (item level) and `categories.sort_order` (category
+/// level), so none is invented here.
+model MenuItemPlacement {
+  id         String   @id @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  menuItemId String   @map("menu_item_id") @db.Uuid
+  categoryId String   @map("category_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  menuItem MenuItem @relation(fields: [tenantId, menuItemId], references: [tenantId, id], onDelete: Cascade)
+  category Category @relation(fields: [tenantId, categoryId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, menuItemId, categoryId])
+  @@index([tenantId, categoryId])
+  @@map("menu_item_placements")
+  @@schema("catalogue")
+}
+
+/// Variant (FR-MNU-006): independent pricing, barcode and availability.
+/// C-03: `station_id` is deliberately ABSENT. FR-KDS-010 assigns a station "for
+/// this branch", but a variant is tenant-scoped and org.stations is
+/// branch-scoped, so a single tenant-wide station_id cannot express it — and the
+/// variant carries no branch discriminator to build a tenant-safe composite FK
+/// against. Station routing stays with Organisation/Kitchen Ops.
+model MenuItemVariant {
+  id              String   @id @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  menuItemId      String   @map("menu_item_id") @db.Uuid
+  name            Json     @db.JsonB
+  barcode         String?  @db.VarChar(32)
+  prepTimeSeconds Int?     @map("prep_time_seconds")
+  sortOrder       Int      @default(0) @map("sort_order") @db.SmallInt
+  isActive        Boolean  @default(true) @map("is_active")
+
+  menuItem MenuItem @relation(fields: [tenantId, menuItemId], references: [tenantId, id], onDelete: Cascade)
+
+  priceEntries      PriceEntry[]
+  availabilityRules AvailabilityRule[]
+
+  // Production Spec back-relations (virtual; no DDL impact).
+  recipes Recipe[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, menuItemId])
+  @@map("menu_item_variants")
+  @@schema("catalogue")
+}
+
+/// Pure child of MenuItem — inherits the tenant boundary via EXISTS (ADR 0003).
+model MenuItemImage {
+  id         String @id @db.Uuid
+  menuItemId String @map("menu_item_id") @db.Uuid
+  url        String
+  sortOrder  Int    @default(0) @map("sort_order") @db.SmallInt
+
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId])
+  @@map("menu_item_images")
+  @@schema("catalogue")
+}
+
+/// Availability configuration + manual 86 (FR-MNU-030/031/032).
+/// C-07: `quantity_sold_today` and `daily_quantity_limit` are ABSENT — daily
+/// limits decrementing on sale (FR-MNU-035 [C]) are Sales runtime state and are
+/// deferred. A rule targets EXACTLY ONE of menu_item / variant (XOR CHECK in the
+/// migration).
+model AvailabilityRule {
+  id             String    @id @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  menuItemId     String?   @map("menu_item_id") @db.Uuid
+  variantId      String?   @map("variant_id") @db.Uuid
+  /// FR-MNU-030 "per item, per branch". NULL = applies to all branches.
+  branchId       String?   @map("branch_id") @db.Uuid
+  channel        String?   @db.VarChar(16)
+  dayOfWeek      Int?      @map("day_of_week") @db.SmallInt
+  startsAt       DateTime? @map("starts_at") @db.Time(6)
+  endsAt         DateTime? @map("ends_at") @db.Time(6)
+  isManual86     Boolean   @default(false) @map("is_manual_86")
+  autoReenableAt DateTime? @map("auto_reenable_at") @db.Timestamptz(6)
+
+  menuItem MenuItem?        @relation(fields: [tenantId, menuItemId], references: [tenantId, id], onDelete: Cascade)
+  variant  MenuItemVariant? @relation(fields: [tenantId, variantId], references: [tenantId, id], onDelete: Cascade)
+  branch   Branch?          @relation(fields: [tenantId, branchId], references: [tenantId, id])
+
+  @@index([tenantId, menuItemId])
+  @@index([tenantId, variantId])
+  @@map("availability_rules")
+  @@schema("catalogue")
+}
+
+/// ModifierGroup (FR-MNU-010/011, SRS §7.3 #8: min ≤ max; required ⇒ min ≥ 1).
+model ModifierGroup {
+  id                    String  @id @db.Uuid
+  tenantId              String  @map("tenant_id") @db.Uuid
+  name                  Json    @db.JsonB
+  minSelections         Int     @default(0) @map("min_selections") @db.SmallInt
+  maxSelections         Int     @default(1) @map("max_selections") @db.SmallInt
+  isRequired            Boolean @default(false) @map("is_required")
+  allowRepeat           Boolean @default(false) @map("allow_repeat")
+  /// FR-MNU-011 "first two free, third charged".
+  freeQuantityThreshold Int     @default(0) @map("free_quantity_threshold") @db.SmallInt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  modifiers Modifier[]
+  itemLinks ModifierGroupLink[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@map("modifier_groups")
+  @@schema("catalogue")
+}
+
+/// Pure child of ModifierGroup — inherits the tenant boundary via EXISTS.
+model Modifier {
+  id                  String   @id @db.Uuid
+  modifierGroupId     String   @map("modifier_group_id") @db.Uuid
+  name                Json     @db.JsonB
+  /// Minor units; may be negative (e.g. "Chicken instead of Beef" = -300).
+  priceDelta          BigInt   @default(0) @map("price_delta")
+  /// FR-MNU-012 [M] stock linkage. FK-less recorded UUIDs — Inventory is out of
+  /// scope, so the requirement stays functionally unmet (documented).
+  stockItemId         String?  @map("stock_item_id") @db.Uuid
+  consumptionQuantity Decimal? @map("consumption_quantity") @db.Decimal(18, 6)
+  consumptionUnitId   String?  @map("consumption_unit_id") @db.Uuid
+  /// FR-MNU-013 [S]. Opaque JSON — Production Spec is NOT implemented; nothing
+  /// in this phase interprets or executes a recipe delta.
+  recipeDelta         Json?    @map("recipe_delta") @db.JsonB
+  isDefault           Boolean  @default(false) @map("is_default")
+  sortOrder           Int      @default(0) @map("sort_order") @db.SmallInt
+
+  group ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+
+  @@index([modifierGroupId])
+  @@map("modifiers")
+  @@schema("catalogue")
+}
+
+/// FR-MNU-010: reusable group attached to an item, with per-item overrides.
+model ModifierGroupLink {
+  tenantId                 String @map("tenant_id") @db.Uuid
+  menuItemId               String @map("menu_item_id") @db.Uuid
+  modifierGroupId          String @map("modifier_group_id") @db.Uuid
+  priceOverride            Json?  @map("price_override") @db.JsonB
+  defaultSelectionOverride Json?  @map("default_selection_override") @db.JsonB
+  sortOrder                Int    @default(0) @map("sort_order") @db.SmallInt
+
+  menuItem MenuItem      @relation(fields: [tenantId, menuItemId], references: [tenantId, id], onDelete: Cascade)
+  group    ModifierGroup @relation(fields: [tenantId, modifierGroupId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([menuItemId, modifierGroupId])
+  @@index([tenantId, modifierGroupId])
+  @@map("modifier_group_links")
+  @@schema("catalogue")
+}
+
+/// PriceList (FR-MNU-020/021/022/023, SRS §7.3 #10).
+/// C-06: scope is tenant | brand | branch only. `scopeId` stays polymorphic per
+/// the approved SQL and is validated in the service layer against the acting
+/// tenant (no FK is possible across three target tables).
+model PriceList {
+  id             String         @id @db.Uuid
+  tenantId       String         @map("tenant_id") @db.Uuid
+  name           String         @db.VarChar(120)
+  scopeType      PriceListScope @map("scope_type")
+  scopeId        String?        @map("scope_id") @db.Uuid
+  /// FR-MNU-021; NULL = all order types.
+  orderType      String?        @map("order_type") @db.VarChar(16)
+  validFrom      DateTime?      @map("valid_from") @db.Timestamptz(6)
+  validTo        DateTime?      @map("valid_to") @db.Timestamptz(6)
+  /// FR-MNU-022 recurrence; opaque per the approved SQL.
+  recurrenceRule Json?          @map("recurrence_rule") @db.JsonB
+  priority       Int            @default(0) @db.SmallInt
+  status         String         @default("scheduled") @db.VarChar(16)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  entries PriceEntry[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name], map: "uq_price_list_name")
+  @@index([tenantId, scopeType, scopeId])
+  @@map("price_lists")
+  @@schema("catalogue")
+}
+
+/// PriceEntry — a variant's price within a price list.
+/// C-10: there is deliberately NO `price_change_history` table; the
+/// tamper-evident governance audit trail is the system of record for
+/// FR-MNU-024's price history.
+model PriceEntry {
+  id                String @id @db.Uuid
+  tenantId          String @map("tenant_id") @db.Uuid
+  priceListId       String @map("price_list_id") @db.Uuid
+  menuItemVariantId String @map("menu_item_variant_id") @db.Uuid
+  /// Minor units (SRS: money is BIGINT, never float).
+  price             BigInt
+  currency          String @db.Char(3)
+
+  priceList PriceList       @relation(fields: [tenantId, priceListId], references: [tenantId, id], onDelete: Cascade)
+  variant   MenuItemVariant @relation(fields: [tenantId, menuItemVariantId], references: [tenantId, id])
+
+  /// Implementation hardening (§12): without this a variant could hold several
+  /// contradictory prices in one list, corrupting price resolution.
+  @@unique([tenantId, priceListId, menuItemVariantId], map: "uq_price_entry")
+  @@index([tenantId, menuItemVariantId])
+  @@map("price_entries")
+  @@schema("catalogue")
+}
+
+// ---------------------------------------------------------------------------
+// P15-2 — org.locations: the unified location registry.
+//
+// Required by the frozen Inventory Design Gate (blocker C-02, Decision A).
+// Inventory's ledger, batches, levels, counts and waste all key on a location
+// that may be a Branch, a Warehouse or a Central Kitchen. Those are three
+// separate Phase 15 tables, so Inventory needs ONE non-null, FK-able location
+// identity — `stock_levels` has PRIMARY KEY (stock_item_id, location_id), and
+// PostgreSQL forbids nullable primary-key columns, so a nullable typed triple
+// could not have served.
+//
+// This is a REGISTRY / REFERENCE layer, not a replacement: Branch, Warehouse and
+// CentralKitchen remain authoritative for their own domain data. A location row
+// carries no domain attributes of its own.
+//
+// Tenant safety is structural (ADR 0008 D-09): three real composite FKs plus a
+// CHECK that enforces XOR across the typed columns AND agreement with
+// location_type AND that ref_id equals whichever typed column is set.
+// ---------------------------------------------------------------------------
+
+enum LocationType {
+  branch
+  warehouse
+  central_kitchen
+
+  @@schema("org")
+}
+
+model Location {
+  id           String       @id @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  locationType LocationType @map("location_type")
+  /// Denormalised copy of whichever typed column below is set. Kept in step by
+  /// the ck_location_target CHECK, so it can never disagree.
+  refId        String       @map("ref_id") @db.Uuid
+
+  /// Exactly one of the three is non-null, agreeing with locationType.
+  branchId         String? @map("branch_id") @db.Uuid
+  warehouseId      String? @map("warehouse_id") @db.Uuid
+  centralKitchenId String? @map("central_kitchen_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  branch         Branch?         @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Cascade)
+  // Inventory back-relations (Prisma requires both sides). No column added.
+  stockBatches             StockBatch[]
+  stockMovements           StockMovement[]
+  stockLevels              StockLevel[]
+  stockLevelBatchAllocs    StockLevelBatchAllocation[]
+  countSessions            CountSession[]
+  wasteRecords             WasteRecord[]
+  reorderConfigs           StockItemReorderConfig[]
+  warehouse      Warehouse?      @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Cascade)
+  centralKitchen CentralKitchen? @relation(fields: [tenantId, centralKitchenId], references: [tenantId, id], onDelete: Cascade)
+
+  /// Composite-FK target for Inventory: (tenant_id, location_id).
+  @@unique([tenantId, id])
+  /// One registry row per concrete org entity.
+  @@unique([tenantId, locationType, refId])
+  @@index([tenantId])
+  @@map("locations")
+  @@schema("org")
+}
+
+// ---------------------------------------------------------------------------
+// INVENTORY bounded context — "what physically exists, where, and what it cost."
+//
+// Ratified design: D-INV-01 … D-INV-09 plus B-1 (composite last_movement FK) and
+// B-2 (caller-supplied approval gate).
+//
+// Ubiquitous language (SRS §5.3): "Item" here means STOCKABLE. In Catalogue it
+// means sellable. No Catalogue entity is copied or modified.
+//
+// Locations: every location-bearing table references org.locations through the
+// tenant-safe composite key (tenant_id, location_id) — D-INV-02. No typed
+// nullable triples, no bare UUIDs, no service-only validation.
+// ---------------------------------------------------------------------------
+
+/// FR-INV-012: valuation method. Independent of batch selection (D-INV-03).
+enum CostingMethod {
+  weighted_average
+  fifo
+  standard
+
+  @@schema("inventory")
+}
+
+/// FR-INV-022/023: which eligible batch is consumed. FEFO is the SRS-required
+/// default where expiry tracking is enabled. This determines SELECTION only —
+/// valuation is `CostingMethod`. No costing semantics are inferred from it.
+enum BatchStrategy {
+  fifo
+  fefo
+
+  @@schema("inventory")
+}
+
+/// FR-INV-040 scope modes. No storage-area entity exists (D-INV-05).
+enum CountScope {
+  full_location
+  category
+  item_list
+
+  @@schema("inventory")
+}
+
+enum CountSessionStatus {
+  in_progress
+  posted
+  cancelled
+
+  @@schema("inventory")
+}
+
+/// SRS §7.4.3 movement types, verbatim. Only 7 have a writer in this phase —
+/// purchase_*, sale_*, production_* belong to Procurement, Sales and
+/// Production/Central Kitchen respectively.
+enum MovementType {
+  purchase_receipt
+  purchase_return
+  sale_depletion
+  sale_reversal
+  transfer_out
+  transfer_in
+  production_input
+  production_output
+  waste
+  count_adjustment
+  manual_adjustment
+  opening_balance
+  expiry_writeoff
+
+  @@schema("inventory")
+}
+
+/// Global, un-tenanted platform reference data (approved SQL). Not RLS-scoped,
+/// like identity.permissions (ADR 0003 "Excluded tables").
+model Uom {
+  id                  String  @id @db.Uuid
+  dimension           String  @db.VarChar(16)
+  code                String  @unique @db.VarChar(16)
+  name                String  @db.VarChar(64)
+  baseUnitOfDimension Boolean @default(false) @map("base_unit_of_dimension")
+
+  conversionsFrom UomConversion[] @relation("ConversionFrom")
+  conversionsTo   UomConversion[] @relation("ConversionTo")
+  baseForItems    StockItem[]     @relation("StockItemBaseUnit")
+  recipeForItems  StockItem[]     @relation("StockItemRecipeUnit")
+  movements       StockMovement[]
+
+  // Production Spec back-relations (virtual; no DDL impact).
+  recipeVersionYields RecipeVersion[] @relation("RecipeVersionYieldUnit")
+  recipeLineUnits     RecipeLine[]    @relation("RecipeLineUnit")
+
+  @@map("uom")
+  @@schema("inventory")
+}
+
+/// BR-CORE-004: mass<->volume requires an item-specific density factor and must
+/// FAIL where none is configured. `stockItemId` NULL = generic conversion.
+model UomConversion {
+  id          String  @id @db.Uuid
+  fromUnitId  String  @map("from_unit_id") @db.Uuid
+  toUnitId    String  @map("to_unit_id") @db.Uuid
+  factor      Decimal @db.Decimal(20, 10)
+  stockItemId String? @map("stock_item_id") @db.Uuid
+
+  fromUnit  Uom        @relation("ConversionFrom", fields: [fromUnitId], references: [id])
+  toUnit    Uom        @relation("ConversionTo", fields: [toUnitId], references: [id])
+  stockItem StockItem? @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@unique([fromUnitId, toUnitId, stockItemId], map: "uq_uom_conv")
+  @@map("uom_conversions")
+  @@schema("inventory")
+}
+
+/// FR-INV-003: multiple purchase units per item. `supplierId` is a recorded UUID
+/// with no FK — Procurement is out of scope.
+model PackagingUnit {
+  id                     String  @id @db.Uuid
+  stockItemId            String  @map("stock_item_id") @db.Uuid
+  supplierId             String? @map("supplier_id") @db.Uuid
+  name                   String  @db.VarChar(64)
+  conversionFactorToBase Decimal @map("conversion_factor_to_base") @db.Decimal(20, 6)
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@index([stockItemId])
+  @@map("packaging_units")
+  @@schema("inventory")
+}
+
+/// FR-INV-001: hierarchical category (Food > Protein > Poultry).
+model StockItemCategory {
+  id       String  @id @db.Uuid
+  tenantId String  @map("tenant_id") @db.Uuid
+  parentId String? @map("parent_id") @db.Uuid
+  name     String  @db.VarChar(120)
+
+  tenant   Tenant              @relation(fields: [tenantId], references: [id])
+  parent   StockItemCategory?  @relation("CategoryTree", fields: [tenantId, parentId], references: [tenantId, id])
+  children StockItemCategory[] @relation("CategoryTree")
+
+  stockItems    StockItem[]
+  countSessions CountSession[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@map("stock_item_categories")
+  @@schema("inventory")
+}
+
+/// StockItem — SRS §7.3 #12. Exactly one base unit; base unit is immutable once
+/// any movement exists (FR-INV-002, service-enforced).
+///
+/// D-INV-04: `expiryTracked` and `shelfLifeDays` are added because FR-INV-021
+/// and FR-INV-023 cannot operate without them. `reorderPoint`/`reorderQuantity`
+/// are deliberately ABSENT — FR-INV-065 [M] requires them per LOCATION, so they
+/// live in StockItemReorderConfig.
+model StockItem {
+  id                  String        @id @db.Uuid
+  tenantId            String        @map("tenant_id") @db.Uuid
+  sku                 String        @db.VarChar(32)
+  names               Json          @db.JsonB
+  categoryId          String?       @map("category_id") @db.Uuid
+  baseUnitId          String        @map("base_unit_id") @db.Uuid
+  recipeUnitId        String?       @map("recipe_unit_id") @db.Uuid
+  costingMethod       CostingMethod @default(weighted_average) @map("costing_method")
+  standardCost        BigInt?       @map("standard_cost")
+  isBatchTracked      Boolean       @default(true) @map("is_batch_tracked")
+  /// D-INV-04 / FR-INV-023: enables FEFO defaulting and expiry handling.
+  expiryTracked       Boolean       @default(false) @map("expiry_tracked")
+  /// D-INV-04 / FR-INV-021: default expiry = production_date + shelf_life_days.
+  shelfLifeDays       Int?          @map("shelf_life_days")
+  /// Batch SELECTION strategy only — never a costing input (D-INV-03).
+  batchStrategy       BatchStrategy @default(fifo) @map("batch_strategy")
+  storageRequirements Json?         @map("storage_requirements") @db.JsonB
+  isActive            Boolean       @default(true) @map("is_active")
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id])
+  category   StockItemCategory? @relation(fields: [tenantId, categoryId], references: [tenantId, id])
+  baseUnit   Uom                @relation("StockItemBaseUnit", fields: [baseUnitId], references: [id])
+  recipeUnit Uom?               @relation("StockItemRecipeUnit", fields: [recipeUnitId], references: [id])
+
+  conversions    UomConversion[]
+  packagingUnits PackagingUnit[]
+  reorderConfigs StockItemReorderConfig[]
+  batches        StockBatch[]
+  movements      StockMovement[]
+  levels         StockLevel[]
+  levelAllocs    StockLevelBatchAllocation[]
+  countLines     CountLine[]
+  countItems     CountSessionItem[]
+  wasteLines     WasteLine[]
+
+  // Production Spec back-relations (virtual; no DDL impact).
+  recipeTargets          Recipe[]                @relation("RecipeTargetStockItem")
+  recipeLines            RecipeLine[]            @relation("RecipeLineStockItem")
+  substituteGroupMembers SubstituteGroupMember[] @relation("SubstituteGroupMemberStockItem")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sku], map: "uq_stock_item_sku")
+  @@index([tenantId])
+  @@map("stock_items")
+  @@schema("inventory")
+}
+
+/// D-INV-04 / FR-INV-065 [M]: reorder configuration is PER LOCATION, resolving
+/// the approved SQL's tenant-wide item attributes.
+model StockItemReorderConfig {
+  id              String   @id @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  stockItemId     String   @map("stock_item_id") @db.Uuid
+  locationId      String   @map("location_id") @db.Uuid
+  reorderPoint    Decimal? @map("reorder_point") @db.Decimal(18, 6)
+  reorderQuantity Decimal? @map("reorder_quantity") @db.Decimal(18, 6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  stockItem StockItem @relation(fields: [tenantId, stockItemId], references: [tenantId, id], onDelete: Cascade)
+  location  Location  @relation(fields: [tenantId, locationId], references: [tenantId, id])
+
+  @@unique([tenantId, stockItemId, locationId])
+  @@index([tenantId, locationId])
+  @@map("stock_item_reorder_configs")
+  @@schema("inventory")
+}
+
+/// Batch — SRS §7.3 #14. Expiry >= production date; quantity >= 0 (DB CHECKs).
+/// `supplierId` / `goodsReceiptId` are recorded UUIDs — Procurement is out of scope.
+model StockBatch {
+  id                String   @id @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  stockItemId       String   @map("stock_item_id") @db.Uuid
+  locationId        String   @map("location_id") @db.Uuid
+  batchNumber       String?  @map("batch_number") @db.VarChar(64)
+  productionDate    DateTime? @map("production_date") @db.Date
+  expiryDate        DateTime? @map("expiry_date") @db.Date
+  quantityReceived  Decimal  @map("quantity_received") @db.Decimal(18, 6)
+  quantityRemaining Decimal  @map("quantity_remaining") @db.Decimal(18, 6)
+  unitCost          BigInt   @map("unit_cost")
+  supplierId        String?  @map("supplier_id") @db.Uuid
+  goodsReceiptId    String?  @map("goods_receipt_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  stockItem StockItem @relation(fields: [tenantId, stockItemId], references: [tenantId, id])
+  location  Location  @relation(fields: [tenantId, locationId], references: [tenantId, id])
+
+  movements   StockMovement[]
+  levelAllocs StockLevelBatchAllocation[]
+  countLines  CountLine[]
+  wasteLines  WasteLine[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, stockItemId, locationId])
+  @@index([tenantId, expiryDate])
+  @@map("stock_batches")
+  @@schema("inventory")
+}
+
+/// StockMovement — SRS §7.3 #15 / §7.4.3. The immutable append-only ledger.
+///
+/// D-INV-01: RANGE-partitioned by `occurredAt`. PostgreSQL requires every unique
+/// constraint on a partitioned table to include the partition key, so the PK is
+/// (id, occurredAt) — `PRIMARY KEY (id)` is rejected outright. Both references
+/// into this table are therefore composite:
+///   * counterpart (BR-INV-002 transfer pairing)
+///   * StockLevel.lastMovement (B-1)
+/// Append-only is enforced at the DATABASE via REVOKE UPDATE/DELETE plus the
+/// absence of any update/delete policy (BR-INV-001, ADR 0007 pattern).
+model StockMovement {
+  id                    String       @db.Uuid
+  occurredAt            DateTime     @map("occurred_at") @db.Timestamptz(6)
+  tenantId              String       @map("tenant_id") @db.Uuid
+  locationId            String       @map("location_id") @db.Uuid
+  stockItemId           String       @map("stock_item_id") @db.Uuid
+  batchId               String?      @map("batch_id") @db.Uuid
+  movementType          MovementType @map("movement_type")
+  /// Signed: negative = out.
+  quantity              Decimal      @db.Decimal(18, 6)
+  unitId                String       @map("unit_id") @db.Uuid
+  unitCost              BigInt       @map("unit_cost")
+  totalCost             BigInt       @map("total_cost")
+  balanceAfter          Decimal      @map("balance_after") @db.Decimal(18, 6)
+  referenceType         String       @map("reference_type") @db.VarChar(32)
+  referenceId           String       @map("reference_id") @db.Uuid
+  counterpartMovementId String?      @map("counterpart_movement_id") @db.Uuid
+  counterpartOccurredAt DateTime?    @map("counterpart_occurred_at") @db.Timestamptz(6)
+  recordedAt            DateTime     @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  performedBy           String       @map("performed_by") @db.Uuid
+  reasonCodeId          String?      @map("reason_code_id") @db.Uuid
+  notes                 String?
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  location    Location    @relation(fields: [tenantId, locationId], references: [tenantId, id])
+  stockItem   StockItem   @relation(fields: [tenantId, stockItemId], references: [tenantId, id])
+  batch       StockBatch? @relation(fields: [tenantId, batchId], references: [tenantId, id])
+  reasonCode  ReasonCode? @relation(fields: [tenantId, reasonCodeId], references: [tenantId, id])
+  unit        Uom         @relation(fields: [unitId], references: [id])
+  performedByUser User    @relation(fields: [performedBy], references: [id])
+
+  counterpart   StockMovement?  @relation("MovementCounterpart", fields: [tenantId, counterpartMovementId, counterpartOccurredAt], references: [tenantId, id, occurredAt])
+  counterpartOf StockMovement[] @relation("MovementCounterpart")
+  lastOfLevels  StockLevel[]    @relation("StockLevelLastMovement")
+
+  @@id([id, occurredAt])
+  @@unique([tenantId, id, occurredAt])
+  @@index([stockItemId, locationId, occurredAt(sort: Desc)], map: "idx_mv_item_loc_time")
+  @@index([referenceType, referenceId], map: "idx_mv_reference")
+  @@index([tenantId, occurredAt])
+  @@map("stock_movements")
+  @@schema("inventory")
+}
+
+/// StockLevel — SRS §7.3 #13. A PROJECTION over the ledger, never authored
+/// directly; reconcilable to movements (BR-INV-003).
+/// D-INV-09: carries tenant_id as the RLS anchor and NFR-PERF-005 index prefix.
+/// B-1: lastMovement is a COMPOSITE FK into the partitioned ledger.
+model StockLevel {
+  tenantId               String    @map("tenant_id") @db.Uuid
+  stockItemId            String    @map("stock_item_id") @db.Uuid
+  locationId             String    @map("location_id") @db.Uuid
+  quantityOnHand         Decimal   @default(0) @map("quantity_on_hand") @db.Decimal(18, 6)
+  /// Allocated to open orders/production. No writer exists in this phase.
+  quantityReserved       Decimal   @default(0) @map("quantity_reserved") @db.Decimal(18, 6)
+  averageCost            BigInt    @default(0) @map("average_cost")
+  lastMovementId         String?   @map("last_movement_id") @db.Uuid
+  lastMovementOccurredAt DateTime? @map("last_movement_occurred_at") @db.Timestamptz(6)
+  lastReconciledAt       DateTime? @map("last_reconciled_at") @db.Timestamptz(6)
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id])
+  stockItem    StockItem      @relation(fields: [tenantId, stockItemId], references: [tenantId, id])
+  location     Location       @relation(fields: [tenantId, locationId], references: [tenantId, id])
+  lastMovement StockMovement? @relation("StockLevelLastMovement", fields: [tenantId, lastMovementId, lastMovementOccurredAt], references: [tenantId, id, occurredAt])
+
+  @@id([stockItemId, locationId])
+  @@unique([tenantId, stockItemId, locationId])
+  @@index([tenantId, locationId, stockItemId])
+  @@map("stock_levels")
+  @@schema("inventory")
+}
+
+model StockLevelBatchAllocation {
+  tenantId          String  @map("tenant_id") @db.Uuid
+  stockItemId       String  @map("stock_item_id") @db.Uuid
+  locationId        String  @map("location_id") @db.Uuid
+  batchId           String  @map("batch_id") @db.Uuid
+  quantityAllocated Decimal @map("quantity_allocated") @db.Decimal(18, 6)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  stockItem StockItem  @relation(fields: [tenantId, stockItemId], references: [tenantId, id])
+  location  Location   @relation(fields: [tenantId, locationId], references: [tenantId, id])
+  batch     StockBatch @relation(fields: [tenantId, batchId], references: [tenantId, id])
+
+  @@id([stockItemId, locationId, batchId])
+  @@index([tenantId, batchId])
+  @@map("stock_level_batch_allocations")
+  @@schema("inventory")
+}
+
+/// CountSession — SRS §7.3 #16. Cannot post twice; blind count locks expected qty.
+/// D-INV-05: scope covers full location, category and ad-hoc item list. No
+/// storage-area entity.
+model CountSession {
+  id           String             @id @db.Uuid
+  tenantId     String             @map("tenant_id") @db.Uuid
+  locationId   String             @map("location_id") @db.Uuid
+  scopeType    CountScope         @default(full_location) @map("scope_type")
+  /// Category id when scopeType = category; NULL otherwise (typed, not polymorphic).
+  scopeId      String?            @map("scope_id") @db.Uuid
+  status       CountSessionStatus @default(in_progress)
+  /// FR-INV-042: blind is the SRS default and hides expected quantity.
+  isBlindCount Boolean            @default(true) @map("is_blind_count")
+  startedBy    String             @map("started_by") @db.Uuid
+  startedAt    DateTime           @default(now()) @map("started_at") @db.Timestamptz(6)
+  postedAt     DateTime?          @map("posted_at") @db.Timestamptz(6)
+  postedBy     String?            @map("posted_by") @db.Uuid
+  /// B-2: caller-supplied approval gate. TRUE blocks posting until Governance
+  /// exists. Inventory NEVER evaluates a threshold.
+  requiresApproval Boolean        @default(false) @map("requires_approval")
+
+  tenant        Tenant             @relation(fields: [tenantId], references: [id])
+  location      Location           @relation(fields: [tenantId, locationId], references: [tenantId, id])
+  scopeCategory StockItemCategory? @relation(fields: [tenantId, scopeId], references: [tenantId, id])
+  starter       User               @relation("CountStartedBy", fields: [startedBy], references: [id])
+  poster        User?              @relation("CountPostedBy", fields: [postedBy], references: [id])
+
+  items CountSessionItem[]
+  lines CountLine[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, locationId])
+  @@map("count_sessions")
+  @@schema("inventory")
+}
+
+/// D-INV-05: the ad-hoc item list for scopeType = item_list. A child of the
+/// session inside Inventory — no new bounded context.
+model CountSessionItem {
+  id             String @id @db.Uuid
+  countSessionId String @map("count_session_id") @db.Uuid
+  stockItemId    String @map("stock_item_id") @db.Uuid
+
+  session   CountSession @relation(fields: [countSessionId], references: [id], onDelete: Cascade)
+  stockItem StockItem    @relation(fields: [stockItemId], references: [id])
+
+  @@unique([countSessionId, stockItemId])
+  @@map("count_session_items")
+  @@schema("inventory")
+}
+
+/// FR-INV-044: expectedQuantity is FROZEN at session open.
+model CountLine {
+  id              String   @id @db.Uuid
+  countSessionId  String   @map("count_session_id") @db.Uuid
+  stockItemId     String   @map("stock_item_id") @db.Uuid
+  batchId         String?  @map("batch_id") @db.Uuid
+  expectedQuantity Decimal? @map("expected_quantity") @db.Decimal(18, 6)
+  countedQuantity  Decimal? @map("counted_quantity") @db.Decimal(18, 6)
+  variance         Decimal? @db.Decimal(18, 6)
+  recountOfLineId  String?  @map("recount_of_line_id") @db.Uuid
+
+  session   CountSession @relation(fields: [countSessionId], references: [id], onDelete: Cascade)
+  stockItem StockItem    @relation(fields: [stockItemId], references: [id])
+  batch     StockBatch?  @relation(fields: [batchId], references: [id])
+  recountOf CountLine?   @relation("CountRecount", fields: [recountOfLineId], references: [id])
+  recounts  CountLine[]  @relation("CountRecount")
+
+  @@index([countSessionId])
+  @@map("count_lines")
+  @@schema("inventory")
+}
+
+/// FR-INV-057: configurable reason taxonomy. D-INV-09: natural key on
+/// (tenant_id, category, code).
+model ReasonCode {
+  id       String @id @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  /// waste | adjustment (approved SQL comment).
+  category String @db.VarChar(16)
+  code     String @db.VarChar(32)
+  label    Json   @db.JsonB
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  wasteRecords WasteRecord[]
+  movements    StockMovement[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, category, code], map: "uq_reason_code")
+  @@index([tenantId])
+  @@map("reason_codes")
+  @@schema("inventory")
+}
+
+/// FR-INV-056. B-2: `requiresApproval` is caller-supplied; when true, posting is
+/// REFUSED because no approved Governance request can exist yet.
+/// `approvalRequestId` is a recorded UUID and remains NULL in this phase —
+/// governance.approval_requests does not exist and is NOT created here.
+model WasteRecord {
+  id                String   @id @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  locationId        String   @map("location_id") @db.Uuid
+  reasonCodeId      String   @map("reason_code_id") @db.Uuid
+  totalValue        BigInt   @map("total_value")
+  requiresApproval  Boolean  @default(false) @map("requires_approval")
+  approvalRequestId String?  @map("approval_request_id") @db.Uuid
+  recordedBy        String   @map("recorded_by") @db.Uuid
+  recordedAt        DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  location   Location   @relation(fields: [tenantId, locationId], references: [tenantId, id])
+  reasonCode ReasonCode @relation(fields: [tenantId, reasonCodeId], references: [tenantId, id])
+  recorder   User       @relation(fields: [recordedBy], references: [id])
+
+  lines WasteLine[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, locationId])
+  @@map("waste_records")
+  @@schema("inventory")
+}
+
+model WasteLine {
+  id            String  @id @db.Uuid
+  wasteRecordId String  @map("waste_record_id") @db.Uuid
+  stockItemId   String  @map("stock_item_id") @db.Uuid
+  batchId       String? @map("batch_id") @db.Uuid
+  quantity      Decimal @db.Decimal(18, 6)
+  unitCost      BigInt  @map("unit_cost")
+
+  wasteRecord WasteRecord @relation(fields: [wasteRecordId], references: [id], onDelete: Cascade)
+  stockItem   StockItem   @relation(fields: [stockItemId], references: [id])
+  batch       StockBatch? @relation(fields: [batchId], references: [id])
+
+  @@index([wasteRecordId])
+  @@map("waste_lines")
+  @@schema("inventory")
+}
+
+// ---------------------------------------------------------------------------
+// Production Spec — Recipe bounded context (SRS §7.4.4, §10.6).
+// Frozen design: docs/production/PRODUCTION_SPEC_DESIGN_GATE.md
+//
+// D-17-02  polymorphic refs = typed nullable columns + composite FKs + XOR
+// D-17-03  scope tenant|brand|branch, precedence branch > brand > tenant
+// D-17-04  published versions immutable; lifecycle draft -> published ->
+//          superseded; `archived` deliberately absent from the enum
+// D-17-05  costing deferred; computed_cost / cost_computed_at never written
+// D-17-06  exactly recipe.view / recipe.edit / recipe.publish
+// D-17-07  modifiers.recipe_delta stays opaque
+// D-17-08  ONE published version per recipe (partial unique index);
+//          `effective_from` is INFORMATIONAL ONLY and never selects a version
+// ---------------------------------------------------------------------------
+
+enum RecipeScope {
+  tenant
+  brand
+  branch
+
+  @@schema("production")
+}
+
+enum RecipeType {
+  menu_item
+  sub_recipe
+  production_item
+
+  @@schema("production")
+}
+
+/// D-17-04: `archived` is intentionally NOT a member. The SRS names it in the
+/// §7.4.4 enum listing but defines no semantics or legal transition for it, so
+/// the value is unrepresentable rather than merely unused.
+enum RecipeVersionStatus {
+  draft
+  published
+  superseded
+
+  @@schema("production")
+}
+
+enum RecipeComponentType {
+  stock_item
+  sub_recipe
+
+  @@schema("production")
+}
+
+/// Logical recipe identity, stable across versions (SRS §7.4.4).
+/// `scope_id` and `target_id` from the approved SQL are decomposed into typed
+/// nullable columns with composite tenant-safe FKs and XOR CHECKs (D-17-02).
+model Recipe {
+  id         String      @id @db.Uuid
+  tenantId   String      @map("tenant_id") @db.Uuid
+  scope      RecipeScope
+  /// D-17-03: exactly one of these is populated for brand/branch scope; both
+  /// are NULL for tenant scope. Enforced by ck_recipe_scope.
+  brandId    String?     @map("brand_id") @db.Uuid
+  branchId   String?     @map("branch_id") @db.Uuid
+  recipeType RecipeType  @map("recipe_type")
+  /// §7.4.4 target_id = "MenuItemVariant or StockItem produced".
+  /// menu_item -> variant; sub_recipe / production_item -> stock item.
+  /// Enforced by ck_recipe_target.
+  menuItemVariantId String? @map("menu_item_variant_id") @db.Uuid
+  stockItemId       String? @map("stock_item_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id])
+  brand            Brand?            @relation(fields: [tenantId, brandId], references: [tenantId, id])
+  branch           Branch?           @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  menuItemVariant  MenuItemVariant?  @relation(fields: [tenantId, menuItemVariantId], references: [tenantId, id])
+  stockItem        StockItem?        @relation("RecipeTargetStockItem", fields: [tenantId, stockItemId], references: [tenantId, id])
+
+  versions        RecipeVersion[]
+  usedAsComponent RecipeLine[]    @relation("RecipeLineSubRecipe")
+
+  // D-09 composite-FK target for recipe_versions and recipe_lines.sub_recipe_id.
+  @@unique([tenantId, id])
+  @@index([tenantId, scope])
+  @@index([tenantId, recipeType])
+  @@map("recipes")
+  @@schema("production")
+}
+
+model RecipeVersion {
+  id       String              @id @db.Uuid
+  tenantId String              @map("tenant_id") @db.Uuid
+  recipeId String              @map("recipe_id") @db.Uuid
+  /// §7.4.4 "Incremented on publish". NOT NULL and unique per recipe, so a
+  /// value must exist at draft-insert time: assigned as max(version)+1.
+  version  Int
+  status   RecipeVersionStatus @default(draft)
+
+  yieldQuantity   Decimal @map("yield_quantity") @db.Decimal(18, 6)
+  yieldUnitId     String  @map("yield_unit_id") @db.Uuid
+  yieldPercentage Decimal @default(100.00) @map("yield_percentage") @db.Decimal(5, 2)
+  prepTimeSeconds Int?    @map("prep_time_seconds")
+
+  /// D-17-05: present per the approved SQL, NEVER written by this phase.
+  computedCost   BigInt?   @map("computed_cost")
+  costComputedAt DateTime? @map("cost_computed_at") @db.Timestamptz(6)
+
+  /// D-17-08 Q2: INFORMATIONAL ONLY. Stored and returned; MUST NOT appear in
+  /// any selection predicate, ORDER BY, publish path or resolver. There is no
+  /// effective_to, no published_at and no priority column, by ratification.
+  effectiveFrom DateTime? @map("effective_from") @db.Timestamptz(6)
+
+  publishedBy      String? @map("published_by") @db.Uuid
+  instructions     Json?   @db.JsonB
+  referenceImages  Json?   @map("reference_images") @db.JsonB
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+  recipe      Recipe @relation(fields: [tenantId, recipeId], references: [tenantId, id], onDelete: Cascade)
+  yieldUnit   Uom    @relation("RecipeVersionYieldUnit", fields: [yieldUnitId], references: [id])
+  publisher   User?  @relation("RecipeVersionPublisher", fields: [publishedBy], references: [id])
+
+  lines RecipeLine[]
+
+  @@unique([tenantId, id])
+  @@unique([recipeId, version], map: "uq_recipe_version")
+  @@index([tenantId, recipeId])
+  @@map("recipe_versions")
+  @@schema("production")
+}
+
+model RecipeLine {
+  id              String              @id @db.Uuid
+  tenantId        String              @map("tenant_id") @db.Uuid
+  recipeVersionId String              @map("recipe_version_id") @db.Uuid
+  sequence        Int                 @db.SmallInt
+  componentType   RecipeComponentType @map("component_type")
+  /// D-17-02 decomposition of component_id; XOR by ck_recipe_line_component.
+  /// A sub-recipe component references LOGICAL RECIPE IDENTITY (FR-MNU-041,
+  /// BR-MNU-001, §7.4.4 all say "recipe", never "recipe version").
+  stockItemId String? @map("stock_item_id") @db.Uuid
+  subRecipeId String? @map("sub_recipe_id") @db.Uuid
+
+  /// §7.4.4 "Per recipe yield, not per portion".
+  quantity           Decimal @db.Decimal(18, 6)
+  unitId             String  @map("unit_id") @db.Uuid
+  wastagePercentage  Decimal @default(0) @map("wastage_percentage") @db.Decimal(5, 2)
+  isOptional         Boolean @default(false) @map("is_optional")
+  substituteGroupId  String? @map("substitute_group_id") @db.Uuid
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  recipeVersion   RecipeVersion    @relation(fields: [tenantId, recipeVersionId], references: [tenantId, id], onDelete: Cascade)
+  stockItem       StockItem?       @relation("RecipeLineStockItem", fields: [tenantId, stockItemId], references: [tenantId, id])
+  subRecipe       Recipe?          @relation("RecipeLineSubRecipe", fields: [tenantId, subRecipeId], references: [tenantId, id])
+  unit            Uom              @relation("RecipeLineUnit", fields: [unitId], references: [id])
+  substituteGroup SubstituteGroup? @relation(fields: [tenantId, substituteGroupId], references: [tenantId, id])
+
+  @@index([tenantId, recipeVersionId])
+  @@index([tenantId, subRecipeId])
+  @@map("recipe_lines")
+  @@schema("production")
+}
+
+model SubstituteGroup {
+  id       String @id @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String @db.VarChar(120)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  members    SubstituteGroupMember[]
+  recipeLines RecipeLine[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@map("substitute_groups")
+  @@schema("production")
+}
+
+model SubstituteGroupMember {
+  tenantId          String @map("tenant_id") @db.Uuid
+  substituteGroupId String @map("substitute_group_id") @db.Uuid
+  stockItemId       String @map("stock_item_id") @db.Uuid
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id])
+  group     SubstituteGroup @relation(fields: [tenantId, substituteGroupId], references: [tenantId, id], onDelete: Cascade)
+  stockItem StockItem       @relation("SubstituteGroupMemberStockItem", fields: [tenantId, stockItemId], references: [tenantId, id])
+
+  @@id([substituteGroupId, stockItemId])
+  @@index([tenantId])
+  @@map("substitute_group_members")
+  @@schema("production")
 }

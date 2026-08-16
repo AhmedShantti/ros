@@ -1,0 +1,52 @@
+import { Module } from '@nestjs/common';
+import { AuditModule } from '../governance/audit/audit.module';
+import { IdentityModule } from '../identity/identity.module';
+import { BranchesService } from './branches/branches.service';
+import { BrandsService } from './brands/brands.service';
+import { CentralKitchensService } from './central-kitchens/central-kitchens.service';
+import { LocationsService } from './locations/locations.service';
+import { OperatingHoursService } from './operating-hours/operating-hours.service';
+import { OrganisationController } from './organisation.controller';
+import { PrintRoutingService } from './print-routing/print-routing.service';
+import { StationRoutingService } from './station-routing/station-routing.service';
+import { StationsService } from './stations/stations.service';
+import { TablesService } from './tables/tables.service';
+import { WarehousesService } from './warehouses/warehouses.service';
+
+/**
+ * Organisation bounded context (Phase 15, ADR 0008).
+ *
+ * Depends on IdentityModule purely to reuse the EXISTING guard chain
+ * (JwtAuthGuard → TenantContextGuard → PermissionGuard) and on AuditModule for
+ * the existing audit writer. Neither is modified: no new tenant-context
+ * mechanism, no new audit implementation, no change to authentication or RBAC.
+ */
+@Module({
+  imports: [IdentityModule, AuditModule],
+  controllers: [OrganisationController],
+  providers: [
+    LocationsService,
+    BrandsService,
+    BranchesService,
+    WarehousesService,
+    CentralKitchensService,
+    StationsService,
+    TablesService,
+    OperatingHoursService,
+    PrintRoutingService,
+    StationRoutingService,
+  ],
+  exports: [
+    LocationsService,
+    BrandsService,
+    BranchesService,
+    WarehousesService,
+    CentralKitchensService,
+    StationsService,
+    TablesService,
+    OperatingHoursService,
+    PrintRoutingService,
+    StationRoutingService,
+  ],
+})
+export class OrganisationModule {}

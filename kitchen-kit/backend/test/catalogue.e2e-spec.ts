@@ -1,0 +1,714 @@
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { AppModule } from './../src/app.module';
+import { newId } from './../src/common/ids';
+import { PrismaClient } from './../src/generated/prisma/client';
+import {
+  CATALOGUE_PERMISSIONS,
+  CATALOGUE_PERMISSION_DEFS,
+} from './../src/modules/catalogue/catalogue.permissions';
+import { MembershipRolesService } from './../src/modules/identity/authz/membership-roles.service';
+import { PermissionsService } from './../src/modules/identity/authz/permissions.service';
+import { RolesService } from './../src/modules/identity/authz/roles.service';
+import { MembershipsService } from './../src/modules/identity/memberships/memberships.service';
+import { TenantsService } from './../src/modules/identity/tenants/tenants.service';
+import { UsersService } from './../src/modules/identity/users/users.service';
+import { ORGANISATION_PERMISSION_DEFS } from './../src/modules/organisation/organisation.permissions';
+import { createMigratorClient } from './rls-admin';
+
+interface Tokens {
+  accessToken: string;
+}
+interface WithId {
+  id: string;
+}
+
+const password = 's3cure-passphrase';
+const stamp = Date.now();
+
+describe('Catalogue (e2e)', () => {
+  let app: INestApplication<App>;
+  let admin: PrismaClient;
+  let http: App;
+
+  let tenantAId: string;
+  let tenantBId: string;
+  let tokenA: string;
+  let tokenReadA: string;
+  let tokenNoneA: string;
+  let tokenB: string;
+
+  // Tenant A
+  let menuA: string;
+  let categoryA: string;
+  let itemA: string;
+  let variantA: string;
+  let branchA: string;
+  let priceListA: string;
+  // Tenant B (cross-tenant targets)
+  let menuB: string;
+  let categoryB: string;
+  let itemB: string;
+  let variantB: string;
+  let branchB: string;
+
+  const auth = (t: string) => ({ Authorization: `Bearer ${t}` });
+
+  const scoped = async (email: string, tenantId: string): Promise<string> => {
+    const login = await request(http)
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(200);
+    const sel = await request(http)
+      .post('/auth/tenant')
+      .set('Authorization', `Bearer ${(login.body as Tokens).accessToken}`)
+      .send({ tenantId })
+      .expect(200);
+    return (sel.body as Tokens).accessToken;
+  };
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+    await app.init();
+    admin = createMigratorClient(app);
+    http = app.getHttpServer();
+
+    const permissions = app.get(PermissionsService);
+    await permissions.ensureIdentityPermissions();
+    await permissions.upsertMany(ORGANISATION_PERMISSION_DEFS);
+    await permissions.upsertMany(CATALOGUE_PERMISSION_DEFS);
+
+    const users = app.get(UsersService);
+    const tenants = app.get(TenantsService);
+    const memberships = app.get(MembershipsService);
+    const roles = app.get(RolesService);
+    const membershipRoles = app.get(MembershipRolesService);
+
+    const mkTenant = async (slug: string) =>
+      (
+        await tenants.create({
+          slug,
+          legalName: slug,
+          defaultCurrency: 'EGP',
+          countryPackCode: 'EG',
+        })
+      ).id;
+    tenantAId = await mkTenant(`cata-${stamp}`);
+    tenantBId = await mkTenant(`catb-${stamp}`);
+
+    const mkUser = async (
+      email: string,
+      tenantId: string,
+      codes: string[],
+    ): Promise<void> => {
+      const u = await users.createUser({ email, password, displayName: 'C' });
+      const m = await memberships.grant(u.id, tenantId, 'active');
+      if (codes.length > 0) {
+        const role = await roles.createTenantRole(tenantId, {
+          name: `cat-${email}`,
+        });
+        await roles.addPermissions(tenantId, role.id, codes);
+        await membershipRoles.assign(tenantId, m.id, role.id);
+      }
+    };
+
+    const all = Object.values(CATALOGUE_PERMISSIONS);
+    const readOnly = [
+      CATALOGUE_PERMISSIONS.ITEM_READ,
+      CATALOGUE_PERMISSIONS.PRICE_READ,
+      CATALOGUE_PERMISSIONS.AVAILABILITY_READ,
+    ];
+    const emailA = `cat.a.${stamp}@example.com`;
+    const emailReadA = `cat.r.${stamp}@example.com`;
+    const emailNoneA = `cat.n.${stamp}@example.com`;
+    const emailB = `cat.b.${stamp}@example.com`;
+    await mkUser(emailA, tenantAId, all);
+    await mkUser(emailReadA, tenantAId, readOnly);
+    await mkUser(emailNoneA, tenantAId, []);
+    await mkUser(emailB, tenantBId, all);
+
+    tokenA = await scoped(emailA, tenantAId);
+    tokenReadA = await scoped(emailReadA, tenantAId);
+    tokenNoneA = await scoped(emailNoneA, tenantAId);
+    tokenB = await scoped(emailB, tenantBId);
+
+    // Branches are created directly (Organisation is already proven in Phase 15).
+    const mkBranch = async (tenantId: string, code: string) => {
+      const brand = await admin.brand.create({
+        data: { id: newId(), tenantId, name: `Brand ${code}` },
+      });
+      const branch = await admin.branch.create({
+        data: {
+          id: newId(),
+          tenantId,
+          brandId: brand.id,
+          code,
+          name: `Branch ${code}`,
+          timezone: 'Africa/Cairo',
+          baseCurrency: 'EGP',
+          countryCode: 'EG',
+        },
+      });
+      // P15-4: BranchesService.create() registers the branch in org.locations.
+      // This fixture bypasses that service, so it must register the branch
+      // itself — org.locations completeness is a global invariant asserted by
+      // organisation.e2e-spec.ts across the whole database.
+      await admin.location.create({
+        data: {
+          id: newId(),
+          tenantId,
+          locationType: 'branch',
+          refId: branch.id,
+          branchId: branch.id,
+        },
+      });
+      return branch.id;
+    };
+    branchA = await mkBranch(tenantAId, `CA${stamp % 10000}`);
+    branchB = await mkBranch(tenantBId, `CB${stamp % 10000}`);
+
+    const seed = async (token: string) => {
+      const menu = (
+        await request(http)
+          .post('/catalogue/menus')
+          .set(auth(token))
+          .send({ name: { en: 'Main' }, orderTypes: ['dine_in'], priority: 1 })
+          .expect(201)
+      ).body as WithId;
+      const category = (
+        await request(http)
+          .post(`/catalogue/menus/${menu.id}/categories`)
+          .set(auth(token))
+          .send({ name: { en: 'Burgers' } })
+          .expect(201)
+      ).body as WithId;
+      const item = (
+        await request(http)
+          .post('/catalogue/items')
+          .set(auth(token))
+          .send({ names: { en: 'Chicken Sandwich' } })
+          .expect(201)
+      ).body as WithId;
+      const variant = (
+        await request(http)
+          .post(`/catalogue/items/${item.id}/variants`)
+          .set(auth(token))
+          .send({ name: { en: 'Large' } })
+          .expect(201)
+      ).body as WithId;
+      return {
+        menu: menu.id,
+        category: category.id,
+        item: item.id,
+        variant: variant.id,
+      };
+    };
+    const a = await seed(tokenA);
+    menuA = a.menu;
+    categoryA = a.category;
+    itemA = a.item;
+    variantA = a.variant;
+    const b = await seed(tokenB);
+    menuB = b.menu;
+    categoryB = b.category;
+    itemB = b.item;
+    variantB = b.variant;
+
+    priceListA = (
+      (
+        await request(http)
+          .post('/catalogue/price-lists')
+          .set(auth(tokenA))
+          .send({ name: `Base ${stamp}`, scopeType: 'tenant' })
+          .expect(201)
+      ).body as WithId
+    ).id;
+  });
+
+  afterAll(async () => {
+    await admin.$disconnect();
+    await app.close();
+  });
+
+  // --------------------------------------------------------------- auth ---
+  describe('authentication', () => {
+    it.each([
+      '/catalogue/menus',
+      '/catalogue/items',
+      '/catalogue/modifier-groups',
+      '/catalogue/price-lists',
+    ])('unauthenticated GET %s → 401', async (path) => {
+      await request(http).get(path).expect(401);
+    });
+  });
+
+  // --------------------------------------------------------------- rbac ---
+  describe('authorization (C-05)', () => {
+    it('no catalogue permission → 403', async () => {
+      await request(http)
+        .get('/catalogue/items')
+        .set(auth(tokenNoneA))
+        .expect(403);
+    });
+
+    it('read permission allows reads', async () => {
+      await request(http)
+        .get('/catalogue/items')
+        .set(auth(tokenReadA))
+        .expect(200);
+    });
+
+    it('read permission cannot create an item → 403', async () => {
+      await request(http)
+        .post('/catalogue/items')
+        .set(auth(tokenReadA))
+        .send({ names: { en: 'Nope' } })
+        .expect(403);
+    });
+
+    it('menu.price.read cannot change a price → 403', async () => {
+      await request(http)
+        .post(`/catalogue/price-lists/${priceListA}/entries`)
+        .set(auth(tokenReadA))
+        .send({ menuItemVariantId: variantA, price: '1000', currency: 'EGP' })
+        .expect(403);
+    });
+
+    it('menu.availability.read cannot 86 → 403', async () => {
+      await request(http)
+        .post('/catalogue/availability-rules')
+        .set(auth(tokenReadA))
+        .send({ menuItemId: itemA })
+        .expect(403);
+    });
+  });
+
+  // ---------------------------------------------------------------- DTO ---
+  describe('DTO validation', () => {
+    it('rejects unknown properties', async () => {
+      await request(http)
+        .post('/catalogue/items')
+        .set(auth(tokenA))
+        .send({ names: { en: 'X' }, bogus: 1 })
+        .expect(400);
+    });
+
+    it('rejects a client-supplied tenantId', async () => {
+      await request(http)
+        .post('/catalogue/items')
+        .set(auth(tokenA))
+        .send({ names: { en: 'X' }, tenantId: tenantBId })
+        .expect(400);
+    });
+
+    it('rejects branch_group price-list scope (C-06)', async () => {
+      await request(http)
+        .post('/catalogue/price-lists')
+        .set(auth(tokenA))
+        .send({
+          name: `bg-${stamp}`,
+          scopeType: 'branch_group',
+          scopeId: branchA,
+        })
+        .expect(400);
+    });
+
+    it('rejects a non-integer price', async () => {
+      await request(http)
+        .post(`/catalogue/price-lists/${priceListA}/entries`)
+        .set(auth(tokenA))
+        .send({ menuItemVariantId: variantA, price: '10.50', currency: 'EGP' })
+        .expect(400);
+    });
+  });
+
+  // ---------------------------------------------------- tenant isolation ---
+  describe('tenant isolation', () => {
+    it('A lists only its own menus and items', async () => {
+      const menus = (
+        await request(http)
+          .get('/catalogue/menus')
+          .set(auth(tokenA))
+          .expect(200)
+      ).body as WithId[];
+      expect(menus.map((m) => m.id)).toContain(menuA);
+      expect(menus.map((m) => m.id)).not.toContain(menuB);
+
+      const items = (
+        await request(http)
+          .get('/catalogue/items')
+          .set(auth(tokenA))
+          .expect(200)
+      ).body as WithId[];
+      expect(items.map((i) => i.id)).not.toContain(itemB);
+    });
+
+    it.each([
+      ['menu', () => `/catalogue/menus/${menuB}`],
+      ['item', () => `/catalogue/items/${itemB}`],
+    ])('A cannot read tenant B %s → 404', async (_label, path) => {
+      await request(http).get(path()).set(auth(tokenA)).expect(404);
+    });
+
+    it('A cannot update tenant B item → 404', async () => {
+      await request(http)
+        .patch(`/catalogue/items/${itemB}`)
+        .set(auth(tokenA))
+        .send({ names: { en: 'hijack' } })
+        .expect(404);
+    });
+
+    it('A cannot deactivate tenant B menu → 404', async () => {
+      await request(http)
+        .post(`/catalogue/menus/${menuB}/status`)
+        .set(auth(tokenA))
+        .send({ isActive: false })
+        .expect(404);
+    });
+
+    it('A cannot list categories of tenant B menu → 404', async () => {
+      await request(http)
+        .get(`/catalogue/menus/${menuB}/categories`)
+        .set(auth(tokenA))
+        .expect(404);
+    });
+  });
+
+  // ------------------------------------------- cross-tenant relationships ---
+  describe('cross-tenant relationship security (D-09 composite FKs)', () => {
+    it('cannot assign a tenant B branch to a tenant A menu → 404', async () => {
+      await request(http)
+        .post(`/catalogue/menus/${menuA}/branches`)
+        .set(auth(tokenA))
+        .send({ branchId: branchB })
+        .expect(404);
+    });
+
+    it('cannot place an item into a tenant B category → 404', async () => {
+      await request(http)
+        .post(`/catalogue/items/${itemA}/placements`)
+        .set(auth(tokenA))
+        .send({ categoryId: categoryB })
+        .expect(404);
+    });
+
+    it('cannot price a tenant B variant from a tenant A price list → 404', async () => {
+      await request(http)
+        .post(`/catalogue/price-lists/${priceListA}/entries`)
+        .set(auth(tokenA))
+        .send({ menuItemVariantId: variantB, price: '1000', currency: 'EGP' })
+        .expect(404);
+    });
+
+    it('cannot scope a price list to a tenant B branch → 404', async () => {
+      await request(http)
+        .post('/catalogue/price-lists')
+        .set(auth(tokenA))
+        .send({ name: `x-${stamp}`, scopeType: 'branch', scopeId: branchB })
+        .expect(404);
+    });
+
+    it('cannot create an availability rule for a tenant B item → 404', async () => {
+      await request(http)
+        .post('/catalogue/availability-rules')
+        .set(auth(tokenA))
+        .send({ menuItemId: itemB })
+        .expect(404);
+    });
+  });
+
+  // -------------------------------------------------- C-02 item placement ---
+  describe('menu item reuse across menus (C-02)', () => {
+    it('one item can be placed on two different menus without duplication', async () => {
+      const menu2 = (
+        await request(http)
+          .post('/catalogue/menus')
+          .set(auth(tokenA))
+          .send({
+            name: { en: 'Delivery' },
+            orderTypes: ['delivery'],
+            priority: 2,
+          })
+          .expect(201)
+      ).body as WithId;
+      const cat2 = (
+        await request(http)
+          .post(`/catalogue/menus/${menu2.id}/categories`)
+          .set(auth(tokenA))
+          .send({ name: { en: 'Delivery Burgers' } })
+          .expect(201)
+      ).body as WithId;
+
+      await request(http)
+        .post(`/catalogue/items/${itemA}/placements`)
+        .set(auth(tokenA))
+        .send({ categoryId: categoryA })
+        .expect(204);
+      await request(http)
+        .post(`/catalogue/items/${itemA}/placements`)
+        .set(auth(tokenA))
+        .send({ categoryId: cat2.id })
+        .expect(204);
+
+      const placements = (
+        await request(http)
+          .get(`/catalogue/items/${itemA}/placements`)
+          .set(auth(tokenA))
+          .expect(200)
+      ).body as { categoryId: string; menuId: string }[];
+
+      // ONE item id, TWO menus — identity is not duplicated.
+      expect(placements).toHaveLength(2);
+      expect(new Set(placements.map((p) => p.menuId))).toEqual(
+        new Set([menuA, menu2.id]),
+      );
+    });
+
+    it('the same placement twice → 409', async () => {
+      await request(http)
+        .post(`/catalogue/items/${itemA}/placements`)
+        .set(auth(tokenA))
+        .send({ categoryId: categoryA })
+        .expect(409);
+    });
+  });
+
+  // -------------------------------------------- C-01 branch assignment ---
+  describe('menu → branch assignment and resolution (C-01, FR-MNU-002/003)', () => {
+    it('assigns, lists and resolves by priority', async () => {
+      await request(http)
+        .post(`/catalogue/menus/${menuA}/branches`)
+        .set(auth(tokenA))
+        .send({ branchId: branchA })
+        .expect(204);
+
+      const branches = (
+        await request(http)
+          .get(`/catalogue/menus/${menuA}/branches`)
+          .set(auth(tokenA))
+          .expect(200)
+      ).body as string[];
+      expect(branches).toContain(branchA);
+
+      const resolved = (
+        await request(http)
+          .get(`/catalogue/branches/${branchA}/menus`)
+          .set(auth(tokenA))
+          .expect(200)
+      ).body as { menus: WithId[]; ambiguous: boolean };
+      expect(resolved.menus.map((m) => m.id)).toContain(menuA);
+    });
+
+    it('duplicate assignment → 409', async () => {
+      await request(http)
+        .post(`/catalogue/menus/${menuA}/branches`)
+        .set(auth(tokenA))
+        .send({ branchId: branchA })
+        .expect(409);
+    });
+
+    it('an unassigned branch resolves to no menus (no implicit global menu)', async () => {
+      const res = (
+        await request(http)
+          .get(`/catalogue/branches/${newId()}/menus`)
+          .set(auth(tokenA))
+          .expect(200)
+      ).body as { menus: unknown[] };
+      expect(res.menus).toHaveLength(0);
+    });
+  });
+
+  // ------------------------------------------------------ modifier rules ---
+  describe('modifier groups (FR-MNU-011, SRS §7.3 #8)', () => {
+    it('rejects min > max → 400', async () => {
+      await request(http)
+        .post('/catalogue/modifier-groups')
+        .set(auth(tokenA))
+        .send({ name: { en: 'Bad' }, minSelections: 3, maxSelections: 2 })
+        .expect(400);
+    });
+
+    it('rejects required with min 0 → 400', async () => {
+      await request(http)
+        .post('/catalogue/modifier-groups')
+        .set(auth(tokenA))
+        .send({ name: { en: 'Bad' }, isRequired: true, minSelections: 0 })
+        .expect(400);
+    });
+
+    it('accepts a valid group and a negative price delta modifier', async () => {
+      const group = (
+        await request(http)
+          .post('/catalogue/modifier-groups')
+          .set(auth(tokenA))
+          .send({
+            name: { en: 'Protein' },
+            isRequired: true,
+            minSelections: 1,
+            maxSelections: 1,
+          })
+          .expect(201)
+      ).body as WithId;
+
+      const modifier = (
+        await request(http)
+          .post(`/catalogue/modifier-groups/${group.id}/modifiers`)
+          .set(auth(tokenA))
+          .send({ name: { en: 'Chicken instead of Beef' }, priceDelta: '-300' })
+          .expect(201)
+      ).body as { priceDelta: string };
+      expect(modifier.priceDelta).toBe('-300');
+
+      await request(http)
+        .post(`/catalogue/items/${itemA}/modifier-groups`)
+        .set(auth(tokenA))
+        .send({ modifierGroupId: group.id })
+        .expect(204);
+    });
+  });
+
+  // -------------------------------------------------------------- pricing ---
+  describe('pricing (FR-MNU-020/024, C-10, C-11)', () => {
+    it('sets a price and records before/after in the AUDIT trail, not a history table', async () => {
+      await request(http)
+        .post(`/catalogue/price-lists/${priceListA}/entries`)
+        .set(auth(tokenA))
+        .send({ menuItemVariantId: variantA, price: '5000', currency: 'EGP' })
+        .expect(201);
+      await request(http)
+        .post(`/catalogue/price-lists/${priceListA}/entries`)
+        .set(auth(tokenA))
+        .send({ menuItemVariantId: variantA, price: '5500', currency: 'EGP' })
+        .expect(201);
+
+      const entries = (
+        await request(http)
+          .get(`/catalogue/price-lists/${priceListA}/entries`)
+          .set(auth(tokenA))
+          .expect(200)
+      ).body as { price: string }[];
+      // Upsert, not duplicate: uq_price_entry holds.
+      expect(entries).toHaveLength(1);
+      expect(entries[0].price).toBe('5500');
+
+      const audit = await admin.auditEntry.findFirst({
+        where: { tenantId: tenantAId, action: 'PRICE_ENTRY_SET' },
+        orderBy: { sequenceNo: 'desc' },
+      });
+      expect(audit).not.toBeNull();
+      expect(audit?.beforeState).toMatchObject({ price: '5000' });
+      expect(audit?.afterState).toMatchObject({ price: '5500' });
+    });
+
+    it('C-11: creating a variant does NOT require prices, and completeness is reported', async () => {
+      const unpriced = (
+        await request(http)
+          .post(`/catalogue/items/${itemA}/variants`)
+          .set(auth(tokenA))
+          .send({ name: { en: 'Small' } })
+          .expect(201)
+      ).body as WithId;
+
+      const report = (
+        await request(http)
+          .get('/catalogue/completeness')
+          .set(auth(tokenA))
+          .expect(200)
+      ).body as {
+        unpricedVariants: { variantId: string }[];
+        sellable: boolean;
+      };
+      expect(report.unpricedVariants.map((v) => v.variantId)).toContain(
+        unpriced.id,
+      );
+      expect(report.sellable).toBe(false);
+    });
+  });
+
+  // --------------------------------------------------------- availability ---
+  describe('availability (FR-MNU-030/032, C-07)', () => {
+    it('rejects a rule targeting both item and variant → 400', async () => {
+      await request(http)
+        .post('/catalogue/availability-rules')
+        .set(auth(tokenA))
+        .send({ menuItemId: itemA, variantId: variantA })
+        .expect(400);
+    });
+
+    it('rejects a rule targeting neither → 400', async () => {
+      await request(http)
+        .post('/catalogue/availability-rules')
+        .set(auth(tokenA))
+        .send({ branchId: branchA })
+        .expect(400);
+    });
+
+    it('creates a rule and toggles 86 with an audited reason', async () => {
+      const rule = (
+        await request(http)
+          .post('/catalogue/availability-rules')
+          .set(auth(tokenA))
+          .send({ menuItemId: itemA, branchId: branchA })
+          .expect(201)
+      ).body as WithId;
+
+      const toggled = (
+        await request(http)
+          .post(`/catalogue/availability-rules/${rule.id}/86`)
+          .set(auth(tokenA))
+          .send({ isManual86: true, reasonText: 'out of stock' })
+          .expect(201)
+      ).body as { isManual86: boolean };
+      expect(toggled.isManual86).toBe(true);
+
+      const audit = await admin.auditEntry.findFirst({
+        where: { tenantId: tenantAId, action: 'AVAILABILITY_86_TOGGLED' },
+        orderBy: { sequenceNo: 'desc' },
+      });
+      expect(audit?.reasonCode).toBe('manual_86');
+    });
+  });
+
+  // ------------------------------------------------------- boundary check ---
+  describe('boundary compliance', () => {
+    it('no Combo endpoints exist (C-08)', async () => {
+      for (const path of ['/catalogue/combos', '/catalogue/combo-slots']) {
+        await request(http).get(path).set(auth(tokenA)).expect(404);
+      }
+    });
+
+    it('no Fiscal / Sales / Procurement tables were created', async () => {
+      // `inventory` was removed from this guard when the Inventory bounded
+      // context was implemented: D-17-01 re-sequenced the roadmap to
+      // Catalogue -> Inventory -> Production Spec, so an `inventory` schema is
+      // now expected. `production` was removed from this guard in turn when the
+      // Production Spec phase was implemented under its ratified design gate.
+      // Every context that remains unbuilt stays guarded.
+      const rows = await admin.$queryRawUnsafe<{ nspname: string }[]>(
+        `SELECT nspname FROM pg_namespace WHERE nspname IN
+         ('fiscal','sales','procurement','workforce','treasury','crm','analytics','sync')`,
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it('no catalogue.combos / price_change_history table exists', async () => {
+      const rows = await admin.$queryRawUnsafe<{ tablename: string }[]>(
+        `SELECT tablename FROM pg_tables WHERE schemaname='catalogue'
+         AND tablename IN ('combos','combo_slots','combo_slot_options','price_change_history')`,
+      );
+      expect(rows).toHaveLength(0);
+    });
+  });
+});
