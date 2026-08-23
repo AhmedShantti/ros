@@ -10,6 +10,7 @@ import {
   ApiAcceptedResponse,
   ApiBearerAuth,
   ApiNoContentResponse,
+  ApiOperation,
   ApiTags,
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
@@ -34,6 +35,7 @@ export class PasswordController {
   @ApiBearerAuth()
   @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.' })
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Change password (proves the current password).' })
   @ApiNoContentResponse({
     description: 'Password changed; other sessions revoked.',
   })
@@ -56,8 +58,16 @@ export class PasswordController {
   @Post('forgot')
   @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Request a password reset (no account enumeration).',
+  })
   @ApiAcceptedResponse({
-    description: 'If the account exists, a reset token has been issued.',
+    description:
+      'Always accepted, whether or not the account exists — the response never discloses which.',
+    schema: {
+      type: 'object',
+      properties: { status: { type: 'string', enum: ['accepted'] } },
+    },
   })
   @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.' })
   async forgot(@Body() dto: ForgotPasswordDto): Promise<{ status: string }> {
@@ -69,6 +79,9 @@ export class PasswordController {
   @Post('reset')
   @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Complete a password reset with a single-use token.',
+  })
   @ApiNoContentResponse({
     description: 'Password reset; all sessions revoked.',
   })

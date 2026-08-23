@@ -8,11 +8,22 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import {
+  isoDateTimeSchema,
+  nullable,
+  uuidSchema,
+} from '../../common/openapi/schema-helpers';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { RequirePermission } from '../identity/authz/decorators/require-permission.decorator';
 import { PermissionGuard } from '../identity/authz/guards/permission.guard';
@@ -61,6 +72,144 @@ import { WarehousesService } from './warehouses/warehouses.service';
  * The tenant is always taken from the validated TenantContext; no DTO accepts a
  * tenantId, and unknown properties are rejected by the global ValidationPipe.
  */
+
+// Shapes verified against each submodule's own `to*Summary` view function —
+// `brand.view.ts`, `branch.view.ts`, `warehouse.view.ts`,
+// `central-kitchen.view.ts`, `station.view.ts`, `branch-table.view.ts`,
+// `operating-hours.view.ts`, `print-routing.view.ts`,
+// `station-routing.view.ts` — not against the Prisma schema or the SRS.
+const brandSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    name: { type: 'string' },
+    theme: {
+      type: 'object',
+      description: 'Opaque brand theme JSON, as stored.',
+    },
+    defaultSettings: {
+      type: 'object',
+      description: 'Opaque default-settings JSON, as stored.',
+    },
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const branchSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    brandId: uuidSchema(),
+    code: { type: 'string' },
+    name: { type: 'string' },
+    timezone: { type: 'string', example: 'Asia/Dubai' },
+    baseCurrency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+    countryCode: { type: 'string', example: 'AE' },
+    address: { type: 'object', description: 'Opaque address JSON, as stored.' },
+    status: { type: 'string', enum: ['active', 'inactive'] },
+    automaticAvailability: { type: 'boolean' },
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const warehouseSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    name: { type: 'string' },
+    warehouseType: { type: 'string', enum: ['branch', 'central', 'virtual'] },
+    branchId: nullable(uuidSchema()),
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const centralKitchenSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    name: { type: 'string' },
+    warehouseId: uuidSchema(),
+  },
+};
+
+const stationSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    branchId: uuidSchema(),
+    name: { type: 'string' },
+    capacityConfig: {
+      type: 'object',
+      description: 'Opaque capacity-config JSON, as stored.',
+    },
+    displayColour: nullable({ type: 'string' }),
+    displayTerminalId: nullable(uuidSchema()),
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const tableSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    branchId: uuidSchema(),
+    label: { type: 'string' },
+    section: nullable({ type: 'string' }),
+    seatCapacity: nullable({ type: 'integer' }),
+  },
+};
+
+const operatingHoursSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    branchId: uuidSchema(),
+    dayOfWeek: {
+      type: 'integer',
+      description: '0 (Sunday) through 6 (Saturday).',
+    },
+    opensAt: { type: 'string', pattern: '^\\d{2}:\\d{2}$', example: '09:00' },
+    closesAt: { type: 'string', pattern: '^\\d{2}:\\d{2}$', example: '23:00' },
+    businessDayCutover: {
+      type: 'string',
+      pattern: '^\\d{2}:\\d{2}$',
+      example: '05:00',
+    },
+    overnight: {
+      type: 'boolean',
+      description: 'True when the interval crosses midnight.',
+    },
+  },
+};
+
+const printRoutingSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    branchId: uuidSchema(),
+    documentType: { type: 'string' },
+    printerTarget: { type: 'string' },
+    stationId: nullable(uuidSchema()),
+  },
+};
+
+const stationRoutingRuleSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    branchId: uuidSchema(),
+    stationId: uuidSchema(),
+    menuItemId: nullable(uuidSchema()),
+    categoryId: nullable(uuidSchema()),
+    modifierId: nullable(uuidSchema()),
+    priority: { type: 'integer' },
+  },
+};
+
 @ApiTags('organisation')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing/invalid/expired token.' })
@@ -85,6 +234,13 @@ export class OrganisationController {
   // ----------------------------- Brands (tenant-level) ---------------------
   @Post('brands')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created brand.',
+    schema: brandSchema,
+  })
+  @ApiConflictResponse({
+    description: 'A brand with this name already exists in the tenant.',
+  })
   createBrand(
     @CurrentTenantContext() ctx: TenantContext,
     @Body() dto: CreateBrandDto,
@@ -94,12 +250,18 @@ export class OrganisationController {
 
   @Get('brands')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
+  @ApiOkResponse({
+    description: 'All brands in the tenant.',
+    schema: { type: 'array', items: brandSchema },
+  })
   listBrands(@CurrentTenantContext() ctx: TenantContext) {
     return this.brands.list(ctx.tenantId);
   }
 
   @Get('brands/:brandId')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
+  @ApiOkResponse({ description: 'The brand.', schema: brandSchema })
+  @ApiNotFoundResponse({ description: 'Brand not found.' })
   getBrand(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('brandId') brandId: string,
@@ -109,6 +271,11 @@ export class OrganisationController {
 
   @Patch('brands/:brandId')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
+  @ApiOkResponse({ description: 'The updated brand.', schema: brandSchema })
+  @ApiNotFoundResponse({ description: 'Brand not found.' })
+  @ApiConflictResponse({
+    description: 'A brand with this name already exists in the tenant.',
+  })
   updateBrand(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('brandId') brandId: string,
@@ -120,6 +287,16 @@ export class OrganisationController {
   // ----------------------------- Branches ----------------------------------
   @Post('branches')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created branch.',
+    schema: branchSchema,
+  })
+  @ApiNotFoundResponse({
+    description: 'The referenced brand does not exist in this tenant.',
+  })
+  @ApiConflictResponse({
+    description: 'A branch with this code already exists in the tenant.',
+  })
   createBranch(
     @CurrentTenantContext() ctx: TenantContext,
     @Body() dto: CreateBranchDto,
@@ -129,12 +306,18 @@ export class OrganisationController {
 
   @Get('branches')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
+  @ApiOkResponse({
+    description: 'All branches in the tenant.',
+    schema: { type: 'array', items: branchSchema },
+  })
   listBranches(@CurrentTenantContext() ctx: TenantContext) {
     return this.branches.list(ctx.tenantId);
   }
 
   @Get('branches/:branchId')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
+  @ApiOkResponse({ description: 'The branch.', schema: branchSchema })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
   getBranch(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -144,6 +327,8 @@ export class OrganisationController {
 
   @Patch('branches/:branchId')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiOkResponse({ description: 'The updated branch.', schema: branchSchema })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
   updateBranch(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -155,6 +340,9 @@ export class OrganisationController {
   /** Explicit status transition (D-03) — never a generic PATCH field. */
   @Post('branches/:branchId/status')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiOperation({ summary: 'Set a branch active/inactive.' })
+  @ApiOkResponse({ description: 'The updated branch.', schema: branchSchema })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
   setBranchStatus(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -175,6 +363,14 @@ export class OrganisationController {
    */
   @Post('branches/:branchId/brand')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
+  @ApiOperation({
+    summary: 'Reassign a branch to another brand within the same tenant.',
+  })
+  @ApiOkResponse({ description: 'The updated branch.', schema: branchSchema })
+  @ApiNotFoundResponse({
+    description:
+      'Branch not found, or the target brand does not exist in this tenant.',
+  })
   reassignBranchBrand(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -191,6 +387,14 @@ export class OrganisationController {
   // ----------------------------- Warehouses (tenant-level) -----------------
   @Post('warehouses')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created warehouse.',
+    schema: warehouseSchema,
+  })
+  @ApiNotFoundResponse({ description: 'The referenced branch does not exist.' })
+  @ApiConflictResponse({
+    description: 'A warehouse with this name already exists in the tenant.',
+  })
   createWarehouse(
     @CurrentTenantContext() ctx: TenantContext,
     @Body() dto: CreateWarehouseDto,
@@ -200,12 +404,18 @@ export class OrganisationController {
 
   @Get('warehouses')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
+  @ApiOkResponse({
+    description: 'All warehouses in the tenant.',
+    schema: { type: 'array', items: warehouseSchema },
+  })
   listWarehouses(@CurrentTenantContext() ctx: TenantContext) {
     return this.warehouses.list(ctx.tenantId);
   }
 
   @Get('warehouses/:warehouseId')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
+  @ApiOkResponse({ description: 'The warehouse.', schema: warehouseSchema })
+  @ApiNotFoundResponse({ description: 'Warehouse not found.' })
   getWarehouse(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('warehouseId') warehouseId: string,
@@ -215,6 +425,17 @@ export class OrganisationController {
 
   @Patch('warehouses/:warehouseId')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
+  @ApiOkResponse({
+    description: 'The updated warehouse.',
+    schema: warehouseSchema,
+  })
+  @ApiNotFoundResponse({
+    description:
+      'Warehouse not found, or the referenced branch does not exist.',
+  })
+  @ApiConflictResponse({
+    description: 'A warehouse with this name already exists in the tenant.',
+  })
   updateWarehouse(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('warehouseId') warehouseId: string,
@@ -226,6 +447,15 @@ export class OrganisationController {
   // ----------------------------- Central kitchens (tenant-level) -----------
   @Post('central-kitchens')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created central kitchen.',
+    schema: centralKitchenSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Warehouse not found.' })
+  @ApiConflictResponse({
+    description:
+      'A central kitchen with this name, or one for this warehouse, already exists.',
+  })
   createCentralKitchen(
     @CurrentTenantContext() ctx: TenantContext,
     @Body() dto: CreateCentralKitchenDto,
@@ -235,12 +465,21 @@ export class OrganisationController {
 
   @Get('central-kitchens')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
+  @ApiOkResponse({
+    description: 'All central kitchens in the tenant.',
+    schema: { type: 'array', items: centralKitchenSchema },
+  })
   listCentralKitchens(@CurrentTenantContext() ctx: TenantContext) {
     return this.centralKitchens.list(ctx.tenantId);
   }
 
   @Get('central-kitchens/:centralKitchenId')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
+  @ApiOkResponse({
+    description: 'The central kitchen.',
+    schema: centralKitchenSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Central kitchen not found.' })
   getCentralKitchen(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('centralKitchenId') id: string,
@@ -250,6 +489,17 @@ export class OrganisationController {
 
   @Patch('central-kitchens/:centralKitchenId')
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
+  @ApiOkResponse({
+    description: 'The updated central kitchen.',
+    schema: centralKitchenSchema,
+  })
+  @ApiNotFoundResponse({
+    description: 'Central kitchen not found, or warehouse not found.',
+  })
+  @ApiConflictResponse({
+    description:
+      'A central kitchen with this name, or one for this warehouse, already exists.',
+  })
   updateCentralKitchen(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('centralKitchenId') id: string,
@@ -261,6 +511,14 @@ export class OrganisationController {
   // ----------------------------- Stations ----------------------------------
   @Post('branches/:branchId/stations')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created station.',
+    schema: stationSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Branch or display terminal not found.' })
+  @ApiConflictResponse({
+    description: 'A station with this name already exists in the branch.',
+  })
   createStation(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -271,6 +529,11 @@ export class OrganisationController {
 
   @Get('branches/:branchId/stations')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
+  @ApiOkResponse({
+    description: 'All stations in the branch.',
+    schema: { type: 'array', items: stationSchema },
+  })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
   listStations(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -280,6 +543,8 @@ export class OrganisationController {
 
   @Get('stations/:stationId')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
+  @ApiOkResponse({ description: 'The station.', schema: stationSchema })
+  @ApiNotFoundResponse({ description: 'Station not found.' })
   getStation(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('stationId') stationId: string,
@@ -289,6 +554,13 @@ export class OrganisationController {
 
   @Patch('stations/:stationId')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiOkResponse({ description: 'The updated station.', schema: stationSchema })
+  @ApiNotFoundResponse({
+    description: 'Station not found, or branch/display terminal not found.',
+  })
+  @ApiConflictResponse({
+    description: 'A station with this name already exists in the branch.',
+  })
   updateStation(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('stationId') stationId: string,
@@ -300,6 +572,14 @@ export class OrganisationController {
   // ----------------------------- Tables ------------------------------------
   @Post('branches/:branchId/tables')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created table.',
+    schema: tableSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
+  @ApiConflictResponse({
+    description: 'A table with this label already exists in the branch.',
+  })
   createTable(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -310,6 +590,11 @@ export class OrganisationController {
 
   @Get('branches/:branchId/tables')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
+  @ApiOkResponse({
+    description: 'All tables in the branch.',
+    schema: { type: 'array', items: tableSchema },
+  })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
   listTables(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -319,6 +604,11 @@ export class OrganisationController {
 
   @Patch('tables/:tableId')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiOkResponse({ description: 'The updated table.', schema: tableSchema })
+  @ApiNotFoundResponse({ description: 'Table not found.' })
+  @ApiConflictResponse({
+    description: 'A table with this label already exists in the branch.',
+  })
   updateTable(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('tableId') tableId: string,
@@ -330,6 +620,14 @@ export class OrganisationController {
   // ----------------------------- Operating hours ---------------------------
   @Post('branches/:branchId/operating-hours')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created operating-hours interval.',
+    schema: operatingHoursSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
+  @ApiBadRequestResponse({
+    description: 'The interval overlaps an existing interval for the same day.',
+  })
   createOperatingHours(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -340,6 +638,11 @@ export class OrganisationController {
 
   @Get('branches/:branchId/operating-hours')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
+  @ApiOkResponse({
+    description: 'All operating-hours intervals for the branch.',
+    schema: { type: 'array', items: operatingHoursSchema },
+  })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
   listOperatingHours(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -350,6 +653,15 @@ export class OrganisationController {
   // ----------------------------- Print routing -----------------------------
   @Post('branches/:branchId/print-routing')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created print-routing rule.',
+    schema: printRoutingSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Station not found in this branch.' })
+  @ApiConflictResponse({
+    description:
+      'A print routing rule for this document type and station already exists.',
+  })
   createPrintRouting(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -360,6 +672,11 @@ export class OrganisationController {
 
   @Get('branches/:branchId/print-routing')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
+  @ApiOkResponse({
+    description: 'All print-routing rules for the branch.',
+    schema: { type: 'array', items: printRoutingSchema },
+  })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
   listPrintRouting(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -370,6 +687,20 @@ export class OrganisationController {
   // ----------------------------- Station routing ---------------------------
   @Post('branches/:branchId/station-routing-rules')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created station-routing rule.',
+    schema: stationRoutingRuleSchema,
+  })
+  @ApiNotFoundResponse({
+    description: 'Station, menu item, category, or modifier not found.',
+  })
+  @ApiConflictResponse({
+    description: 'A routing rule for this selector and station already exists.',
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Exactly one of menuItemId, categoryId, or modifierId must be set.',
+  })
   createStationRoutingRule(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,
@@ -380,6 +711,11 @@ export class OrganisationController {
 
   @Get('branches/:branchId/station-routing-rules')
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
+  @ApiOkResponse({
+    description: 'All station-routing rules for the branch.',
+    schema: { type: 'array', items: stationRoutingRuleSchema },
+  })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
   listStationRoutingRules(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('branchId') branchId: string,

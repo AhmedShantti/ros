@@ -1,10 +1,18 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { finalizeOpenApiDocument } from './common/openapi/oas31.util';
+import { buildSwaggerConfig } from './swagger.config';
+
+const { version: apiVersion } = JSON.parse(
+  readFileSync(join(__dirname, '..', 'package.json'), 'utf8'),
+) as { version: string };
 
 /**
  * Interpret the TRUST_PROXY env value into an Express `trust proxy` setting.
@@ -45,21 +53,17 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('ROS Identity API')
-    .setDescription('Authentication & authorization for the Restaurant OS.')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
   SwaggerModule.setup(
     'docs',
     app,
-    SwaggerModule.createDocument(app, swaggerConfig),
+    finalizeOpenApiDocument(
+      SwaggerModule.createDocument(app, buildSwaggerConfig(apiVersion)),
+    ),
   );
 
   const port = config.get<number>('PORT', 3000);
   await app.listen(port);
-  Logger.log(`ROS Identity API listening on port ${port}`, 'Bootstrap');
+  Logger.log(`ROS Backend API listening on port ${port}`, 'Bootstrap');
 }
 
 void bootstrap();

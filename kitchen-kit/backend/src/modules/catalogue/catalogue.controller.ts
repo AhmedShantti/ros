@@ -12,11 +12,25 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import {
+  isoDateTimeSchema,
+  moneyStringSchema,
+  decimalStringSchema,
+  nullable,
+  uuidSchema,
+} from '../../common/openapi/schema-helpers';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { RequirePermission } from '../identity/authz/decorators/require-permission.decorator';
 import { PermissionGuard } from '../identity/authz/guards/permission.guard';
@@ -66,6 +80,186 @@ import { PriceListsService } from './price-lists/price-lists.service';
  * No Combo endpoints exist (C-08). No `price_change_history` endpoint exists —
  * price history lives in the audit trail (C-10).
  */
+
+// Shapes verified against `catalogue.views.ts` — the only place these
+// responses are actually built — not against the Prisma schema or the SRS.
+const localizedTextSchema = {
+  type: 'object',
+  description: 'Localised text, e.g. {"ar": "...", "en": "..."}.',
+};
+
+const menuSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    name: localizedTextSchema,
+    orderTypes: { type: 'array', items: { type: 'string' } },
+    activeWindow: nullable({
+      type: 'object',
+      description:
+        'Opaque time-window configuration (FR-MNU-002); this phase does not evaluate it.',
+    }),
+    priority: { type: 'integer' },
+    isActive: { type: 'boolean' },
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const categorySchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    menuId: uuidSchema(),
+    parentCategoryId: nullable(uuidSchema()),
+    name: localizedTextSchema,
+    sortOrder: { type: 'integer' },
+    colour: nullable({ type: 'string', example: '#FF5733' }),
+  },
+};
+
+const menuItemSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    names: localizedTextSchema,
+    kitchenNames: localizedTextSchema,
+    aggregatorNames: localizedTextSchema,
+    description: nullable(localizedTextSchema),
+    taxClassId: nullable(uuidSchema()),
+    revenueAccountCode: nullable({ type: 'string' }),
+    barcodePlu: nullable({ type: 'string' }),
+    allergens: { type: 'array', items: { type: 'string' } },
+    dietaryTags: { type: 'array', items: { type: 'string' } },
+    sortOrder: { type: 'integer' },
+    colour: nullable({ type: 'string', example: '#FF5733' }),
+    isCombo: {
+      type: 'boolean',
+      description:
+        'Retained per FR-MNU-004; no Combo tables exist (C-08) — always false in practice.',
+    },
+    isOpenPrice: { type: 'boolean' },
+    isWeighed: { type: 'boolean' },
+    isActive: { type: 'boolean' },
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const variantSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    menuItemId: uuidSchema(),
+    name: localizedTextSchema,
+    barcode: nullable({ type: 'string' }),
+    prepTimeSeconds: nullable({ type: 'integer' }),
+    sortOrder: { type: 'integer' },
+    isActive: { type: 'boolean' },
+  },
+};
+
+const modifierGroupSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    name: localizedTextSchema,
+    minSelections: { type: 'integer' },
+    maxSelections: { type: 'integer' },
+    isRequired: { type: 'boolean' },
+    allowRepeat: { type: 'boolean' },
+    freeQuantityThreshold: {
+      type: 'integer',
+      description: 'FR-MNU-011 "first N free, rest charged".',
+    },
+  },
+};
+
+const modifierSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    modifierGroupId: uuidSchema(),
+    name: localizedTextSchema,
+    kind: nullable({
+      type: 'string',
+      enum: ['addition', 'removal', 'substitution'],
+      description:
+        'FR-POS-021. null on a legacy modifier with no non-heuristic source for its kind.',
+    }),
+    priceDelta: moneyStringSchema(
+      'Minor-unit money delta; may be negative (e.g. a substitution credit).',
+    ),
+    stockItemId: nullable(uuidSchema()),
+    consumptionQuantity: nullable(decimalStringSchema()),
+    consumptionUnitId: nullable(uuidSchema()),
+    recipeDelta: nullable({
+      type: 'object',
+      description:
+        'Opaque; not interpreted or executed by this phase (FR-MNU-013).',
+    }),
+    isDefault: { type: 'boolean' },
+    sortOrder: { type: 'integer' },
+  },
+};
+
+const priceListSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    name: { type: 'string' },
+    scopeType: { type: 'string', enum: ['tenant', 'brand', 'branch'] },
+    scopeId: nullable(uuidSchema()),
+    orderType: nullable({ type: 'string' }),
+    validFrom: nullable(isoDateTimeSchema()),
+    validTo: nullable(isoDateTimeSchema()),
+    recurrenceRule: nullable({
+      type: 'object',
+      description:
+        'Opaque recurrence configuration (FR-MNU-022); not evaluated by this phase.',
+    }),
+    priority: { type: 'integer' },
+    status: { type: 'string', example: 'scheduled' },
+  },
+};
+
+const priceEntrySchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    priceListId: uuidSchema(),
+    menuItemVariantId: uuidSchema(),
+    price: moneyStringSchema(),
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+  },
+};
+
+const availabilityRuleSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    menuItemId: nullable(uuidSchema()),
+    variantId: nullable(uuidSchema()),
+    branchId: nullable(uuidSchema('null applies to all branches.')),
+    channel: nullable({ type: 'string' }),
+    dayOfWeek: nullable({ type: 'integer' }),
+    startsAt: nullable({
+      type: 'string',
+      description: 'Time of day (no date component).',
+      example: '11:00:00',
+    }),
+    endsAt: nullable({
+      type: 'string',
+      description: 'Time of day (no date component).',
+      example: '23:00:00',
+    }),
+    isManual86: { type: 'boolean' },
+    autoReenableAt: nullable(isoDateTimeSchema()),
+  },
+};
+
 @ApiTags('catalogue')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing/invalid/expired token.' })
@@ -88,6 +282,10 @@ export class CatalogueController {
   // ----------------------------------------------------------------- menus --
   @Post('menus')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created menu.',
+    schema: menuSchema,
+  })
   createMenu(
     @CurrentTenantContext() c: TenantContext,
     @Body() dto: CreateMenuDto,
@@ -97,12 +295,18 @@ export class CatalogueController {
 
   @Get('menus')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description: 'All menus for this tenant.',
+    schema: { type: 'array', items: menuSchema },
+  })
   listMenus(@CurrentTenantContext() c: TenantContext) {
     return this.menus.list(c.tenantId);
   }
 
   @Get('menus/:menuId')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({ description: 'The menu.', schema: menuSchema })
+  @ApiNotFoundResponse({ description: 'Menu not found.' })
   getMenu(
     @CurrentTenantContext() c: TenantContext,
     @Param('menuId') id: string,
@@ -112,6 +316,8 @@ export class CatalogueController {
 
   @Patch('menus/:menuId')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOkResponse({ description: 'The updated menu.', schema: menuSchema })
+  @ApiNotFoundResponse({ description: 'Menu not found.' })
   updateMenu(
     @CurrentTenantContext() c: TenantContext,
     @Param('menuId') id: string,
@@ -122,6 +328,11 @@ export class CatalogueController {
 
   @Post('menus/:menuId/status')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOperation({
+    summary: 'Activate/deactivate a menu (C-09 explicit, audited lifecycle).',
+  })
+  @ApiCreatedResponse({ description: 'The updated menu.', schema: menuSchema })
+  @ApiNotFoundResponse({ description: 'Menu not found.' })
   setMenuActive(
     @CurrentTenantContext() c: TenantContext,
     @Param('menuId') id: string,
@@ -134,6 +345,12 @@ export class CatalogueController {
   @Post('menus/:menuId/branches')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOperation({ summary: 'Assign a menu to a branch (C-01).' })
+  @ApiNoContentResponse({ description: 'Assigned.' })
+  @ApiNotFoundResponse({ description: 'Menu or branch not found.' })
+  @ApiConflictResponse({
+    description: 'This menu is already assigned to that branch.',
+  })
   async assignBranch(
     @CurrentTenantContext() c: TenantContext,
     @Param('menuId') id: string,
@@ -145,6 +362,8 @@ export class CatalogueController {
   @Delete('menus/:menuId/branches/:branchId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiNoContentResponse({ description: 'Unassigned.' })
+  @ApiNotFoundResponse({ description: 'Menu branch assignment not found.' })
   async unassignBranch(
     @CurrentTenantContext() c: TenantContext,
     @Param('menuId') id: string,
@@ -155,6 +374,10 @@ export class CatalogueController {
 
   @Get('menus/:menuId/branches')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description: 'Branch ids this menu is assigned to.',
+    schema: { type: 'array', items: { type: 'string', format: 'uuid' } },
+  })
   listMenuBranches(
     @CurrentTenantContext() c: TenantContext,
     @Param('menuId') id: string,
@@ -165,6 +388,25 @@ export class CatalogueController {
   /** FR-MNU-003: priority-ordered resolution with an ambiguity warning. */
   @Get('branches/:branchId/menus')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description:
+      'Active menus assigned to this branch, priority order (highest first).',
+    schema: {
+      type: 'object',
+      properties: {
+        menus: { type: 'array', items: menuSchema },
+        ambiguous: {
+          type: 'boolean',
+          description:
+            'True when two or more menus share the same priority — resolution order is then not deterministic.',
+        },
+        warning: {
+          type: 'string',
+          description: 'Present only when ambiguous is true.',
+        },
+      },
+    },
+  })
   resolveMenus(
     @CurrentTenantContext() c: TenantContext,
     @Param('branchId') branchId: string,
@@ -175,6 +417,11 @@ export class CatalogueController {
   // ------------------------------------------------------------ categories --
   @Post('menus/:menuId/categories')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created category.',
+    schema: categorySchema,
+  })
+  @ApiNotFoundResponse({ description: 'Menu or parent category not found.' })
   createCategory(
     @CurrentTenantContext() c: TenantContext,
     @Param('menuId') menuId: string,
@@ -185,6 +432,11 @@ export class CatalogueController {
 
   @Get('menus/:menuId/categories')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description: 'Categories on this menu, sort order.',
+    schema: { type: 'array', items: categorySchema },
+  })
+  @ApiNotFoundResponse({ description: 'Menu not found.' })
   listCategories(
     @CurrentTenantContext() c: TenantContext,
     @Param('menuId') menuId: string,
@@ -194,6 +446,13 @@ export class CatalogueController {
 
   @Patch('categories/:categoryId')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOkResponse({
+    description: 'The updated category.',
+    schema: categorySchema,
+  })
+  @ApiNotFoundResponse({
+    description: 'Category, or new parent category, not found.',
+  })
   updateCategory(
     @CurrentTenantContext() c: TenantContext,
     @Param('categoryId') id: string,
@@ -205,6 +464,10 @@ export class CatalogueController {
   // ------------------------------------------------------------ menu items --
   @Post('items')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created menu item.',
+    schema: menuItemSchema,
+  })
   createItem(
     @CurrentTenantContext() c: TenantContext,
     @Body() dto: CreateMenuItemDto,
@@ -214,12 +477,18 @@ export class CatalogueController {
 
   @Get('items')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description: 'All menu items for this tenant.',
+    schema: { type: 'array', items: menuItemSchema },
+  })
   listItems(@CurrentTenantContext() c: TenantContext) {
     return this.items.list(c.tenantId);
   }
 
   @Get('items/:itemId')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({ description: 'The menu item.', schema: menuItemSchema })
+  @ApiNotFoundResponse({ description: 'Menu item not found.' })
   getItem(
     @CurrentTenantContext() c: TenantContext,
     @Param('itemId') id: string,
@@ -229,6 +498,11 @@ export class CatalogueController {
 
   @Patch('items/:itemId')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOkResponse({
+    description: 'The updated menu item.',
+    schema: menuItemSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Menu item not found.' })
   updateItem(
     @CurrentTenantContext() c: TenantContext,
     @Param('itemId') id: string,
@@ -239,6 +513,15 @@ export class CatalogueController {
 
   @Post('items/:itemId/status')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOperation({
+    summary:
+      'Activate/deactivate a menu item (C-09 explicit, audited lifecycle).',
+  })
+  @ApiCreatedResponse({
+    description: 'The updated menu item.',
+    schema: menuItemSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Menu item not found.' })
   setItemActive(
     @CurrentTenantContext() c: TenantContext,
     @Param('itemId') id: string,
@@ -251,6 +534,15 @@ export class CatalogueController {
   @Post('items/:itemId/placements')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOperation({
+    summary:
+      'Place an item into a category (C-02) — an item may be placed in many categories.',
+  })
+  @ApiNoContentResponse({ description: 'Placed.' })
+  @ApiNotFoundResponse({ description: 'Menu item or category not found.' })
+  @ApiConflictResponse({
+    description: 'This item is already placed in that category.',
+  })
   async placeItem(
     @CurrentTenantContext() c: TenantContext,
     @Param('itemId') id: string,
@@ -262,6 +554,8 @@ export class CatalogueController {
   @Delete('items/:itemId/placements/:categoryId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiNoContentResponse({ description: 'Unplaced.' })
+  @ApiNotFoundResponse({ description: 'Placement not found.' })
   async unplaceItem(
     @CurrentTenantContext() c: TenantContext,
     @Param('itemId') id: string,
@@ -272,6 +566,17 @@ export class CatalogueController {
 
   @Get('items/:itemId/placements')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description: 'Categories (and their menus) this item is placed in.',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { categoryId: uuidSchema(), menuId: uuidSchema() },
+      },
+    },
+  })
+  @ApiNotFoundResponse({ description: 'Menu item not found.' })
   listPlacements(
     @CurrentTenantContext() c: TenantContext,
     @Param('itemId') id: string,
@@ -281,6 +586,15 @@ export class CatalogueController {
 
   @Post('items/:itemId/variants')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created variant.',
+    schema: variantSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Menu item not found.' })
+  @ApiConflictResponse({
+    description:
+      'This variant defaults to active and would leave an active price list without a price for it (C-11 amended).',
+  })
   addVariant(
     @CurrentTenantContext() c: TenantContext,
     @Param('itemId') id: string,
@@ -291,6 +605,11 @@ export class CatalogueController {
 
   @Get('items/:itemId/variants')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description: 'Variants of this item, sort order.',
+    schema: { type: 'array', items: variantSchema },
+  })
+  @ApiNotFoundResponse({ description: 'Menu item not found.' })
   listVariants(
     @CurrentTenantContext() c: TenantContext,
     @Param('itemId') id: string,
@@ -300,6 +619,19 @@ export class CatalogueController {
 
   @Post('variants/:variantId/status')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOperation({
+    summary:
+      'Activate/deactivate a variant (C-09 explicit, audited lifecycle).',
+  })
+  @ApiCreatedResponse({
+    description: 'The updated variant.',
+    schema: variantSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Variant not found.' })
+  @ApiConflictResponse({
+    description:
+      'Activating would leave an active price list without a price for this variant (C-11 amended).',
+  })
   setVariantActive(
     @CurrentTenantContext() c: TenantContext,
     @Param('variantId') id: string,
@@ -311,6 +643,17 @@ export class CatalogueController {
   @Post('items/:itemId/modifier-groups')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOperation({
+    summary:
+      'Attach a reusable modifier group to an item, with optional per-item overrides (FR-MNU-010).',
+  })
+  @ApiNoContentResponse({ description: 'Linked.' })
+  @ApiNotFoundResponse({
+    description: 'Menu item or modifier group not found.',
+  })
+  @ApiConflictResponse({
+    description: 'This modifier group is already linked to the item.',
+  })
   async linkModifierGroup(
     @CurrentTenantContext() c: TenantContext,
     @Param('itemId') id: string,
@@ -328,6 +671,13 @@ export class CatalogueController {
   // ------------------------------------------------------- modifier groups --
   @Post('modifier-groups')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created modifier group.',
+    schema: modifierGroupSchema,
+  })
+  @ApiBadRequestResponse({
+    description: 'min > max, or isRequired with min < 1 (SRS §7.3 #8).',
+  })
   createModifierGroup(
     @CurrentTenantContext() c: TenantContext,
     @Body() dto: CreateModifierGroupDto,
@@ -337,12 +687,24 @@ export class CatalogueController {
 
   @Get('modifier-groups')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description: 'All modifier groups for this tenant.',
+    schema: { type: 'array', items: modifierGroupSchema },
+  })
   listModifierGroups(@CurrentTenantContext() c: TenantContext) {
     return this.modifierGroups.list(c.tenantId);
   }
 
   @Patch('modifier-groups/:groupId')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiOkResponse({
+    description: 'The updated modifier group.',
+    schema: modifierGroupSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Modifier group not found.' })
+  @ApiBadRequestResponse({
+    description: 'min > max, or isRequired with min < 1 (SRS §7.3 #8).',
+  })
   updateModifierGroup(
     @CurrentTenantContext() c: TenantContext,
     @Param('groupId') id: string,
@@ -353,6 +715,14 @@ export class CatalogueController {
 
   @Post('modifier-groups/:groupId/modifiers')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
+  @ApiCreatedResponse({
+    description: 'The newly created modifier.',
+    schema: modifierSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Modifier group not found.' })
+  @ApiBadRequestResponse({
+    description: 'priceDelta must be an integer string.',
+  })
   addModifier(
     @CurrentTenantContext() c: TenantContext,
     @Param('groupId') id: string,
@@ -363,6 +733,11 @@ export class CatalogueController {
 
   @Get('modifier-groups/:groupId/modifiers')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description: 'Modifiers in this group, sort order.',
+    schema: { type: 'array', items: modifierSchema },
+  })
+  @ApiNotFoundResponse({ description: 'Modifier group not found.' })
   listModifiers(
     @CurrentTenantContext() c: TenantContext,
     @Param('groupId') id: string,
@@ -373,6 +748,20 @@ export class CatalogueController {
   // ------------------------------------------------------------ price list --
   @Post('price-lists')
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_CHANGE)
+  @ApiCreatedResponse({
+    description: 'The newly created price list.',
+    schema: priceListSchema,
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid scopeId for the given scopeType.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Brand or branch (named by scopeId) not found.',
+  })
+  @ApiConflictResponse({
+    description:
+      'Another price list already covers this scope at this priority for an overlapping validity window (SRS §7.3 #10), or (created as active) it is incomplete (C-11 amended).',
+  })
   createPriceList(
     @CurrentTenantContext() c: TenantContext,
     @Body() dto: CreatePriceListDto,
@@ -382,12 +771,18 @@ export class CatalogueController {
 
   @Get('price-lists')
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_READ)
+  @ApiOkResponse({
+    description: 'All price lists for this tenant, priority descending.',
+    schema: { type: 'array', items: priceListSchema },
+  })
   listPriceLists(@CurrentTenantContext() c: TenantContext) {
     return this.priceLists.list(c.tenantId);
   }
 
   @Get('price-lists/:priceListId')
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_READ)
+  @ApiOkResponse({ description: 'The price list.', schema: priceListSchema })
+  @ApiNotFoundResponse({ description: 'Price list not found.' })
   getPriceList(
     @CurrentTenantContext() c: TenantContext,
     @Param('priceListId') id: string,
@@ -397,6 +792,18 @@ export class CatalogueController {
 
   @Post('price-lists/:priceListId/entries')
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_CHANGE)
+  @ApiOperation({
+    summary:
+      "Set (create or overwrite) a variant's price within this list (FR-MNU-023/024).",
+  })
+  @ApiCreatedResponse({
+    description: 'The saved price entry.',
+    schema: priceEntrySchema,
+  })
+  @ApiBadRequestResponse({
+    description: 'price must be an integer string in minor currency units.',
+  })
+  @ApiNotFoundResponse({ description: 'Price list or variant not found.' })
   setPriceEntry(
     @CurrentTenantContext() c: TenantContext,
     @Param('priceListId') id: string,
@@ -407,6 +814,11 @@ export class CatalogueController {
 
   @Get('price-lists/:priceListId/entries')
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_READ)
+  @ApiOkResponse({
+    description: 'Price entries in this list.',
+    schema: { type: 'array', items: priceEntrySchema },
+  })
+  @ApiNotFoundResponse({ description: 'Price list not found.' })
   listPriceEntries(
     @CurrentTenantContext() c: TenantContext,
     @Param('priceListId') id: string,
@@ -417,6 +829,16 @@ export class CatalogueController {
   // ----------------------------------------------------------- availability --
   @Post('availability-rules')
   @RequirePermission(CATALOGUE_PERMISSIONS.AVAILABILITY_TOGGLE)
+  @ApiCreatedResponse({
+    description: 'The newly created availability rule.',
+    schema: availabilityRuleSchema,
+  })
+  @ApiBadRequestResponse({
+    description: 'A rule must target exactly one of menuItemId or variantId.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Menu item, variant, or branch not found.',
+  })
   createAvailabilityRule(
     @CurrentTenantContext() c: TenantContext,
     @Body() dto: CreateAvailabilityRuleDto,
@@ -426,6 +848,10 @@ export class CatalogueController {
 
   @Get('availability-rules')
   @RequirePermission(CATALOGUE_PERMISSIONS.AVAILABILITY_READ)
+  @ApiOkResponse({
+    description: 'Availability rules, optionally filtered to one menu item.',
+    schema: { type: 'array', items: availabilityRuleSchema },
+  })
   listAvailabilityRules(
     @CurrentTenantContext() c: TenantContext,
     @Query('menuItemId') menuItemId?: string,
@@ -436,6 +862,11 @@ export class CatalogueController {
   /** FR-MNU-030/032: manual 86 and authorised override, both audited. */
   @Post('availability-rules/:ruleId/86')
   @RequirePermission(CATALOGUE_PERMISSIONS.AVAILABILITY_TOGGLE)
+  @ApiCreatedResponse({
+    description: 'The updated availability rule.',
+    schema: availabilityRuleSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Availability rule not found.' })
   toggle86(
     @CurrentTenantContext() c: TenantContext,
     @Param('ruleId') id: string,
@@ -455,6 +886,42 @@ export class CatalogueController {
   /** Validated business invariant, reported — never a hard write-time block. */
   @Get('completeness')
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOkResponse({
+    description:
+      'C-11 (amended) completeness report: what would block sellability, without blocking anything itself.',
+    schema: {
+      type: 'object',
+      properties: {
+        itemsWithoutActiveVariant: {
+          type: 'array',
+          items: uuidSchema(),
+          description: 'Active menu item ids with zero active variants.',
+        },
+        unpricedVariants: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { variantId: uuidSchema(), menuItemId: uuidSchema() },
+          },
+          description: 'Active variants with no price entry in any price list.',
+        },
+        activeListGaps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              priceListId: uuidSchema(),
+              priceListName: { type: 'string' },
+              menuItemVariantId: uuidSchema(),
+            },
+          },
+          description:
+            '(active price list x active variant) pairs lacking a price — the exact SRS §7.3 #7 invariant.',
+        },
+        sellable: { type: 'boolean' },
+      },
+    },
+  })
   completenessReport(@CurrentTenantContext() c: TenantContext) {
     return this.completeness.report(c.tenantId);
   }

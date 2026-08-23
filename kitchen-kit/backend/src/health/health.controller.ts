@@ -5,7 +5,16 @@ import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 @Controller('health')
 export class HealthController {
   @Get()
-  @ApiOkResponse({ description: 'Service is up.' })
+  @ApiOkResponse({
+    description: 'Service is up.',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['ok'] },
+        service: { type: 'string', example: 'ros-identity' },
+      },
+    },
+  })
   check(): { status: string; service: string } {
     return { status: 'ok', service: 'ros-identity' };
   }

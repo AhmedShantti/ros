@@ -8,12 +8,23 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiHeader,
+  ApiNotFoundResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Idempotent } from '../../common/idempotency/idempotent.decorator';
+import {
+  isoDateTimeSchema,
+  moneyStringSchema,
+  nullable,
+  uuidSchema,
+} from '../../common/openapi/schema-helpers';
 import { CurrentPrincipal } from '../identity/auth/decorators/current-principal.decorator';
 import { AllowPosSession } from '../identity/auth/decorators/pos-session.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
@@ -94,6 +105,40 @@ import { toCashSessionView, toShiftView } from './treasury.views';
  * `docs/reconciliation/PHASE_1_SRS_REQUIREMENT_MAP.md` already records. No route
  * in this slice closes it.
  */
+
+// Shapes verified against `toCashSessionView`/`toShiftView` in
+// `treasury.views.ts` — not against the Prisma schema or the SRS.
+const cashSessionSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    branchId: uuidSchema(),
+    drawerId: uuidSchema(),
+    shiftId: uuidSchema(),
+    employeeId: uuidSchema(),
+    openingFloat: moneyStringSchema(),
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+    status: { type: 'string', enum: ['open', 'closed'] },
+    openedAt: isoDateTimeSchema(),
+    closedAt: nullable(isoDateTimeSchema()),
+  },
+};
+
+const shiftSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    branchId: uuidSchema(),
+    employeeId: uuidSchema(),
+    status: { type: 'string', enum: ['open', 'closed'] },
+    openedAt: isoDateTimeSchema(),
+  },
+};
+
 @ApiTags('treasury')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token.' })
@@ -122,6 +167,35 @@ export class TreasuryController {
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(TREASURY_PERMISSIONS.CASH_SESSION_OPEN)
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).',
+  })
+  @ApiCreatedResponse({
+    description:
+      'The opened cash session and its shift, plus whether this call created them (false on an idempotent replay of an already-open pair).',
+    schema: {
+      type: 'object',
+      properties: {
+        cashSession: cashSessionSchema,
+        shift: shiftSchema,
+        created: { type: 'boolean' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/over-long Idempotency-Key, a non-ULID shiftId/cashSessionId/drawerId, shiftId equal to cashSessionId, or an otherwise invalid request body.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Unknown terminal, branch, or employee.',
+  })
+  @ApiConflictResponse({
+    description:
+      'The terminal or employee is not active, or the Idempotency-Key was already used with a different request body / is still in flight.',
+  })
   async openCashSession(
     @CurrentTenantContext() context: TenantContext,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,

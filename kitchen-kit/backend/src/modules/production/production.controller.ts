@@ -11,11 +11,22 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import {
+  decimalStringSchema,
+  isoDateTimeSchema,
+  moneyStringSchema,
+  nullable,
+  uuidSchema,
+} from '../../common/openapi/schema-helpers';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { RequirePermission } from '../identity/authz/decorators/require-permission.decorator';
 import { PermissionGuard } from '../identity/authz/guards/permission.guard';
@@ -57,6 +68,156 @@ import { toRecipeView, toVersionView, toGroupView } from './production.views';
  * PermissionGuard (403). Cross-tenant ids yield 404, never 403, so a response
  * cannot disclose that another tenant's resource exists.
  */
+
+// Shapes verified against `production.views.ts` (`toRecipeView`/`toVersionView`/
+// `toGroupView`) and, where a route returns a raw Prisma row instead of a view
+// (`replaceLines`, `listGroups`, `addGroupMember`), against the corresponding
+// Prisma model in `prisma/schema.prisma` — not against the SRS.
+const recipeLineSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    sequence: { type: 'integer' },
+    componentType: { type: 'string', enum: ['stock_item', 'sub_recipe'] },
+    stockItemId: nullable(uuidSchema()),
+    subRecipeId: nullable(uuidSchema()),
+    quantity: decimalStringSchema(),
+    unitId: uuidSchema(),
+    wastagePercentage: decimalStringSchema(),
+    isOptional: { type: 'boolean' },
+    substituteGroupId: nullable(uuidSchema()),
+  },
+};
+
+const recipeVersionSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    recipeId: uuidSchema(),
+    version: { type: 'integer' },
+    status: { type: 'string', enum: ['draft', 'published', 'superseded'] },
+    yieldQuantity: decimalStringSchema(),
+    yieldUnitId: uuidSchema(),
+    yieldPercentage: decimalStringSchema(),
+    prepTimeSeconds: nullable({ type: 'integer' }),
+    computedCost: nullable(
+      moneyStringSchema(
+        'D-17-05: never populated by this phase; always null today.',
+      ),
+    ),
+    costComputedAt: nullable(isoDateTimeSchema()),
+    effectiveFrom: nullable(
+      isoDateTimeSchema(
+        'Informational only (D-17-08 Q2) — never consulted in selection.',
+      ),
+    ),
+    publishedBy: nullable(uuidSchema()),
+    instructions: nullable({
+      type: 'object',
+      description: 'Opaque JSON instructions payload.',
+    }),
+    referenceImages: nullable({
+      type: 'object',
+      description: 'Opaque JSON reference-image payload.',
+    }),
+    createdAt: isoDateTimeSchema(),
+    lines: {
+      type: 'array',
+      items: recipeLineSchema,
+      description: 'Present only where the endpoint populates line snapshots.',
+    },
+  },
+};
+
+const recipeSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    scope: { type: 'string', enum: ['tenant', 'brand', 'branch'] },
+    brandId: nullable(uuidSchema()),
+    branchId: nullable(uuidSchema()),
+    recipeType: {
+      type: 'string',
+      enum: ['menu_item', 'sub_recipe', 'production_item'],
+    },
+    menuItemVariantId: nullable(uuidSchema()),
+    stockItemId: nullable(uuidSchema()),
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const substituteGroupSchema = {
+  type: 'object',
+  properties: { id: uuidSchema(), name: { type: 'string' } },
+};
+
+// Raw `substituteGroup.findMany` row (`listGroups`) — not run through
+// `toGroupView`, so it also carries `tenantId` and the member list.
+const substituteGroupRowSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    tenantId: uuidSchema(),
+    name: { type: 'string' },
+    members: {
+      type: 'array',
+      items: { type: 'object', properties: { stockItemId: uuidSchema() } },
+    },
+  },
+};
+
+// Raw `substituteGroupMember.create` row (`addGroupMember`).
+const substituteGroupMemberSchema = {
+  type: 'object',
+  properties: {
+    tenantId: uuidSchema(),
+    substituteGroupId: uuidSchema(),
+    stockItemId: uuidSchema(),
+  },
+};
+
+const completenessReportSchema = {
+  type: 'object',
+  properties: {
+    branchId: nullable(
+      uuidSchema(
+        'The branch this report was resolved for; null for the tenant-wide view.',
+      ),
+    ),
+    entries: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          menuItemId: uuidSchema(),
+          variantId: uuidSchema(),
+          reason: {
+            type: 'string',
+            enum: ['absent_recipe', 'incomplete_recipe'],
+          },
+          recipeVersionId: nullable(
+            uuidSchema(
+              'The incomplete published version; null for absent_recipe.',
+            ),
+          ),
+          detail: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Empty for absent_recipe.',
+          },
+        },
+      },
+    },
+    absentCount: { type: 'integer' },
+    incompleteCount: { type: 'integer' },
+    sellableVariantCount: {
+      type: 'integer',
+      description:
+        'Active variants examined — the denominator of the completeness metric.',
+    },
+  },
+};
+
 @ApiTags('production')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token.' })
@@ -92,6 +253,10 @@ export class ProductionController {
    */
   @Get('recipes/requiring-completion')
   @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
+  @ApiOkResponse({
+    description: 'The BR-MNU-012 completeness report.',
+    schema: completenessReportSchema,
+  })
   recipesRequiringCompletion(
     @CurrentTenantContext() c: TenantContext,
     @Query() query: RecipeCompletenessQueryDto,
@@ -104,6 +269,10 @@ export class ProductionController {
   /** GAP-1 (Option A): the ratified recipe-creation deviation. */
   @Post('recipes')
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
+  @ApiCreatedResponse({
+    description: 'The newly created recipe.',
+    schema: recipeSchema,
+  })
   async createRecipe(
     @CurrentTenantContext() c: TenantContext,
     @Body() dto: CreateRecipeDto,
@@ -122,6 +291,11 @@ export class ProductionController {
 
   @Get('recipes')
   @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
+  @ApiOperation({ summary: 'List recipes, optionally filtered by type.' })
+  @ApiOkResponse({
+    description: 'Recipes visible to this tenant.',
+    schema: { type: 'array', items: recipeSchema },
+  })
   async listRecipes(
     @CurrentTenantContext() c: TenantContext,
     @Query('recipeType') recipeType?: string,
@@ -142,6 +316,10 @@ export class ProductionController {
   /** SRS §26.3 — version history. */
   @Get('recipes/:recipeId/versions')
   @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
+  @ApiOkResponse({
+    description: 'Version history, newest first, each with its lines.',
+    schema: { type: 'array', items: recipeVersionSchema },
+  })
   async listVersions(
     @CurrentTenantContext() c: TenantContext,
     @Param('recipeId') recipeId: string,
@@ -156,6 +334,10 @@ export class ProductionController {
    */
   @Post('recipes/:recipeId/versions')
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
+  @ApiCreatedResponse({
+    description: 'The newly created draft version.',
+    schema: recipeVersionSchema,
+  })
   async createVersion(
     @CurrentTenantContext() c: TenantContext,
     @Param('recipeId') recipeId: string,
@@ -169,6 +351,21 @@ export class ProductionController {
   /** Replace a draft version's lines. Published versions are refused (409). */
   @Put('recipes/:recipeId/versions/:version/lines')
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
+  @ApiOkResponse({
+    description:
+      'The version row (raw, not the view shape) plus the new line count.',
+    schema: {
+      type: 'object',
+      properties: {
+        ...recipeVersionSchema.properties,
+        lineCount: { type: 'integer' },
+      },
+    },
+  })
+  @ApiConflictResponse({
+    description:
+      'The version is not a draft; published versions are immutable (D-17-04).',
+  })
   async replaceLines(
     @CurrentTenantContext() c: TenantContext,
     @Param('recipeId') recipeId: string,
@@ -187,6 +384,17 @@ export class ProductionController {
   /** SRS §26.3 — publish. Demotes the incumbent, promotes the target, one txn. */
   @Post('recipes/:recipeId/versions/:version/publish')
   @RequirePermission(PRODUCTION_PERMISSIONS.PUBLISH)
+  @ApiCreatedResponse({
+    description:
+      'The now-published version, plus the id of the version it superseded (if any).',
+    schema: {
+      type: 'object',
+      properties: {
+        ...recipeVersionSchema.properties,
+        supersededVersionId: nullable(uuidSchema()),
+      },
+    },
+  })
   async publish(
     @CurrentTenantContext() c: TenantContext,
     @Param('recipeId') recipeId: string,
@@ -208,6 +416,14 @@ export class ProductionController {
 
   @Post('substitute-groups')
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
+  @ApiOperation({
+    summary:
+      'Create a substitute group, optionally seeded with member stock items.',
+  })
+  @ApiCreatedResponse({
+    description: 'The newly created substitute group.',
+    schema: substituteGroupSchema,
+  })
   async createGroup(
     @CurrentTenantContext() c: TenantContext,
     @Body() dto: CreateSubstituteGroupDto,
@@ -222,12 +438,22 @@ export class ProductionController {
 
   @Get('substitute-groups')
   @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
+  @ApiOperation({ summary: 'List substitute groups.' })
+  @ApiOkResponse({
+    description: 'Substitute groups with their member stock items.',
+    schema: { type: 'array', items: substituteGroupRowSchema },
+  })
   listGroups(@CurrentTenantContext() c: TenantContext) {
     return this.groups.list(c.tenantId);
   }
 
   @Post('substitute-groups/:groupId/members')
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
+  @ApiOperation({ summary: 'Add a stock item to a substitute group.' })
+  @ApiCreatedResponse({
+    description: 'The newly created membership row.',
+    schema: substituteGroupMemberSchema,
+  })
   addGroupMember(
     @CurrentTenantContext() c: TenantContext,
     @Param('groupId') groupId: string,

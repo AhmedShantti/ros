@@ -16,14 +16,29 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiHeader,
   ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Idempotent } from '../../../common/idempotency/idempotent.decorator';
+import {
+  isoDateTimeSchema,
+  moneyStringSchema,
+  decimalStringSchema,
+  businessDaySchema,
+  uuidSchema,
+  nullable,
+} from '../../../common/openapi/schema-helpers';
 import { CurrentPrincipal } from '../../identity/auth/decorators/current-principal.decorator';
 import { AllowPosSession } from '../../identity/auth/decorators/pos-session.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
@@ -75,6 +90,151 @@ import { OrdersService } from './orders.service';
  * `@AllowPosSession` opts these routes in for PIN-issued sessions (FR-SEC-021);
  * every other route in the system still refuses them by default.
  */
+
+// Shapes verified against `toOrderView`/`toOrderLineView` in `sales.views.ts`,
+// the only place these responses are actually built — not against the SRS or
+// the Prisma schema.
+const orderLineSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    sequence: { type: 'integer' },
+    menuItemId: uuidSchema(),
+    variantId: uuidSchema(),
+    itemNameSnapshot: {
+      type: 'object',
+      description:
+        'Opaque localized-name snapshot (locale -> name), persisted at capture time.',
+    },
+    quantity: decimalStringSchema(),
+    unitPrice: moneyStringSchema(),
+    modifierTotal: moneyStringSchema(),
+    lineDiscount: moneyStringSchema(),
+    lineSubtotal: moneyStringSchema(),
+    taxClassId: nullable(uuidSchema()),
+    taxAmount: moneyStringSchema(),
+    lineTotal: moneyStringSchema(),
+    unitCostSnapshot: nullable(decimalStringSchema()),
+    recipeVersionId: nullable(uuidSchema()),
+    priceListId: nullable(uuidSchema()),
+    priceEntryId: nullable(uuidSchema()),
+    priceRule: {
+      type: 'object',
+      description: 'Opaque pricing-rule provenance snapshot.',
+    },
+    course: nullable({ type: 'integer' }),
+    seatNumber: nullable({ type: 'integer' }),
+    state: {
+      type: 'string',
+      enum: [
+        'pending',
+        'fired',
+        'preparing',
+        'ready',
+        'served',
+        'voided',
+        'comped',
+      ],
+    },
+    firedAt: nullable(isoDateTimeSchema()),
+    readyAt: nullable(isoDateTimeSchema()),
+    isComp: { type: 'boolean' },
+    notes: nullable({ type: 'string' }),
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const orderSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    branchId: uuidSchema(),
+    terminalId: nullable(uuidSchema()),
+    orderNumber: { type: 'string' },
+    businessDay: businessDaySchema(),
+    orderType: {
+      type: 'string',
+      enum: [
+        'dine_in',
+        'takeaway',
+        'delivery',
+        'drive_thru',
+        'pickup',
+        'aggregator',
+      ],
+    },
+    channel: {
+      type: 'string',
+      enum: ['pos', 'kiosk', 'qr', 'aggregator', 'phone', 'api'],
+    },
+    state: {
+      type: 'string',
+      enum: [
+        'draft',
+        'open',
+        'held',
+        'parked',
+        'partially_paid',
+        'completed',
+        'cancelled',
+        'partially_refunded',
+        'refunded',
+      ],
+    },
+    tableId: nullable(uuidSchema()),
+    guestCount: nullable({ type: 'integer' }),
+    openedBy: uuidSchema(),
+    servedBy: nullable(uuidSchema()),
+    closedBy: nullable(uuidSchema()),
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+    subtotal: moneyStringSchema(),
+    discountTotal: moneyStringSchema(),
+    serviceChargeTotal: moneyStringSchema(),
+    taxTotal: moneyStringSchema(),
+    roundingAdjustment: moneyStringSchema(),
+    grandTotal: moneyStringSchema(),
+    paidTotal: moneyStringSchema(),
+    tipTotal: moneyStringSchema(),
+    openedAt: isoDateTimeSchema(),
+    firstFiredAt: nullable(isoDateTimeSchema()),
+    completedAt: nullable(isoDateTimeSchema()),
+    originDeviceTime: isoDateTimeSchema(),
+    countryPackVersion: {
+      type: 'integer',
+      description:
+        'FR-LOC-021 — the pack version this order was priced under, pinned.',
+    },
+    notes: nullable({ type: 'string' }),
+    version: {
+      type: 'integer',
+      description:
+        'Optimistic-concurrency version; also the ETag validator (§24.6.4).',
+    },
+    createdAt: isoDateTimeSchema(),
+    updatedAt: isoDateTimeSchema(),
+    lines: {
+      type: 'array',
+      items: orderLineSchema,
+      description: 'Present only where the endpoint populates line snapshots.',
+    },
+  },
+};
+
+const etagHeader = {
+  ETag: {
+    description:
+      'Weak validator W/"<orderId>.<version>" for this order — send back as If-Match on the next mutation.',
+    schema: {
+      type: 'string',
+      example: 'W/"3fa85f64-5717-4562-b3fc-2c963f66afa6.4"',
+    },
+  },
+};
+
 @ApiTags('sales')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token.' })
@@ -101,6 +261,26 @@ export class OrdersController {
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
+  @ApiOperation({ summary: 'Open an order.' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original order unchanged (Idempotent-Replay: true).',
+  })
+  @ApiCreatedResponse({
+    description: 'The newly opened order.',
+    schema: orderSchema,
+    headers: etagHeader,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/over-long Idempotency-Key, or an invalid request body.',
+  })
+  @ApiConflictResponse({
+    description:
+      'The Idempotency-Key was already used with a different request body, or is still in flight.',
+  })
   async create(
     @CurrentTenantContext() context: TenantContext,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
@@ -136,6 +316,27 @@ export class OrdersController {
 
   @Get()
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
+  @ApiOperation({ summary: 'List orders, cursor-paginated.' })
+  @ApiOkResponse({
+    description:
+      'A page of orders (no line snapshots) plus an opaque cursor for the next page.',
+    schema: {
+      type: 'object',
+      properties: {
+        orders: { type: 'array', items: orderSchema },
+        nextCursor: nullable({
+          type: 'object',
+          description:
+            'Pass businessDay as cursorBusinessDay and id as cursorId to fetch the next page. Null on the last page.',
+          properties: { businessDay: businessDaySchema(), id: uuidSchema() },
+        }),
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'A cursor was given with only one of cursorBusinessDay/cursorId.',
+  })
   async list(
     @CurrentTenantContext() context: TenantContext,
     @Query() query: ListOrdersQueryDto,
@@ -172,6 +373,12 @@ export class OrdersController {
    */
   @Get(':businessDay/:id')
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
+  @ApiOperation({ summary: 'One order, with its persisted line snapshots.' })
+  @ApiOkResponse({
+    description: 'The order, including its lines.',
+    schema: orderSchema,
+    headers: etagHeader,
+  })
   async findOne(
     @CurrentTenantContext() context: TenantContext,
     @Param() params: OrderPathParamsDto,
@@ -203,6 +410,39 @@ export class OrdersController {
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
+  @ApiOperation({ summary: 'Capture a line on an open order.' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).',
+  })
+  @ApiHeader({
+    name: 'if-match',
+    required: true,
+    description:
+      'The order\'s current ETag (W/"<orderId>.<version>") or a bare version integer. Not "*".',
+  })
+  @ApiCreatedResponse({
+    description: 'The newly captured line and the order it now belongs to.',
+    schema: {
+      type: 'object',
+      properties: { line: orderLineSchema, order: orderSchema },
+    },
+    headers: etagHeader,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/malformed If-Match, missing/over-long Idempotency-Key, or an invalid request body.',
+  })
+  @ApiConflictResponse({
+    description:
+      'The If-Match version is stale (someone else changed the order first), or the Idempotency-Key was already used with a different request body / is still in flight.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The item/variant is not active, no active price applies, the item is priced in a different currency than the order, or a similar business-rule refusal.',
+  })
   async addLine(
     @CurrentTenantContext() context: TenantContext,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
@@ -246,6 +486,34 @@ export class OrdersController {
   @Delete(':businessDay/:id/lines/:lineId')
   @HttpCode(HttpStatus.OK)
   @RequirePermission(SALES_PERMISSIONS.ORDER_VOID_LINE_PREFIRE)
+  @ApiOperation({
+    summary: 'Void a pre-fire line (the ordinary cashier correction).',
+  })
+  @ApiHeader({
+    name: 'if-match',
+    required: true,
+    description:
+      'The order\'s current ETag (W/"<orderId>.<version>") or a bare version integer. Not "*".',
+  })
+  @ApiOkResponse({
+    description: 'The voided line and the order it belongs to.',
+    schema: {
+      type: 'object',
+      properties: { line: orderLineSchema, order: orderSchema },
+    },
+    headers: etagHeader,
+  })
+  @ApiBadRequestResponse({
+    description: 'Missing or malformed If-Match header.',
+  })
+  @ApiConflictResponse({
+    description:
+      'The If-Match version is stale — someone else changed the order first.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The line has already been fired; the post-fire path is privileged and not implemented here, or a similar business-rule refusal.',
+  })
   async voidLine(
     @CurrentTenantContext() context: TenantContext,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,

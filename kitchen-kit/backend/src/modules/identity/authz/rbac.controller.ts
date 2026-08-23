@@ -10,11 +10,23 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import {
+  isoDateTimeSchema,
+  nullable,
+  uuidSchema,
+} from '../../../common/openapi/schema-helpers';
 import {
   CurrentAuthorization,
   CurrentTenantContext,
@@ -39,6 +51,24 @@ import { MembershipRolesService } from './membership-roles.service';
 import { IDENTITY_PERMISSIONS } from './permissions.constants';
 import { RolesService } from './roles.service';
 
+// Shape verified against the `Role` Prisma model — `listForTenant`/
+// `createTenantRole` in `roles.service.ts` return it directly, with no
+// separate view/factory function (nothing on it is sensitive).
+const roleSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    tenantId: nullable(
+      uuidSchema('NULL for a platform/system role, shared across tenants.'),
+    ),
+    name: { type: 'string' },
+    description: nullable({ type: 'string' }),
+    isSystem: { type: 'boolean' },
+    createdAt: isoDateTimeSchema(),
+    updatedAt: isoDateTimeSchema(),
+  },
+};
+
 // Guard order: JwtAuthGuard (401) → TenantContextGuard (403, establishes the
 // trusted context once) → PermissionGuard (403, consumes it).
 @ApiTags('rbac')
@@ -58,6 +88,13 @@ export class RbacController {
 
   /** Effective permissions of the caller's active membership. */
   @Get('permissions')
+  @ApiOkResponse({
+    description: "The caller's effective permission codes, sorted.",
+    schema: {
+      type: 'object',
+      properties: { permissions: { type: 'array', items: { type: 'string' } } },
+    },
+  })
   myPermissions(@CurrentAuthorization() auth: RequestAuthorization): {
     permissions: string[];
   } {
@@ -66,12 +103,28 @@ export class RbacController {
 
   @Get('roles')
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_READ)
+  @ApiOperation({
+    summary:
+      'Roles visible to the tenant: its own roles plus shared system roles.',
+  })
+  @ApiOkResponse({
+    description: 'Roles, system roles first, then by name.',
+    schema: { type: 'array', items: roleSchema },
+  })
   listRoles(@CurrentTenantContext() ctx: TenantContext) {
     return this.roles.listForTenant(ctx.tenantId);
   }
 
   @Post('roles')
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_CREATE)
+  @ApiOperation({ summary: 'Create a tenant-owned role.' })
+  @ApiCreatedResponse({
+    description: 'The newly created role.',
+    schema: roleSchema,
+  })
+  @ApiConflictResponse({
+    description: 'A role with this name already exists in this tenant.',
+  })
   createRole(
     @CurrentTenantContext() ctx: TenantContext,
     @Body() dto: CreateRoleDto,
@@ -82,6 +135,17 @@ export class RbacController {
   @Post('roles/:roleId/permissions')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_UPDATE)
+  @ApiOperation({ summary: 'Grant permissions to a tenant-owned role.' })
+  @ApiNoContentResponse({ description: 'Permissions granted.' })
+  @ApiBadRequestResponse({
+    description: 'An unknown permission code was given.',
+  })
+  @ApiNotFoundResponse({
+    description: 'The role does not exist in this tenant.',
+  })
+  @ApiForbiddenResponse({
+    description: 'The role is a system role and cannot be modified.',
+  })
   async addRolePermissions(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('roleId') roleId: string,
@@ -93,6 +157,14 @@ export class RbacController {
   @Post('memberships/:membershipId/roles')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
+  @ApiOperation({ summary: 'Assign a role to a membership.' })
+  @ApiNoContentResponse({ description: 'Role assigned.' })
+  @ApiNotFoundResponse({
+    description: 'The membership or role does not exist in this tenant.',
+  })
+  @ApiForbiddenResponse({
+    description: 'The role is a system role and cannot be assigned here.',
+  })
   async assignRole(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('membershipId') membershipId: string,
@@ -114,6 +186,11 @@ export class RbacController {
   @Delete('memberships/:membershipId/roles/:roleId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
+  @ApiOperation({ summary: 'Remove a role from a membership.' })
+  @ApiNoContentResponse({ description: 'Role removed.' })
+  @ApiNotFoundResponse({
+    description: 'The membership does not exist in this tenant.',
+  })
   async removeRole(
     @CurrentTenantContext() ctx: TenantContext,
     @Param('membershipId') membershipId: string,
