@@ -275,9 +275,84 @@ verified, currently-passing integrated state.
 
 ## K. POST-PUSH VERIFICATION
 
-Recorded after the push completes (this section is populated with the
-actual command output in the commit/push steps that follow this report's
-creation — see the session's final chat response for the authoritative
-hash comparison): `git rev-parse HEAD` compared directly against
-`git ls-remote --heads origin feat/production-spec`. The checkpoint is
-reported as pushed only if these two hashes match exactly.
+**Actual recorded evidence** (this section originally shipped as a
+forward-looking placeholder describing what would be checked, not the
+result of having checked it — corrected here, in a small follow-up
+documentation commit, per this task's own explicit fallback instruction:
+"do NOT rewrite/amend the checkpoint commit; instead make one tiny
+follow-up documentation commit").
+
+**Checkpoint commit:**
+
+```
+commit 2e21aeb36ccad480ec026108113c1126390edc07
+Author:     Ahmed Shantti <shantti04@gmail.com>
+AuthorDate: Sun Aug 23 10:57:41 2026 +0300
+Commit:     Ahmed Shantti <shantti04@gmail.com>
+CommitDate: Sun Aug 23 10:57:41 2026 +0300
+
+    feat: checkpoint ROS backend through P1E-5A
+```
+
+211 files changed (45 modified, 166 added, 0 deleted), 47,395 insertions /
+193 deletions.
+
+**Push:**
+
+```
+$ git push
+To https://github.com/OffBrand-org/kitchen-kit-backend.git
+   e5648fb..2e21aeb  feat/production-spec -> feat/production-spec
+```
+
+No force flag was used (a plain `git push`, since `feat/production-spec`
+already tracked `origin/feat/production-spec`). No other branch was pushed.
+No merge, no PR.
+
+**Remote hash verification:**
+
+```
+LOCAL  = git rev-parse HEAD
+       = 2e21aeb36ccad480ec026108113c1126390edc07
+REMOTE = git ls-remote --heads origin feat/production-spec
+       = 2e21aeb36ccad480ec026108113c1126390edc07  refs/heads/feat/production-spec
+```
+
+**LOCAL == REMOTE: YES.** The push is confirmed delivered, not merely
+"exit code 0" — the remote ref genuinely points at the exact local commit.
+
+**Post-push working tree:**
+
+```
+$ git status --short
+(no output)
+$ git status -sb
+## feat/production-spec...origin/feat/production-spec
+```
+
+Clean, fully in sync with the remote, no ahead/behind divergence.
+
+---
+
+## L. REFERENCE-FILE FOLLOW-UP (`ROS_SRS_v1.0.pdf`, `PHASE-15.md`)
+
+A subsequent review of this report (before this documentation follow-up)
+correctly flagged that `ROS_SRS_v1.0.pdf` and `PHASE-15.md` — classified in
+§C as "PROJECT REFERENCE MATERIAL", not implementation output — were
+included in checkpoint commit `2e21aeb` and asked that they be excluded.
+
+That request was written assuming a pre-commit state (staging could still
+be adjusted with `git rm --cached`). By the time it was read, `2e21aeb` was
+already committed **and pushed** to `origin/feat/production-spec`. This
+task's own instructions explicitly forbid `git commit --amend` and
+`git push --force`/`--force-with-lease` for any reason, including this one
+— so the two files cannot be retroactively removed from `2e21aeb`'s history
+without violating that constraint, and no such rewrite was attempted.
+
+**No `git rm` of either file was performed in this follow-up** — doing so
+unilaterally would only stop tracking them going forward while leaving them
+in the already-public history, which is a different, more consequential
+decision than the reversible pre-commit unstage originally requested, and
+is not this report's call to make silently. That decision was instead
+handed back to the user directly in the same turn this section was written,
+rather than resolved here by assumption.
