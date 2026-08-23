@@ -15,7 +15,7 @@ import {
   Min,
 } from 'class-validator';
 import { UUID_PATTERN } from '../../common/ids';
-import { PriceListScope } from '../../generated/prisma/client';
+import { ModifierKind, PriceListScope } from '../../generated/prisma/client';
 
 /**
  * Catalogue DTOs. No DTO accepts `tenantId` — the tenant comes only from the
@@ -146,6 +146,15 @@ export class UpdateModifierGroupDto extends CreateModifierGroupDto {
 
 export class CreateModifierDto {
   @IsObject() name!: Record<string, unknown>;
+
+  /**
+   * FR-POS-021 [M]. REQUIRED — P1E-5. Pre-existing rows may carry `kind:
+   * null` (no non-heuristic source data could classify them; see the
+   * catalogue-modifier-kind migration header), but every NEW modifier
+   * created through this API must state its semantic kind explicitly.
+   */
+  @IsEnum(ModifierKind)
+  kind!: ModifierKind;
 
   /** Minor units as an integer string, so BIGINT precision survives JSON. */
   @IsOptional()

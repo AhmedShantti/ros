@@ -86,6 +86,9 @@ export function toModifierView(m: Modifier) {
     id: m.id,
     modifierGroupId: m.modifierGroupId,
     name: m.name,
+    /** FR-POS-021 [M]. `null` = a legacy modifier with no non-heuristic
+     * source of truth for its kind (P1E-5) — never fabricated. */
+    kind: m.kind,
     // Money is BIGINT in the DB; serialise as a string so precision survives JSON.
     priceDelta: m.priceDelta.toString(),
     stockItemId: m.stockItemId,

@@ -22,6 +22,7 @@ import { AuthService } from './auth.service';
 import type { AuthenticatedPrincipal } from './auth.types';
 import { CurrentPrincipal } from './decorators/current-principal.decorator';
 import { LoginDto } from './dto/login.dto';
+import { PinLoginDto } from './dto/pin-login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -38,6 +39,22 @@ export class AuthController {
   @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.' })
   login(@Body() dto: LoginDto, @Req() req: Request) {
     return this.auth.login(dto, {
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
+    });
+  }
+
+  /**
+   * FR-SEC-020/021/022 — POS PIN authentication.
+   *
+   * Same throttling as the other sensitive auth endpoints. The issued session is
+   * POS-only; it cannot reach dashboard routes (FR-SEC-021).
+   */
+  @Post('pin')
+  @UseGuards(AuthThrottlerGuard)
+  @HttpCode(HttpStatus.OK)
+  loginWithPin(@Body() dto: PinLoginDto, @Req() req: Request) {
+    return this.auth.loginWithPin(dto, {
       ipAddress: req.ip ?? null,
       userAgent: req.headers['user-agent'] ?? null,
     });

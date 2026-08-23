@@ -431,7 +431,7 @@ describe('Organisation (e2e)', () => {
       await request(http)
         .post(`/org/branches/${branchA}/station-routing-rules`)
         .set(auth(tokenAdminA))
-        .send({ stationId: stationB })
+        .send({ stationId: stationB, menuItemId: newId() })
         .expect(404);
     });
 
@@ -762,6 +762,142 @@ describe('Organisation (e2e)', () => {
         where: { tenantId: tenantAId },
       });
       expect(after).toBe(before);
+    });
+  });
+
+  // ---------------------------------------------------- P1E-3: KDS config ---
+  describe('P1E-3 — station display colour, modifier routing selector', () => {
+    let stationForRules: string;
+    let menuItemIdA: string;
+    let modifierIdA: string;
+
+    beforeAll(async () => {
+      stationForRules = (
+        (
+          await request(http)
+            .post(`/org/branches/${branchA}/stations`)
+            .set(auth(tokenAdminA))
+            .send({ name: `Fryer ${stamp}`, displayColour: '#FF0000' })
+            .expect(201)
+        ).body as WithId
+      ).id;
+
+      const menuItem = await admin.menuItem.create({
+        data: { id: newId(), tenantId: tenantAId, names: { en: 'Item' } },
+      });
+      menuItemIdA = menuItem.id;
+
+      const group = await admin.modifierGroup.create({
+        data: { id: newId(), tenantId: tenantAId, name: { en: 'Group' } },
+      });
+      const modifier = await admin.modifier.create({
+        data: {
+          id: newId(),
+          tenantId: tenantAId,
+          modifierGroupId: group.id,
+          name: { en: 'Mod' },
+        },
+      });
+      modifierIdA = modifier.id;
+    });
+
+    it('FR-KDS-001: station create/list round-trips displayColour', async () => {
+      const res = await request(http)
+        .get(`/org/branches/${branchA}/stations`)
+        .set(auth(tokenAdminA))
+        .expect(200);
+      const found = (
+        res.body as Array<{ id: string; displayColour: string | null }>
+      ).find((s) => s.id === stationForRules);
+      expect(found?.displayColour).toBe('#FF0000');
+    });
+
+    it('rejects a routing rule with zero selectors → 400', async () => {
+      await request(http)
+        .post(`/org/branches/${branchA}/station-routing-rules`)
+        .set(auth(tokenAdminA))
+        .send({ stationId: stationForRules })
+        .expect(400);
+    });
+
+    it('rejects a routing rule with two selectors → 400', async () => {
+      await request(http)
+        .post(`/org/branches/${branchA}/station-routing-rules`)
+        .set(auth(tokenAdminA))
+        .send({
+          stationId: stationForRules,
+          menuItemId: menuItemIdA,
+          categoryId: newId(),
+        })
+        .expect(400);
+    });
+
+    it('rejects a routing rule with all three selectors → 400', async () => {
+      await request(http)
+        .post(`/org/branches/${branchA}/station-routing-rules`)
+        .set(auth(tokenAdminA))
+        .send({
+          stationId: stationForRules,
+          menuItemId: menuItemIdA,
+          categoryId: newId(),
+          modifierId: modifierIdA,
+        })
+        .expect(400);
+    });
+
+    it('accepts a menu-item-selector routing rule (tier 3)', async () => {
+      const res = await request(http)
+        .post(`/org/branches/${branchA}/station-routing-rules`)
+        .set(auth(tokenAdminA))
+        .send({ stationId: stationForRules, menuItemId: menuItemIdA })
+        .expect(201);
+      expect(res.body).toMatchObject({
+        stationId: stationForRules,
+        menuItemId: menuItemIdA,
+        categoryId: null,
+        modifierId: null,
+      });
+    });
+
+    it('accepts a modifier-selector routing rule (tier 2)', async () => {
+      const res = await request(http)
+        .post(`/org/branches/${branchA}/station-routing-rules`)
+        .set(auth(tokenAdminA))
+        .send({ stationId: stationForRules, modifierId: modifierIdA })
+        .expect(201);
+      expect(res.body).toMatchObject({
+        stationId: stationForRules,
+        menuItemId: null,
+        categoryId: null,
+        modifierId: modifierIdA,
+      });
+    });
+
+    it('rejects a duplicate (selector, station) routing rule → 409', async () => {
+      await request(http)
+        .post(`/org/branches/${branchA}/station-routing-rules`)
+        .set(auth(tokenAdminA))
+        .send({ stationId: stationForRules, modifierId: modifierIdA })
+        .expect(409);
+    });
+
+    it('modifier routing rule cannot target another tenant modifier → 404', async () => {
+      const groupB = await admin.modifierGroup.create({
+        data: { id: newId(), tenantId: tenantBId, name: { en: 'Group B' } },
+      });
+      const modifierB = await admin.modifier.create({
+        data: {
+          id: newId(),
+          tenantId: tenantBId,
+          modifierGroupId: groupB.id,
+          name: { en: 'Mod B' },
+        },
+      });
+      await request(http)
+        .post(`/org/branches/${branchA}/station-routing-rules`)
+        .set(auth(tokenAdminA))
+        .send({ stationId: stationForRules, modifierId: modifierB.id })
+        .expect(404);
     });
   });
 });

@@ -111,6 +111,52 @@ Database (3 columns). No RLS change. Authorization: `required_permission` become
 > unmet.** The Governance phase MUST NOT be reported complete on the strength of
 > the approval model alone.
 
+> ---
+>
+> **AMENDMENT — D-2 REOPENED IN PART (2026-08-19), by explicit user governance
+> action.** The ratified text above is **unchanged, not reinterpreted, and not
+> deleted**. This amendment lifts the defer **only** to the minimum extent P0 PIN
+> requires, and is recorded forward in the register's established manner.
+>
+> **Defer LIFTED for exactly these four items:**
+>
+> 1. **Employee ↔ User linkage.** SRS §7.3 #25 already defines the Employee
+>    aggregate as *"May link to at most one User"*, and §14 distinguishes an
+>    Employee (a person in a job) from a User (a login). The semantics were never
+>    undefined — only the persistence was absent.
+> 2. **Permitted / home branch substrate.** `FR-HRM-001` [M] names **"permitted
+>    branches"** as an employee-record field and `FR-HRM-005` [M] requires
+>    assignment to multiple branches with a designated home branch. This is the
+>    substrate `FR-SEC-021` depends on.
+> 3. **Tenant-safe `Terminal → Branch` binding.** `Terminal.branch_id` is today a
+>    recorded UUID with **no foreign key** (schema comment: *"the org context is
+>    not modelled here… Branch-level authorization is deferred (ADR 0004)"*).
+>    `FR-SEC-021` cannot be trusted while that binding is unenforced, so a
+>    composite tenant-safe FK to `org.branches` is brought into scope.
+> 4. **`FR-SEC-021` / `FR-SEC-022` PIN behaviour** in full: valid only on
+>    registered terminals within the employee's permitted branches; **no web
+>    dashboard access**; salted-hash storage; **uniqueness within a branch**;
+>    configurable-threshold lockout. `FR-SEC-028` terminal registration and
+>    revocation is included to the extent `FR-SEC-021` relies on "registered".
+>
+> **Defer REMAINS IN FORCE for everything else**, explicitly:
+>
+> - **Broader branch-scoped RBAC** — `FR-SEC-002` / `FR-SEC-003` / `FR-SEC-004`
+>   general scope resolution stays deferred. Only the branch check `FR-SEC-021`
+>   itself requires is lifted; permission resolution is **not** made branch-aware
+>   by this amendment.
+> - **The wider Workforce domain** — scheduling, attendance, payroll,
+>   certifications, employment terms and the rest of `FR-HRM-*` stay deferred.
+>   Only the employee identity, User linkage and permitted/home-branch fields the
+>   four items above require are in scope.
+> - **`FR-SEC-032`** (manager PIN for *approvals*, and push notification) remains
+>   **knowingly unmet**; this amendment concerns PIN **authentication**, not the
+>   approval workflow. **D-11** (notifications: strict none) is untouched.
+>
+> **Unchanged by this amendment:** D-16 OPEN · D-12 BLOCKED · D-3 RATIFIED IN PART
+> · P-1 · D-10 · D-17-05 · SB-1 / SB-2 / SB-3 unresolved portions. **No new
+> numbered decision is created.**
+
 ### Question
 Is the **synchronous** half of `FR-SEC-032` ("manager PIN on the terminal") in scope for the first Governance phase — which would pull in PIN authentication (`FR-SEC-021`, `FR-SEC-022`) and branch-scoped RBAC (`FR-SEC-002`, deferred by ADR 0008 D-02)?
 
@@ -4325,6 +4371,1096 @@ of 2026-08-18 that follows.)*
 
 ---
 
+---
+
+## PL — `approval_decisions` → Parent Linkage (carried item — RATIFIED)
+
+> **STATUS: RATIFIED 2026-08-18 — P-1: `approval_decisions` REFERENCES `approval_requests`
+> DIRECTLY.** See the **Ratification** block at the end of this item for the binding text. The
+> analysis below is retained as the record of what was considered; **P-2 was considered and NOT
+> adopted**, and **P-3 / P-4 were not adopted**.
+> **This is NOT a new numbered decision.** It is the carried unresolved item first exposed by
+> **D-5 ("Newly Exposed Dependency — NOT RESOLVED HERE")** and preserved by **D-7 cl. 9**,
+> **D-9 cl. 9** and every subsequent ratification. **The governance tally is unchanged at
+> 17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN.** No ratification block appears here.
+> **No ratified decision is reopened, reinterpreted or amended.**
+
+### The question
+**What is the authoritative parent of `governance.approval_decisions` in Phase 1?**
+
+---
+
+### 1. Exhaustive SRS Evidence
+
+**1a. The only SRS statement of approval structure — §7.3 Aggregate Catalogue, row 36:**
+
+| # | Aggregate Root | Context | Contained Entities | Key Invariants |
+|---|---|---|---|---|
+| **36** | **ApprovalRequest** | Governance | **Steps, Decisions** | **Requester ≠ approver** |
+
+This establishes **aggregate ownership**: `ApprovalRequest` is the **root**, and **both** Steps
+and Decisions are **contained entities of that one aggregate**. It also places the
+requester ≠ approver invariant **at the aggregate level**, consistent with **D-7 M2**'s
+traversal needing to reach the root.
+
+> **CONTROL — this row does NOT establish the FK topology.** The "Contained Entities" column
+> is a **flat list**, and row 22 proves flatness hides nesting: `Order` lists
+> *"OrderLines, **LineModifiers**, Discounts, Payments, ServiceCharges"* — yet a
+> **LineModifier must attach to an OrderLine**, not to the Order. **A flat listing of
+> "Steps, Decisions" therefore cannot be read as proving Decisions attach directly to the
+> Request.** Row 36 is compatible with **both** P-1 and P-2.
+
+**1b. `FR-SEC-033` [M] — the decision's own contents, verbatim:**
+
+> *"Approval decisions SHALL record **approver, timestamp, decision, and any comment**, and
+> SHALL be immutable."*
+
+**The single most important negative finding: the SRS's own enumeration of what a decision
+records does NOT include any reference to its parent** — no request id, no step id, no link
+of any kind.
+
+**1c. Exhaustive term search:**
+
+| Term | Occurrences in the SRS |
+|---|---|
+| **"approval step" / "approval_steps"** | **ZERO** — the SRS never uses the term |
+| **"approval level"** | **exactly 2** — `FR-SEC-034` **[S]** (*"escalates to the next approval level"*) and **§24.5.3** (*"a chain of approval levels"*) |
+| **"Steps"** as an approval entity | **once** — §7.3 row 36's cell |
+
+**1d. §15.6 Approval Workflow Engine — the general mechanism — mentions steps nowhere.**
+`FR-SEC-030` … `FR-SEC-035` name no step, level-entity, parent column, or identifier.
+`FR-SEC-031` enumerates the **request's** fields and references neither steps nor decisions.
+
+**1e. §24.5.3 Chain of Responsibility** — *"a request passes along a chain of approval levels
+until one accepts it or the chain is exhausted."* Architecture chapter, **not a numbered
+requirement**, and its subject is **traversal semantics, not persistence**.
+
+**CONCLUSION ON SOURCE EVIDENCE: the SRS establishes aggregate ownership (Decisions belong to
+the ApprovalRequest aggregate) and NOTHING about the physical parent reference. It names no
+column, no identifier, and no foreign key for a decision's parent.**
+
+---
+
+### 2. Constraints From Ratified Decisions (not reopened)
+
+| Decision | Bearing on parent linkage |
+|---|---|
+| **D-5** | cl. 1 — Phase 1 is the *"CORE approval **request/decision** model only"* (**step is not named**); cl. 2 — multi-level chains **NOT implemented**; cl. 3 — chain **deferred** to a future phase; cl. 8 — `approval_steps.approver_role_id` **not deleted, modified or redesigned**, future status a design question. **D-5's own "Newly Exposed Dependency" states that cl. 8 "does not state whether the `approval_steps` table is created in Phase 1"** and records readings (i)/(ii)/(iii) — the ancestors of P-1/P-2/P-3 below |
+| **D-6** | Governs `approval_requests` mutability only. **Neutral** on linkage |
+| **D-7 M2** | Requires a `NOT EXISTS` traversal from the decision to **the request's `requested_by`**. **The traversal target is the REQUEST** — but the *path* is unratified. cl. 9 explicitly preserves linkage as unresolved and forbids inventing it to ratify M2 |
+| **D-8** | Append-only grants on `approval_decisions`; cl. 6 cascade verification outstanding. **Path-agnostic**, but the number of `ON DELETE CASCADE` hops differs by model |
+| **D-9** | **N1 — `approval_decisions` has its own `tenant_id` and uses a tenant-safe composite FK.** **The composite form is already ratified; only its TARGET is open.** cl. 5 — `approval_steps` **remains UNRESOLVED and is NOT in D-9 scope**. cl. 9 — linkage **remains open** |
+| **D-10 E2** | Expiry conjunct must read the **request's `expires_at`** at decision INSERT. Again the target is the request; the path is open |
+| **D-14 A-1** | No HTTP surface — linkage has **no API consequence** |
+| **D-15** | No unique constraint, no locking. **A duplicate-decision constraint is NOT available** as a reason to prefer any model |
+| **D-16** | **MUST REMAIN OPEN** — see §5 |
+| **D-3 residual** | `approval_steps.approver_role_id` (role vs permission) — **engaged only by P-2/P-3** |
+
+---
+
+### 3. Candidate Models
+
+Conceptual notation only. **No SQL, Prisma, migration or policy is written anywhere below.**
+
+```
+P-1   decision ──(tenant_id, approval_request_id)──▶ request
+P-2   decision ──(tenant_id, approval_step_id)──▶ step ──(tenant_id, approval_request_id)──▶ request
+P-3   decision ──(tenant_id, approval_request_id)──▶ request
+      decision ┄┄(tenant_id, approval_step_id)┄┄▶ step        (nullable, dual parent)
+P-4   no further source-defined relationship exists
+```
+
+| Facet | **P-1** direct | **P-2** via step | **P-3** dual | **P-4** other |
+|---|---|---|---|---|
+| **SRS basis** | §7.3 r36 aggregate ownership — **compatible, not probative** (row-22 control) | §7.3 r36 lists **Steps** as a contained entity — **compatible, not probative** | Neither is excluded | **NONE** |
+| **Governance basis** | D-5 cl. 1 names the Phase 1 model **"request/decision"**; D-5 reading **(i)** | D-5 reading **(ii)**; preserves the approved SQL graph and cl. 8 | D-5 reading **(iii)** territory | — |
+| **Approved-design basis** | **NONE** — a deviation, additional to D-1's | **The approved SQL, verbatim** | Superset of the approved SQL | Competing structures only |
+| **Repository precedent** | `inventory.waste_records.**approval_request_id**` and `audit_entries.approval_id` name the **request** as the identified unit (both **columns without FKs**) | none — no step table has ever existed here | none | — |
+| **Schema consequence** | 2 tables | **3 tables** — requires creating `approval_steps`, which **D-9 cl. 5 left unresolved** | 3 tables + a nullable link | — |
+| **RLS consequence** | 2 policy sets | **3 policy sets** — a step policy set must be designed, and **D-9 cl. 5 excluded steps from D-9's ratified scope** | 3 sets + null-handling in every predicate | — |
+| **Effect on D-7 traversal** | **One hop.** Precedent shape: the shipped `recipe_lines_insert` `EXISTS` subquery | **Two hops** — a nested traversal with no precedent in this repository | One hop, plus a null branch | — |
+| **Effect on D-8** | Single `ON DELETE` path to verify (cl. 6) | **Two cascade hops** to verify; a step delete could remove decisions | Two paths, one nullable | — |
+| **Effect on D-9 N1** | Composite target = `request(tenant_id, id)` | Composite target = `step(tenant_id, id)`; **step needs its own `tenant_id`, which D-9 never ratified** (cl. 5) | Two composite FKs | — |
+| **Effect on D-10** | Expiry conjunct reads the request **directly** | Expiry conjunct must **traverse the step** to reach `expires_at` | Direct | — |
+| **Amends a ratified decision?** | **NO.** A documented deviation from the approved SQL — the **same species** as D-1's ratified three-column deviation | **NO** — but requires a **new decision** to create `approval_steps` and to bring it into RLS scope, which **D-9 cl. 5 deliberately left outside** | **NO** — requires both of the above | — |
+| **Requires resolving D-16?** | **NO** (§5) | **NO** (§5) | **NO** (§5) | — |
+| **Engages the D-3 residual?** | **No** | **YES** — `approver_role_id` role-vs-permission | **YES** | — |
+| **Invents unsupported structure?** | Invents a **column** the approved SQL lacks | Creates a **table** whose only stated purpose — multi-level chains — **D-5 cl. 2 says is not implemented** | Invents both | — |
+
+**P-4 — searched and not found.** No further source-defined relationship exists. Two competing
+representations do exist, and **both are Procurement's and both are explicitly unresolved**:
+`procurement.po_approval_chain` with `approver_id → identity.users` (approved SQL — **Conflict
+C-7, left unresolved by D-5 cl. 7**), and §7.3 row 19's `PurchaseOrder` containing an
+`ApprovalChain` entity. **Neither is a Governance decision parent, and neither may be used to
+settle this question.**
+
+---
+
+### 4. What D-5's "Single-Step" Actually Means for `approval_steps`
+
+Four readings were put; the evidence supports **one, and only in part**:
+
+| Reading | Verdict |
+|---|---|
+| "There is exactly **one step per request**" | **NOT ESTABLISHED.** No ratified clause and no SRS text states this cardinality. D-5 cl. 2 says multi-level **chains are not implemented** — a statement about **chains**, not about step-row cardinality |
+| "`approval_steps` is still a **valid structural entity**" | **SUPPORTED, WEAKLY.** §7.3 row 36 names **Steps** as a contained entity — its **only** appearance in the SRS. D-5 cl. 8 preserves `approver_role_id`; cl. 3 defers the chain rather than abolishing it |
+| "`approval_steps` is **explicitly excluded**" | **NO — this overstates the record.** D-9 cl. 5 says it *"remains **UNRESOLVED** and is **NOT included in D-9 scope**"*. Out of scope ≠ excluded, and **D-5's own text states cl. 8 "does not state whether the `approval_steps` table is created in Phase 1"** |
+| "**The evidence does not establish this**" | **CORRECT for the table's Phase 1 existence.** It is neither mandated nor forbidden — it is **undecided**, by the register's own words |
+
+**Therefore "single-step" means: multi-level chains are not implemented. It does NOT decide
+whether the `approval_steps` table exists in Phase 1, and it does NOT establish one-step-per-
+request.** No interpretation is adopted here because it eases implementation.
+
+---
+
+### 5. Can Parent Linkage Be Settled **Independently of D-16**?
+
+**YES — established, not assumed.**
+
+- **D-16 governs `approval_requests.request_type`** — its canonical enumeration (cl. 1–5) and its
+  **storage representation** (cl. 6).
+- **Parent linkage governs a column on `approval_decisions`** — which parent it references and
+  the FK target.
+- **The two touch no common column.** Linkage does **not** determine `request_type`,
+  `required_permission` or `value` — all three sit on **`approval_requests`**, on the far side of
+  the relationship. Conversely, no `request_type` representation implies a decision's parent.
+- **No candidate model requires reading, constraining or enumerating `request_type`.** D-7's
+  traversal targets `requested_by`; D-10's targets `expires_at`. **Neither touches
+  `request_type`.**
+
+**Consequence for sequencing:** the readiness audit listed linkage and D-16 as separate critical
+blockers. **They are independent**, so **linkage can be ratified now without D-16 being touched**
+— and **must not be used to settle it**.
+
+*Recorded, not resolved:* **P-2 and P-3 engage the D-3 residual** (`approver_role_id`), which is
+a different carried item and also **remains open**.
+
+---
+
+### 6. Evidence Classification
+
+| Class | Content |
+|---|---|
+| **SOURCE EVIDENCE** (SRS) | §7.3 row 36 (aggregate ownership; **not** FK topology, per the row-22 control) · `FR-SEC-033`'s omission of any parent reference · zero occurrences of "approval step" · `FR-SEC-034` [S] and §24.5.3 as the only "approval level" mentions |
+| **APPROVED-DESIGN ARTIFACT** (`ROS_DrawDB_Compatible_v3.sql`, git-tracked) | `approval_decisions.approval_step_id → approval_steps(id) ON DELETE CASCADE`; `approval_steps.approval_request_id → approval_requests(id)`; **no direct decision→request column exists** (verified: 0 occurrences). Its own comment reads *"enforced by app: `approver_id <> requests.requested_by`"* — **the invariant's target is the request**. **This is a design artifact, NOT the SRS**, and D-1 already established that it may be deviated from with documentation |
+| **REPOSITORY PRECEDENT** (shipped code) | Composite tenant-safe FK, child `(tenant_id, x_id)` → parent `(tenant_id, id)` with a `*_tenant_id_id_key` UNIQUE index — **11× in the Production migration** · the `EXISTS` cross-table traversal in `recipe_lines_insert` — **a one-hop shape only** · **ADR 0007** append-only grants, shipped on `audit_entries` · `inventory.waste_records.approval_request_id` and `audit_entries.approval_id` — **columns without FKs**, naming the request · **no approval table has ever been migrated** |
+| **ARCHITECTURAL INFERENCE** (must not be mistaken for evidence) | That contained entities of one aggregate attach directly to the root · that "single-step" implies one step row · that the absence of a step table implies a direct link · that a shipped column name settles a relationship |
+
+---
+
+### 7. The Minimum Decision Required
+
+**PARENT LINKAGE IS NOT SOURCE-DECIDABLE.** The SRS names no parent column, no identifier and
+no foreign key for an approval decision, and `FR-SEC-033` — its own enumeration of a decision's
+contents — omits any parent reference. §7.3 row 36 settles **ownership**, and the row-22 control
+shows it **cannot** settle topology.
+
+**This must therefore be settled as an ARCHITECTURAL RATIFICATION**, in exactly the manner
+already used for **D-4**'s lifecycle and **D-8**'s no-DELETE portion — both ratified as explicit
+architectural choices where the SRS was silent.
+
+**NO SOURCE-SUPPORTED RECOMMENDATION** between P-1 and P-2.
+
+Two asymmetries are recorded **neutrally**, as facts bearing on cost rather than on correctness:
+
+- **P-2 requires a decision the register twice declined to make.** `approval_steps` is outside
+  **D-9 cl. 5**'s ratified RLS scope and lacks a ratified `tenant_id`, so P-2 needs **both** a
+  table-creation decision **and** an extension of D-9's scope — and it engages the open
+  **D-3 residual**.
+- **P-1 requires a deviation of a species already ratified.** D-1 added three columns absent from
+  the approved SQL as a documented deviation; P-1 would add one more. It also matches the shape
+  of every traversal precedent in this repository, all of which are **one hop**.
+
+**Neither asymmetry is a source argument, and neither is offered as a recommendation.**
+
+### The smallest governance question that must be answered next
+
+> **Does `governance.approval_decisions` reference `approval_requests` directly (P-1), or does
+> Phase 1 create `governance.approval_steps` and reference it (P-2)?**
+>
+> Answering **only** this unblocks `approval_decisions`, **D-7 M2**, **D-8**, **D-9 N1** and
+> **D-10**. It requires **no** other decision, and **must not** settle **D-16**, the **D-3
+> residual**, **D-4 cl. 5**, **`approval_requests` DELETE**, or any other carried item.
+>
+> Should **P-2** be chosen, two further questions arise and would need answering in the same
+> turn: whether `approval_steps` carries its own `tenant_id`, and whether it enters D-9's RLS
+> scope. **Neither is resolved here.**
+
+### Preservation
+
+**D-1 … D-20 are preserved exactly; nothing above amends any of them.** All carried items stand:
+**D-16** OPEN · **D-12** BLOCKED · **D-3 residual** · **D-4 cl. 5** · **`approval_requests`
+DELETE** · **D-8 cl. 6 cascade verification** · **D-15 PostgreSQL RLS re-evaluation
+verification** · **granted-approval staleness / consuming-domain behaviour** · **D-19 GAP-11 /
+ten-field hash coverage** · **`FR-AUD-008`** · **D-2 deferred branch-scoped RBAC**.
+
+### Closing statement of the analysis (superseded by the ratification below)
+
+**PARENT LINKAGE — OPEN, ANALYSED, NOT RATIFIED.** *(Recorded 2026-08-18; superseded by the
+ratification of 2026-08-18 that follows.)*
+
+---
+
+### RATIFICATION — PARENT LINKAGE (2026-08-18)
+
+**RATIFIED — P-1: `approval_decisions` SHALL REFERENCE `approval_requests` DIRECTLY.**
+
+> Recorded as the **carried-item parent-linkage ratification**, **NOT** as a new numbered
+> decision. **The 20-decision tally is unaltered.**
+
+1. **`approval_decisions`'s parent SHALL reference `approval_requests` directly.**
+2. **`approval_steps` is NOT required by this ratification** and **SHALL NOT be introduced
+   solely because of this decision**.
+3. This ratification **does NOT decide** `approval_steps`' **existence**, **`tenant_id`**,
+   **RLS scope**, **cardinality**, or **topology**.
+4. **D-16 remains OPEN and untouched.**
+5. **D-12 remains BLOCKED and untouched.**
+6. **No other ratified decision is amended.**
+7. **D-7's requester ≠ approver traversal may therefore target `approval_requests`
+   directly.**
+8. **D-10's expiry traversal may therefore target `approval_requests` directly.**
+9. **D-8's append-only grants and D-9's N1 may use the direct parent relationship**, subject
+   to their already-ratified clauses and the remaining unresolved items.
+10. **Do NOT invent** `request_type` representation, `required_permission` representation,
+    `value` type, **DELETE behaviour**, or any other unresolved schema decision.
+11. **Do NOT infer** that this ratification resolves the **D-3 residuals**, **D-4 clause 5**,
+    the **D-8 cascade verification**, **D-15's RLS re-evaluation verification**,
+    **granted-approval staleness**, or any other carried-forward item.
+12. **Do NOT create or modify `approval_steps`** merely as a consequence of this decision.
+13. This is a **governance decision only**. **No implementation is authorized by this
+    ratification turn.**
+14. **The SRS evidence limitation is preserved:** the SRS establishes **`ApprovalRequest` as
+    the aggregate root containing Steps and Decisions**, but **does NOT prescribe the
+    persistence topology**.
+15. **P-1 is an ARCHITECTURAL CHOICE**, **not** a claim that the SRS mandates direct linkage.
+16. **P-2 was considered and NOT adopted.** The analysis recording it is retained above.
+17. **D-5, D-7, D-8, D-9 and D-10 are NOT reopened.** Their already-ratified semantics are to
+    be implemented later using the now-ratified direct parent relationship.
+18. Register verification was performed after writing: status marker, carried-item section,
+    tally, prior ratifications, D-16, D-12, and absence of implementation changes.
+
+**Status:** **RATIFIED — CLOSED.**
+
+---
+---
+
+## SB — Remaining `approval_requests` Schema Blockers (carried items)
+
+> **STATUS: GOVERNANCE-RESOLUTION PASS COMPLETED 2026-08-19 — ANALYSIS ONLY.**
+>
+> | Item | Outcome |
+> |---|---|
+> | **SB-1** `required_permission` | **PARTIALLY RESOLVED** — representation settled by the sources (§15.2 **code**); **FK posture UNRESOLVED** |
+> | **SB-2** `value` | **PARTIALLY RESOLVED** — a source-supported **exclusion** is settled; **persistence representation UNRESOLVED** |
+> | **SB-3** DELETE posture | **UNRESOLVED** — the sources supply no answer |
+>
+> **NO RATIFICATION. NO IMPLEMENTATION. NO EXECUTION** — **V1 and V2 were NOT run**, and no
+> DML, DDL, transaction, `EXPLAIN`, probe or database command was issued in this pass.
+> **These are NOT new numbered decisions.** They are the three carried modelling questions the
+> Phase 1 implementation-readiness audit isolated, plus the two empirical items. **The
+> 20-decision tally is unchanged.** No ratification block appears here.
+> **D-16 remains OPEN and untouched** — nothing below reads, constrains or represents
+> `request_type`. **D-12 remains BLOCKED. Parent linkage P-1 is RATIFIED and not reopened.**
+
+---
+
+### SB-1 — `required_permission` representation
+
+**A. Source evidence.** The SRS mentions a required approver permission **exactly twice**:
+
+- **`FR-SEC-031` [M]** — *"Approval requests SHALL specify: … **the required approver
+  permission** …"* — names the field, **not its representation**.
+- **§26.2** — the only concrete rendering anywhere:
+  `"meta": { "requiredPermission": "pos.discount.approve" }` — **a permission CODE string**.
+
+Two structural facts reinforce the code: **§15.2's catalogue is expressed entirely as codes**,
+and **`FR-SEC-011` [M]** builds roles by *"selecting permissions from the catalogue"*.
+**The SRS has no concept of a permission surrogate id at all** — every one of the ~30 permission
+tokens in the document is a code. An id is a persistence artifact the SRS never contemplates.
+
+*Weight caveat, recorded not resolved:* §26.2 is an **HTTP error payload**, detached from
+Governance by **D-14 A-1** and **D-18 E-1**. It is evidence of **how the SRS identifies a
+permission**, not a mandate on **how Governance stores one**.
+
+**B. Already settled.** **D-3** — authority is permission-based, not role-based. **D-1** — the
+column exists, and *"No new permission code is created: the field references an existing SRS
+§15.2 code as data."*
+
+> **Tension inside D-1, reported not resolved.** That ratified sentence reads toward
+> code-as-data, while D-1's immediately following carried-forward paragraph states that
+> *"whether `required_permission` stores the permission `code` … or the permission `id`, and
+> whether it carries a foreign key, is a Design Gate question."* The narrowest reconciliation —
+> and the one adopted here for analysis only — is that **"code as data" governs the prohibition
+> on inventing new codes, not the column's physical type**. **D-1 is not reinterpreted.**
+
+**C. Genuinely undecided.** (i) code string vs surrogate id; (ii) **whether a foreign key is
+carried**. The SRS settles neither, and (ii) is **entirely a persistence question the SRS never
+addresses**.
+
+**D. Smallest options.**
+
+| | Option | Note |
+|---|---|---|
+| **RP-1** | Store the **code**, **no FK** | Matches every SRS rendering; imposes no seeding order |
+| **RP-2** | Store the **code**, **FK → `identity.permissions(code)`** | Physically possible — `permissions_code_key` is UNIQUE. Constrains values to seeded codes |
+| **RP-3** | Store the **id**, FK → `identity.permissions(id)` | No SRS basis; the SRS never identifies a permission by id |
+| **RP-4** | Defer | Leaves the column unbuildable |
+
+**E. Source-supported recommendation — YES, PARTIAL.** The sources support **storing the code
+rather than an id** (RP-1 or RP-2): the SRS identifies permissions only by code, and §26.2
+renders this very field as a code. **This is a genuine source lean, not a convenience argument.**
+**Whether an FK is carried (RP-1 vs RP-2) is NOT source-decidable** and remains an architectural
+choice.
+
+*Repository evidence, corroborating only:* `PermissionsService` **upserts by stable code**
+(`where: { code: def.code }`), looks up via `findByCodes`, and `RolesService` rejects
+*"Unknown permission code."* Code is the operative identifier throughout. **Evidence, not
+authority.**
+
+**F. Dependencies.** **None on D-16.** Engages no other unresolved item. *(The D-3 residual
+concerns per-step authority, not this column.)*
+
+**G. Ready for ratification: YES** — as one question with two parts (representation: source
+leans code; FK: architectural).
+
+**RESOLUTION (2026-08-19) — PARTIALLY RESOLVED.**
+
+- **SETTLED, source-supported:** `required_permission` **is represented by an existing SRS
+  §15.2 permission CODE**, not by an invented surrogate permission identifier.
+  **Basis:** **§26.2** renders this exact field as a code
+  (`"requiredPermission": "pos.discount.approve"`); **§15.2** expresses the entire catalogue as
+  codes; **`FR-SEC-011` [M]** builds roles by selecting catalogue permissions; **the SRS never
+  identifies a permission by a surrogate id anywhere.** Consistent with **D-3** (authority is
+  permission-based) and **D-1** (*"No new permission code is created"*).
+  **No permission code is created by this conclusion.**
+- **EXPLICITLY DISTINGUISHED — and NOT decided:** whether the column carries a **foreign key**
+  (`RP-1` no FK vs `RP-2` FK → `identity.permissions(code)`). **The SRS does not address
+  persistence keys at all.** **UNRESOLVED.**
+- **NOT INFERRED:** D-1's *"code as data"* is **not** read as deciding the **database column
+  type**. Per the tension recorded above, that phrase governs the prohibition on inventing new
+  codes. **D-1 is not reinterpreted, amended or superseded.**
+- **Corroboration only, never authority:** `PermissionsService` upserts and resolves **by stable
+  code**; `RolesService` rejects *"Unknown permission code."* **Repository evidence cannot
+  override or supply an SRS conclusion.**
+
+---
+
+### SB-2 — `value` type
+
+**A. Source evidence.** **`FR-SEC-031` [M]** names *"the value"* and defines nothing further.
+**§7.2** defines `Money` as a **pair** — `amount: bigint // minor units` **plus** `currency` —
+and `Quantity` as `Decimal` at **6 dp** (`BR-CORE-003`) plus a unit.
+
+**The decisive evidence is that the approval-triggering value is NOT uniformly monetary:**
+
+- **`FR-POS-047` [M]** enumerates four threshold dimensions for **one** consumer (discounts):
+  **maximum percentage**, **maximum absolute amount**, **maximum discounts per shift per
+  employee** (a **count**), and **discount permitted after payment started** (a **boolean**).
+- **§26.2's worked example** — the SRS's only concrete approval-triggering value — is a
+  **percentage**: *"A discount of **25%** exceeds the **15%** limit"*, with
+  `errors[].limit: 15` and `field: "discount.percentage"`.
+- **`FR-INV-046` [M]** — threshold *"**by percentage or value**"*.
+- **`FR-HRM-034` [M]** — overtime beyond a threshold: **hours**.
+- Monetary cases also exist: `FR-PRC-018`, `FR-INV-035`, `FR-INV-058`, `FR-FIN-006`,
+  `FR-FIN-017`.
+
+**B. Already settled.** **D-13** — Governance owns no thresholds; the **consuming domain**
+determines whether approval is required and **supplies the value**. Governance is a generic
+carrier.
+
+**C. Genuinely undecided.** The representation. **No source mandates any type.**
+
+> **A source-supported EXCLUSION does exist.** A **money-only representation (BIGINT minor
+> units) is positively contradicted** — it cannot carry a percentage, a count, or a boolean
+> dimension, and would fail the majority of the dimensions `FR-POS-047` [M] enumerates. **The
+> repository's BIGINT money convention is therefore NOT transferable here.** This is a
+> source-grounded exclusion, not a preference.
+
+**D. Smallest options.**
+
+| | Option | Carries |
+|---|---|---|
+| **VT-1** | `DECIMAL(18,6)` single column | Money-as-decimal, percentage, count. **Loses currency and the dimension label** |
+| **VT-2** | `DECIMAL(18,6)` **+ a dimension/unit descriptor** | Adds what the number means. **A descriptor vocabulary is itself undefined by the SRS** |
+| **VT-3** | `JSONB` structured value | Carries anything; constrains nothing; no SRS basis |
+| **VT-4** | Money pair (`BIGINT` + currency) | **Contradicted** — see the exclusion above |
+| **VT-5** | Nullable, meaning deferred to the consumer | Consistent with **D-13**; leaves `FR-SEC-031`'s *"SHALL specify the value"* only partly served |
+
+*Repository evidence, corroborating only:* non-money decimals are `DECIMAL(18,6)` (quantity,
+variance, reorder point) and percentages `DECIMAL(5,2)`. **Evidence, not authority.**
+
+**E. Source-supported recommendation — NO, for the type. YES, for the exclusion.**
+**NO SOURCE-SUPPORTED RECOMMENDATION** among VT-1/2/3/5. **VT-4 is excluded by the sources.**
+
+*Also recorded:* `FR-POS-047`'s **boolean** dimension means some approvals have **no numeric
+value at all** — bearing on whether the column is `NOT NULL`. **Not resolved here.**
+
+**F. Dependencies.** **None on D-16** — `value` and `request_type` are distinct columns, and no
+option reads or constrains `request_type`. A **descriptor vocabulary under VT-2 must not become
+a proxy for D-16's enumeration.**
+
+**G. Ready for ratification: YES** — as an architectural choice, with the VT-4 exclusion and
+the nullability sub-question recorded.
+
+**RESOLUTION (2026-08-19) — PARTIALLY RESOLVED.**
+
+- **SETTLED, source-supported — an EXCLUSION:** **`BIGINT` minor units is NOT an appropriate
+  representation** for `approval_requests.value`.
+  **Basis:** approval-triggering values span **percentage**, **absolute amount**, **count**, and
+  a **boolean** condition within **`FR-POS-047` [M]** alone; **§26.2's** worked example is a
+  **percentage** (`field: "discount.percentage"`, `limit: 15`); **`FR-INV-046` [M]** is
+  *"by percentage **or** value"*; **`FR-HRM-034` [M]** is **hours**. A money-only column cannot
+  carry these. **The repository's `BIGINT` money convention is therefore NOT transferable, and
+  is not treated as authority.**
+- **NOT CLAIMED:** the SRS does **NOT** mandate `DECIMAL(18,6)`, `JSONB`, a dimension enum, or
+  any other specific persistence type. **No such claim is made here.**
+- **DISTINCTION PRESERVED:** **numeric approval values** and **boolean approval conditions** are
+  different things. `FR-POS-047`'s *"discount permitted after payment started"* is a **boolean
+  condition with no numeric value**, which bears on nullability. **UNRESOLVED.**
+- **NO HIDDEN D-16 DEPENDENCY:** any future dimension vocabulary **must not** become a proxy for
+  `request_type`. **D-16 remains OPEN and untouched**; nothing in this conclusion reads,
+  constrains, enumerates or represents `request_type`.
+- **The exact persistence representation remains UNRESOLVED.**
+
+---
+
+### SB-3 — `approval_requests` DELETE posture
+
+**A. Source evidence.**
+
+- **ADR-010** — *"**Orders, payments, stock movements, and audit entries** are never updated or
+  deleted."* **Approval requests are NOT in the enumeration** — the same finding on which
+  **D-8** based its no-DELETE portion as an **explicit architectural ratification**.
+- **§24.6.5 Soft Delete** — *"**Master data** (items, employees, suppliers) is deactivated rather
+  than deleted… Hard deletion is available only for records with no references and only via an
+  explicitly audited administrative operation."* Its stated subject is **master data**; an
+  approval request is **transactional**. Whether its second sentence is a universal rule or a
+  master-data rule is **ambiguous and not resolved here**.
+- **No requirement anywhere addresses deleting or retaining approval requests.**
+- **`FR-AUD-009` [M]** retains **audit entries** ≥ 7 years — so an approval's audit trail
+  survives independently of the request row. Recorded as a factor, not an argument.
+
+**B. Already settled.** **D-9 cl. 4** — *"DELETE: **LEFT UNRESOLVED**. Neither X1 nor X2 is
+ratified."* **D-8** — `approval_decisions` have **no DELETE capability**. **D-4** — settles the
+lifecycle only; it says nothing about row removal. **No source supports inferring the request's
+DELETE posture from D-8's append-only decisions**, and it is not inferred here.
+
+**C. Genuinely undecided — and P-1 has now COUPLED two sub-questions.**
+
+> **New consequence of the P-1 ratification.** Decisions now reference **`approval_requests`
+> directly**. The `ON DELETE` action on that FK therefore determines whether deleting a request
+> can **destroy append-only decision rows**, which is exactly the **D-8 clause 6 cascade
+> verification** item. **The DELETE posture and D-8's cascade question are now one coupled
+> problem** where previously a step table sat between them.
+
+Two sub-questions:
+1. **May `ros_app` delete an `approval_requests` row at all?**
+2. **If yes, what `ON DELETE` action does the decisions FK carry, and does any cascade defeat
+   D-8?**
+
+**D. Smallest options.**
+
+| | Option | Effect on the D-8 cascade item |
+|---|---|---|
+| **DP-1** | **No DELETE capability** (grant nothing; no DELETE policy) | **Dissolves it** — no delete path exists, so no cascade can fire |
+| **DP-2** | DELETE permitted, decisions FK `ON DELETE RESTRICT` | Preserves D-8; a decided request becomes undeletable |
+| **DP-3** | DELETE permitted, decisions FK `ON DELETE CASCADE` (the approved SQL's action) | **Would delete append-only decisions** — must be verified against D-8 before it could be considered |
+| **DP-4** | Continue to defer | Leaves the migration unwritable |
+
+**E. Source-supported recommendation — NO.** ADR-010's exclusion means no-DELETE is **not**
+source-mandated, and §24.6.5 is ambiguous in scope. This is an **architectural ratification**,
+of exactly the species D-8's no-DELETE portion already was. **NO SOURCE-SUPPORTED
+RECOMMENDATION.**
+
+*Neutral fact, not a recommendation:* **DP-1 is the only option that requires no empirical
+verification**, because it removes the delete path that V2 exists to test.
+
+**F. Dependencies.** **None on D-16.** **Coupled to D-8 cl. 6** as described. Does **not**
+resolve D-4 cl. 5.
+
+**G. Ready for ratification: YES for sub-question 1.** Sub-question 2 is **only reachable if
+DELETE is permitted**, and under DP-2/DP-3 would require **V2** first.
+
+**RESOLUTION (2026-08-19) — UNRESOLVED.**
+
+- **NO SOURCE-SUPPORTED ANSWER EXISTS** to whether `approval_requests` may be deleted.
+  **Basis:** **ADR-010's** never-deleted enumeration — *orders, payments, stock movements, audit
+  entries* — **excludes approval requests**; **§24.6.5's** stated subject is **master data**,
+  and an approval request is transactional, so its scope is **ambiguous**; **no requirement
+  anywhere addresses deleting or retaining approval requests**; and **D-9 clause 4** records
+  *"neither X1 nor X2 is ratified."* **D-4 settles the lifecycle only.**
+- **NOT INFERRED FROM D-8.** The request's DELETE posture is **not** derived from
+  `approval_decisions` being append-only. No source supports that inference.
+- **P-1 COUPLING PRESERVED.** Because **P-1 is ratified** and `approval_decisions` references
+  `approval_requests` **directly**, the FK's **`ON DELETE` action is consequential to
+  D-8 clause 6**: a cascading parent delete could remove append-only decision rows.
+- **NO OPTION SELECTED.** **DP-1, DP-2, DP-3 and DP-4 are all left unselected**, and none is
+  chosen for convenience. **`ON DELETE CASCADE` (DP-3) is specifically NOT adopted**, because it
+  would permit deletion of append-only `approval_decisions` **through the parent**.
+- **EVIDENCE GATE RECORDED:** if DELETE is eventually permitted, the FK / delete behaviour
+  **requires the previously identified V2 evidence before implementation**. **V2 was NOT run in
+  this pass.**
+
+---
+
+### SB-4 — Empirical items V1 and V2: safety assessment
+
+**Neither was run.** Assessment only, as instructed.
+
+**V1 — D-15 / U4 RLS re-evaluation under concurrency.**
+**A materially safer design than the readiness audit proposed is available: V1 needs NO DDL.**
+`production.recipe_lines` already ships an **UPDATE policy whose `USING` clause carries a
+status-predicated `EXISTS`** — the same shape as D-9 U4. The question can be posed with **DML
+only, inside transactions that are rolled back**: one session flips a version's status while
+another attempts a line update, and the second session's affected-row count answers it.
+**Verdict: safe in principle — read-only in effect, zero schema residue.**
+
+**V2 — D-8 cl. 6 cascade versus revoked DELETE.**
+No shipped pair combines *revoked child DELETE* with *a cascading parent*, so V2 **requires
+creating surrogate objects**, i.e. **DDL**. PostgreSQL DDL is transactional and a `ROLLBACK`
+leaves no residue, but the statements still execute against the live database.
+**Verdict: safe in principle, but it is a database operation.**
+
+> **Neither is run in this turn.** The standing constraint prohibits database changes, and
+> executing DDL — even fully rolled back — is not obviously inside "read-only". **Both require
+> explicit authorization.** Consistent with the instruction, **no ratification is altered by any
+> experiment**, and V1/V2 results would be **evidence for a Design Gate, never a governance
+> amendment**.
+
+---
+
+### Preservation
+
+**D-1 … D-20 and the ratified P-1 parent linkage are preserved exactly; nothing above amends
+any of them.** All carried items stand: **D-16** OPEN · **D-12** BLOCKED · **D-3 residual** ·
+**D-4 cl. 5** · **D-8 cl. 6 cascade verification** · **D-15 RLS re-evaluation verification** ·
+**granted-approval staleness / consuming-domain behaviour** · **D-19 GAP-11** · **`FR-AUD-008`**
+· **D-2 deferred branch-scoped RBAC**.
+
+### Outcome of the 2026-08-19 governance-resolution pass
+
+| Item | Status | Settled | Still unresolved |
+|---|---|---|---|
+| **SB-1** | **PARTIALLY RESOLVED** | Representation = existing **§15.2 permission code** | **FK vs no FK** |
+| **SB-2** | **PARTIALLY RESOLVED** | **Exclusion**: not `BIGINT` minor units | **Persistence type**; **nullability** for boolean conditions |
+| **SB-3** | **UNRESOLVED** | Nothing — no source-supported answer | **Whether DELETE is permitted**; the FK `ON DELETE` action, gated on **V2** |
+
+**ANALYSIS ONLY — NO RATIFICATION, NO IMPLEMENTATION, NO EXECUTION. V1 / V2 — NOT RUN.**
+**No numbered decision was created; the governance tally is unchanged.**
+
+---
+---
+
+## P0 — Catalogue Pricing Design Closures (carried items)
+
+> **STATUS: RATIFIED 2026-08-19 by explicit user governance action.**
+> **These are NOT new numbered decisions — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).** They close
+> the five P0 pricing questions the preceding analysis classified, following the
+> same carried-item convention as **PL** (parent linkage) and **SB**.
+>
+> **Design ratification only. NO IMPLEMENTATION IS AUTHORIZED BY THIS RECORD.**
+
+### P0-1 — Validity-window boundary semantics
+
+**RATIFIED: half-open `[from, to)`.**
+
+- `valid_from` **inclusive**, `valid_to` **exclusive**. Two windows that merely
+  touch — one ending at the instant the next begins — do **NOT** overlap.
+- `NULL` endpoints mean unbounded, matching `tstzrange(valid_from, valid_to)`.
+- **Basis:** an explicit architectural choice. The SRS names `DateRange` among
+  §7.2 shared-kernel value objects but **never states inclusivity**; this closes
+  a NOT SOURCE-DECIDABLE question and is **not** claimed as an SRS requirement.
+- **Already executable:** the migration's `tstzrange`, `windowsOverlap` in
+  `price-list-overlap.ts`, and `isEligible` in `price-resolution.ts` all
+  implement it. Those code comments currently label it "implementation
+  convention"; they should be updated to cite **P0-1** at implementation time.
+
+### P0-2 — Recurrence: weekly-local-time v1
+
+**RATIFIED: option R-1, weekly local-time windows, exactly as recommended.**
+
+- Shape: weekday set + local `from` / `to` times, e.g.
+  `{ days: [...], from: "15:00", to: "18:00" }`.
+- Evaluated in the **branch timezone** (`org.branches.timezone`), per
+  `FR-MNU-022`.
+- **Overnight windows** (`to <= from`) wrap past midnight — the identical
+  convention already ratified in **ADR 0008 D-04** for `org.operating_hours`, so
+  no new semantic is invented.
+- DST is handled by evaluating wall-clock time in the branch zone.
+- Fits the existing `recurrence_rule Json?` column — **no schema migration**.
+- Deterministic and reproducible in Dart without a shared library, preserving the
+  **BR-FIN-005 / FR-OFF-050** obligation.
+- **Basis:** architectural choice closing a NOT SOURCE-DECIDABLE question. The
+  SRS supplies only `FR-MNU-022`'s worked example; the approved SQL's
+  `-- (RRULE-like)` is a **comment, not a specification**, and RFC 5545 is **not**
+  adopted.
+- **Exact field names, validation rules and the empty-day-set case are settled at
+  implementation**, within this shape.
+
+**CLARIFICATION A (2026-08-20), by explicit user governance action.** The empty
+weekday set is now settled rather than left to implementation: **`days: []` is
+INVALID INPUT and the recurrence parser SHALL reject it.** A rule that can never
+match would silently disable a price list and is indistinguishable from a
+misconfiguration, so it is refused at write time. This clarifies the already-
+ratified P0-2 design; **it is not a new decision, creates no D-21, and does not
+change the tally.**
+
+### P0-3 — Recurrence vs the overlap invariant
+
+**RATIFIED: the overlap invariant is evaluated against the OUTER validity window
+only. Recurrence does not alter the overlap key.**
+
+- `ex_price_list_no_overlap` keys on
+  `tenant_id, scope_type, COALESCE(scope_id, nil), priority, tstzrange(valid_from, valid_to)`.
+  **`recurrence_rule` is not in the key and is not consulted** — which is what the
+  constraint already does, so **no migration change is required**.
+- **Consequence, accepted knowingly:** two lists sharing scope and priority whose
+  outer date ranges overlap are rejected **even if their recurrence patterns never
+  intersect**. A happy-hour list must therefore differ from the standing list in
+  **priority** (or in outer window). This is the cost of keeping "window" defined
+  as the outer validity range.
+- This resolves the stability question that previously blocked committing the
+  migration.
+
+### P0-4 — Priority direction
+
+**RATIFIED: preserve the repository's existing direction — higher integer =
+higher priority.**
+
+- **Verified consistent** before ratifying: `PriceListsService.list` orders
+  `priority: 'desc'`; `MenusService.resolveForBranch` sorts
+  `b.priority - a.priority`; the price resolver ranks higher-wins. The SRS never
+  states a direction.
+- The fallback rule and the existing convention coincide, so **no code change**.
+- **Unchanged:** priority remains a discriminator *within* an FR-POS-040 tier. It
+  does **not** override a higher tier — scope specificity still outranks it.
+
+### P0-5 — FR-POS-040 base price
+
+**RATIFIED: the base-price tier is the eligible tenant-scoped, non-order-specific
+PriceList fallback.**
+
+- Tier 7 resolves to the eligible PriceList whose scope is **`tenant`** and whose
+  `order_type` is **NULL**.
+- "Eligible" means it passes the same filters as any candidate — validity window,
+  status, and (once P0-2 ships) recurrence.
+- **No `base_price` column is added** to `MenuItemVariant` or anywhere else, and
+  **no monetary schema is modified**. Money semantics, FR-MNU-024 audit history
+  and tenant/brand inheritance all continue through the single existing
+  `PriceEntry` path.
+- **Basis:** architectural choice closing a NOT SOURCE-DECIDABLE question. "Base
+  price" appears **exactly once** in the SRS — as FR-POS-040 list item 7 — with no
+  definition, no ERD entity and no approved-SQL column.
+- **Note for implementation:** the resolver's current header comment says tier 7
+  "has NO STORAGE" and treats the tenant-scoped list as an undeclared fallback.
+  Under P0-5 that fallback is now **explicit and ratified**, and the comment must
+  be corrected to say so.
+
+### Preservation
+
+**D-1 … D-20, P-1 and the SB unresolved portions are unchanged by this record.**
+**D-16 OPEN · D-12 BLOCKED · D-3 RATIFIED IN PART · D-10 unchanged ·
+D-17-05 unchanged.** **D-2 is amended separately and only in part** — see the
+amendment recorded under D-2. **C-11 is reopened and amended separately** — see
+`docs/catalogue/README.md`.
+
+---
+---
+
+## P1A — Order Capture Clarifications (carried items)
+
+> **RECORDED 2026-08-20 by explicit user governance action.**
+> **NOT new numbered decisions — no D-21 is created and the 20-decision tally is
+> unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).** Recorded as carried
+> items, matching the **PL**, **SB** and **P0** convention.
+>
+> ADR-010 is an SRS architecture decision, not a repository ADR file
+> (`docs/adr/` holds 0001–0008 only), so its clarification is recorded here.
+
+### CLARIFICATION B — ADR-010 and Order mutability
+
+ADR-010 states that *"Orders, payments, stock movements, and audit entries are
+never updated or deleted."* Read literally that contradicts the Order **state
+machine** (§7.3 #22) and the **optimistic concurrency** requirement (§24.6.4),
+both of which presuppose an Order that changes while it is being built. The
+clarification resolves that contradiction **without weakening financial
+immutability**:
+
+1. **Order aggregate data MAY be mutated while the transaction is still
+   pre-finalisation**, subject to the state rules and optimistic concurrency.
+2. **COMPLETED / financially posted orders are IMMUTABLE.**
+3. **Corrections after COMPLETED are Refund / compensating records referencing
+   the original** — consistent with **BR-POS-001** and **CR-04**.
+4. **Payments remain append-only.**
+5. **Stock movements remain append-only** (BR-INV-001, unchanged).
+6. **Audit entries remain append-only** (FR-AUD-003, unchanged).
+
+**This is NOT permission to rewrite historical completed sales.** The append-only
+guarantees for payments, stock movements and audit entries are untouched.
+
+### CLARIFICATION C — Fire authority boundary
+
+The approved authority rule for Order content:
+
+1. **BEFORE a line is fired** — the cashier may correct or edit normally, within
+   existing permissions and business rules. Manager intervention is **not**
+   required merely because an order exists.
+2. **AFTER a line is fired** — the cashier **SHALL NOT** directly mutate that
+   fired content. A correction or void after fire is a **privileged** operation
+   requiring Manager-or-higher authority, with reason / audit / approval wherever
+   the SRS or the permission model requires them.
+3. **AFTER COMPLETED** — neither cashier nor manager directly modifies the
+   original order. Correction is Refund / compensating records only.
+
+**Binding constraints on implementation:**
+
+- **Do NOT hardcode role-name strings.** ROS authorisation is
+  permission-based, so authority must be expressed as a permission.
+- **Do NOT invent a generic "manager correction" permission.**
+- **`order.cancel_after_production`** (named by **BR-POS-003**) authorises
+  **only its stated cancellation semantics** and **MUST NOT** be broadened into
+  authority for arbitrary post-fire edits.
+- Where no existing SRS or ratified permission authorises a specific post-fire
+  correction, **enforce the cashier lock and leave the privileged command
+  unexposed** until its permission semantics become source-decidable.
+
+### Preservation
+
+**D-1 … D-20, P-1, PL, SB and the P0 closures are unchanged.** **D-16 OPEN ·
+D-12 BLOCKED · D-3 RATIFIED IN PART · D-10 unchanged · D-17-05 unchanged · SB-1 /
+SB-2 / SB-3 unresolved portions unchanged.** Broader branch-scoped RBAC and the
+wider Workforce domain remain deferred beyond the already-authorised P0 PIN
+substrate. **No approval schema is changed.**
+
+---
+## P1C — Tax Identity, Country Pack Signing and Costing (carried items)
+
+> **RECORDED 2026-08-20 by explicit user governance action.**
+> **NOT new numbered decisions — no D-21 is created and the 20-decision tally is
+> unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).** Recorded as carried
+> items, matching the **PL**, **SB**, **P0** and **P1A** convention.
+>
+> Two of the four approvals amend decisions that live in domain design records
+> rather than in this register. Their full text is recorded there, verbatim
+> alongside the original ratification, and is summarised here so the register
+> remains the single index:
+>
+> - **C-04 narrow amendment** — `docs/catalogue/README.md`, section "C-04 —
+>   MenuItem tax class".
+> - **D-17-05 narrow amendment** — `docs/production/PRODUCTION_SPEC_DESIGN_GATE.md`,
+>   section 4.1.
+
+### CARRIED ITEM P1C-1 — C-04 reopened NARROWLY for TaxClass identity
+
+`fiscal.tax_classes` becomes the stable semantic TaxClass identity: UUID primary
+key, an **immutable** semantic `code` (`standard`, `reduced`, `zero`, `exempt` and
+any further pack-defined code — the set is **open**, not a hard-coded enum),
+unique per `(tenant_id, country_pack_code)`.
+
+**A TaxClass owns no rates.** Rates, components, rounding and order-type
+overrides stay inside the pinned Country Pack version. TaxClass identity answers
+*"which semantic class is this item?"*; the pack version answers *"what does that
+class mean here?"* — which is exactly what lets a pack change the rate on
+`standard` without rewriting a historical sale.
+
+`catalogue.menu_items.tax_class_id` stays **nullable** (onboarding master data
+legitimately arrives incomplete) but every non-null reference becomes a real
+tenant-safe FK enforced by the DATABASE. **A MenuItem with no TaxClass is not
+sellable** — line capture fails rather than defaulting to `standard`.
+
+Fiscal remains otherwise out of scope: no tax documents, invoice templates,
+fiscal submissions or `fiscal.tax_rules` table.
+
+### CARRIED ITEM P1C-2 — D-17-05 reopened NARROWLY for the costing substrate
+
+Lifted only for **FR-MNU-046**, **BR-MNU-003**, and **FR-CST-001/002 to the
+extent a truthful `unit_cost_snapshot` requires**. Still deferred: theoretical-vs-
+actual, menu-engineering profitability, contribution margin, cost-variance
+dashboards, the wider FR-CST reporting surface, and the completion-time COGS
+posting workflow. **The broader defer stands** — this is not permission to
+implement the Costing bounded context.
+
+Every component is valued by **its own** configured costing method
+(`fifo | weighted_average | standard`, FR-INV-001). No global default, no
+fallback between methods. **BR-MNU-012 is preserved exactly**: an incomplete or
+absent recipe may yield zero or partial cost; a **complete** recipe whose
+valuation is unavailable **fails** rather than silently becoming zero.
+
+### CARRIED ITEM P1C-3 — Country Pack signing design (v1)
+
+FR-LOC-022 states the security property but no source chose a mechanism, which
+left the P1B verifier a fail-closed port with a deny-all default. The v1
+mechanism is now ratified:
+
+| Aspect | Decision |
+|---|---|
+| Algorithm | **Ed25519**, and for v1 the envelope's `algorithm` MUST equal `Ed25519` |
+| Canonical payload | **RFC 8785** JSON Canonicalization Scheme (JCS) |
+| Signature encoding | **base64url** |
+| Envelope | at minimum `keyId`, `algorithm`, `signature` |
+| Signed bytes | the RFC-8785 canonical form of the complete pack payload with **only** the signature envelope excluded — signature metadata is never recursively part of what it signs |
+
+**Trust model.** The runtime verifies with trusted **release PUBLIC keys only**.
+**No Country Pack signing private key may exist** in the application database,
+the backend runtime secret set, the source repository, or any committed fixture.
+Signing happens outside the application runtime. Trusted public keys carry an
+`active | revoked` lifecycle, and historical public keys are retained so
+historical signed pack versions stay verifiable.
+
+**Every one of these rejects, fail-closed:** unknown `keyId` · revoked key ·
+invalid signature · payload modified after signing · malformed JCS or envelope ·
+unsupported algorithm · unsigned pack · no trusted key configured · malformed
+trust configuration. There is **no unsigned fallback in production**, no
+HMAC/HS256 verifier, and `stableStringify` (the audit-chain canonicaliser) is
+**not** the signing protocol.
+
+Storage and configuration mechanics for the trusted PUBLIC keys are an
+engineering implementation choice, not a product decision. **No signing API and
+no backend signing capability is added.**
+
+**This does NOT make FR-LOC-031 complete.** Production certification also
+requires the full FR-LOC-023 conformance suite, whose invoice-completeness and
+QR arms do not exist.
+
+### CARRIED ITEM P1C-4 — `pos.order.create` operational read boundary
+
+**Clarification, not a new permission code.** SRS §15.2 defines
+`pos.order.create` as "Create and modify orders". It covers the operational POS
+read needed to **open, retrieve, resume, inspect, create and modify** Orders
+**inside the caller's already-authorised POS tenant / branch / session context** —
+a terminal cannot modify an order it may not read, and the If-Match/ETag flow
+requires fetching the current version first.
+
+It does **NOT** authorise arbitrary cross-branch browsing, reports, exports,
+accounting access, historical analytics, audit-log access, or dashboard /
+back-office Sales reporting. **The permission does not widen tenant, branch or
+session scope** — those remain enforced by the terminal binding and the
+FR-SEC-021 permitted-branch set.
+
+**No `pos.order.read` code is created.** The zero-invented-codes discipline
+(D-17-06 precedent) is intact.
+
+### CARRIED ITEM P1C-5 — BR-MNU-012 absent / incomplete recipe semantics
+
+> **RECORDED 2026-08-20 by explicit user governance action, correcting the P1C
+> implementation.** Not a new numbered decision; no D-21.
+
+The P1C run closed BR-MNU-012 as COMPLETE on the grounds that an absent recipe
+recorded a NULL cost and the distinction was captured in the audit payload.
+**That closure is rejected.** BR-MNU-012 says the System "SHALL record **zero or
+partial** cost, and SHALL list the item in a 'recipes requiring completion'
+report". A NULL is not a zero — it says the computation failed, which is a
+different and untrue statement — and an audit payload is not a report.
+
+The binding semantics are:
+
+| Case | `recipe_version_id` | `unit_cost_snapshot` | Sale |
+|---|---|---|---|
+| **Complete** recipe, all components priceable | actual version id | full truthful cost | permitted |
+| **Complete** recipe, a component unpriceable | — | — | **REFUSED** |
+| **Incomplete** recipe (definition unfinished) | actual version id | truthful **partial** cost | permitted |
+| **Absent** recipe (none, or none published) | **NULL** | **0** | permitted |
+
+1. The NULL in the absent case is semantically specific: **"no recipe existed at
+   sale time"**. It must never mean "cost computation failed".
+2. **No fake Recipe, no fake RecipeVersion, no sentinel ULID and no zero UUID**
+   may be created to avoid that NULL.
+3. A missing component of an incomplete recipe contributes **nothing**; it is not
+   priced as a zero-cost component.
+4. **"Incomplete" is a property of the recipe DEFINITION** — no components, or a
+   sub-recipe with no published version. A component Inventory cannot price is a
+   VALUATION gap, is not BR-MNU-012, and refuses the sale rather than reducing
+   the cost.
+5. Later recipe creation, completion, publication or valuation change **MUST
+   NOT** rewrite a historical `recipe_version_id` or `unit_cost_snapshot`.
+6. The "recipes requiring completion" report must distinguish `absent_recipe`
+   from `incomplete_recipe` and must be operationally queryable — an audit
+   payload does not discharge it.
+7. **No persistent `cost_basis` column is created.** The order line already
+   carries the discriminator: `recipe_version_id IS NULL` is the absent case by
+   definition, and the referenced version answers the other two. The basis is
+   recorded in the AUDIT entry only, because an audit trail records what the
+   system knew at the time — which is not re-derivable once a recipe is
+   completed.
+
+**BR-MNU-012 is COMPLETE only when all of the above hold**, including the report.
+
+### CARRIED ITEM P1C-6 — corrected requirement classifications
+
+Four P1C classifications were overclaims and are corrected here so the register,
+not a superseded report, is the record:
+
+- **FR-POS-040 — PARTIAL.** The §10.4 precedence has five tiers; manual price
+  override (tier 1) and promotion (tier 2) are not implemented. Resolving tiers
+  3–5 correctly is not the requirement.
+- **FR-POS-042 — PARTIAL.** Provenance is persisted for the tiers that exist; a
+  line priced by override or promotion has no provenance path at all.
+- **FR-MNU-045 — PARTIAL.** "Publishing SHALL NOT alter previously completed
+  orders" cannot be demonstrated end-to-end while order completion does not
+  exist. Line-level retention is proven; the completed-order clause is not.
+- **FR-DR-002 — NOT IMPLEMENTED.** Specifically: no scheduled advance partition
+  creation and no failure alerting. It is not a retention/archival requirement
+  and must not be described as one.
+
+### Preservation
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures and the P1A clarifications are
+unchanged.** **D-16 OPEN · D-12 BLOCKED · D-3 RATIFIED IN PART · D-10 unchanged ·
+SB-1 / SB-2 / SB-3 unresolved portions unchanged.** **D-17-05's broader defer
+stands**, amended only as P1C-2 states. **D-2's broader branch-scoped RBAC defer
+stands.** The C-11 amendment and its active-state clarification are unchanged. No
+approval schema is changed. No new permission code is created.
+
+---
+## P1D — Treasury / Payment Architecture (carried items)
+
+> **RECORDED 2026-08-20 by explicit user governance action.**
+> **NOT new numbered decisions — no D-21 is created and the 20-decision tally is
+> unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).** Recorded as carried
+> items, matching the **PL**, **SB**, **P0**, **P1A** and **P1C** convention.
+>
+> These items settle the questions the P1D design gate raised. **P1D-A** is the
+> only one that authorises code in this slice; **P1D-B … P1D-G** are recorded now
+> so that the Treasury schema built today cannot force a wrong Payment model
+> later — which is precisely what a design gate is for.
+
+### CARRIED ITEM P1D-A — Shift is DISTINCT from CashSession (narrow D-2 reopen)
+
+**Operational Shift is a Workforce concept; CashSession is a Treasury concept.
+They are not the same thing and are not collapsed.** A CashSession **references**
+the Operational Shift it was opened under.
+
+This follows the SRS rather than the approved SQL: §5.4 lists Shift among
+Workforce's key aggregates, the context map carries
+`Workforce ──▶ Treasury [shift → cash session]`, §5.5.4 makes Workforce the
+publisher of `shift.opened` / `shift.closed`, and §16.2 models a cash session as
+"one employee, one shift, one drawer". **The absence of `workforce.shifts` from
+the approved SQL is a physical-design omission, not evidence that the two
+concepts are one.** It is treated as a documented deviation.
+
+**D-2's broader Workforce deferral is reopened NARROWLY**, for exactly the
+Operational Shift substrate the POS/Treasury critical path needs:
+
+**Authorised now:** Operational Shift identity and open/closed lifecycle state;
+the CashSession → Shift relationship; the minimum module contract this slice
+consumes.
+
+**Still deferred, and NOT authorised:** Schedule and the schedule builder,
+ScheduledShift features, AttendanceRecord, clock-in/out and its corrections,
+break periods, overtime, leave, shift swaps, payroll, compensation, labour
+forecasting, and the wider Workforce API. **P1D-1 must not become the Workforce
+module.**
+
+**D-2's branch-scoped RBAC deferral is untouched.** This item reopens the
+Workforce *domain* defer only, and only as far as stated.
+
+### CARRIED ITEM P1D-B — Payment-level session attribution is authoritative
+
+A future **Payment** row is the source of truth for cash-session attribution. An
+Order may carry several Payments, and those Payments may legitimately belong to
+different sessions and different actors (FR-POS-061 [M] permits split tender and
+constrains neither).
+
+**`orders.cash_session_id` MUST NOT become the source of truth**, because one
+nullable column cannot represent N sessions. The P1A omission of that column is
+**retained**, and it is not added in this slice. Should an Order-level projection
+ever be introduced, it must be explicitly derived and must not erase
+multi-payment / multi-session truth.
+
+This resolves the multi-tender ambiguity the P1D gate raised as Q5.
+
+### CARRIED ITEM P1D-C — PaymentAttempt is not a successful Payment
+
+Ratified for the future Payment slice:
+
+- **PaymentAttempt** records an interaction with a payment rail and its outcome —
+  timeout, decline, communication failure, approved, **partial approval**
+  (FR-POS-064 [M]).
+- A successful financial effect materialises as an immutable **Payment**.
+- **Both are append-only.**
+
+This is what reconciles **ADR-010** ("orders, payments … are never updated or
+deleted") with FR-POS-064's authorisation lifecycle: the lifecycle is expressed
+as a sequence of immutable attempt records, not as a mutable status column.
+Partial approval is the decisive case — an approved amount that differs from the
+requested amount cannot be represented in one mutable row without rewriting it.
+
+**ADR-010 is preserved.** No mutable Payment status may be implemented.
+
+### CARRIED ITEM P1D-D — Cash rounding is persisted PER PAYMENT
+
+FR-POS-063 [M] requires the cash-rounding adjustment to be recorded "as a
+separate ledger amount". That amount belongs on the **Payment**.
+`orders.rounding_adjustment`, where maintained, is a projection — the sum of its
+payment-level adjustments.
+
+Per-payment is the only shape that survives split tender and per-session
+accountability: two cash payments settled in two sessions cannot be
+reconstructed from a single order-level total, and FR-FIN-004 needs the
+adjustment per session.
+
+### CARRIED ITEM P1D-E — Employee is the business financial actor
+
+For Treasury and Payment attribution the actor is the **Employee**, not the User.
+`identity.users` remains the login/authentication identity and the audit/security
+actor; `employees.user_id` recovers it when needed.
+
+This follows §16.1 ("currency must be attributable to a **person**, a shift, and
+a drawer") and FR-FIN-002 ("a cash session SHALL be bound to exactly one
+**employee**"). The approved SQL's `order_payments.processed_by →
+identity.users(id)` is a documented deviation from the SRS and is **not**
+followed.
+
+**This applies to CashSession ownership immediately**, in this slice.
+
+### CARRIED ITEM P1D-F — `pos.payment.capture` authorised for the Payment slice
+
+The permission code **`pos.payment.capture`** — *"Capture an ordinary POS
+customer payment"* — is authorised for the future Payment slice. SRS §15.2's
+Sales list contains no payment verb, so this is a **new code created by explicit
+user authorisation**, and it is the only exception to the zero-invented-codes
+discipline recorded to date.
+
+It is deliberately separate from `pos.order.create` so a tenant may grant a
+waiter order entry without granting payment capture.
+
+It does **NOT** authorise: refunds, different-tender refunds, voids, price
+overrides, CashSession management, or approvals. Those remain separately
+authorised.
+
+**Not seeded in this slice.** The repository seeds a permission only where an
+executable consumer exists (`SALES_PERMISSION_DEFS`, `PRODUCTION_PERMISSION_DEFS`),
+and creating an unused code would be appearance without capability. It is seeded
+when the Payment route exists.
+
+### CARRIED ITEM P1D-G — POS payment accountability, and what touches physical cash
+
+A future ordinary POS-collected Payment must be attributable to: **Employee ·
+Operational Shift · CashSession · Drawer (via the session) · Terminal · tenant ·
+branch**. That applies to cash *and* to ordinary POS electronic tenders, because
+FR-FIN-010 [M] requires per-session totals **by tender type**.
+
+**But only physical cash affects physical cash.** Card, wallet and other
+electronic tenders are *associated with* a session for accountability and
+reconciliation and **SHALL NOT** increase expected cash. FR-FIN-004's formula
+contains cash terms only, and that is the constraint: a card payment appears in
+the session's tender totals and never in its drawer balance.
+
+Non-POS asynchronous settlement (aggregator payouts, FR-FIN-012 [S]) is not
+designed here.
+
+### Preservation
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures and the P1A / P1C carried items are
+unchanged.** **D-16 OPEN · D-12 BLOCKED · D-3 RATIFIED IN PART · D-10 unchanged ·
+SB-1 / SB-2 / SB-3 unresolved portions unchanged.** The **C-04** and **C-11**
+amendments are unchanged. **D-17-05's broader costing defer** is unchanged.
+**D-2's branch-scoped RBAC defer** is unchanged, and its Workforce defer is
+reopened **only** as P1D-A states. No approval schema is changed. No Payment
+behaviour is created.
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |
@@ -4356,6 +5492,20 @@ of 2026-08-18 that follows.)*
 - **D-3 — RATIFIED IN PART 2026-08-17**: authority is permission-based (Conflict C-2 resolved).
   The role-on-`approval_steps` residual is **DEFERRED** with the multi-step chain by D-5
   clauses 8 and 9 — it is no longer pending D-5, it travels with the future phase.
+- **PARENT LINKAGE — RATIFIED 2026-08-18 — P-1: `approval_decisions` references
+  `approval_requests` DIRECTLY.** Recorded as the **carried-item** ratification, **not** a new
+  numbered decision — **the 20-decision tally is unaltered**. **`approval_steps` is not required
+  and must not be introduced because of this**; its existence, `tenant_id`, RLS scope,
+  cardinality and topology **remain undecided**. **D-7's** requester ≠ approver traversal and
+  **D-10's** expiry traversal **may now target `approval_requests` directly**; **D-8's**
+  append-only grants and **D-9's N1** may use the direct relationship, subject to their existing
+  clauses. **P-1 is an architectural choice, not an SRS mandate** — the SRS establishes
+  `ApprovalRequest` as the aggregate root containing Steps and Decisions but **prescribes no
+  persistence topology**. **P-2 was considered and not adopted.** **D-16 remains OPEN; D-12
+  remains BLOCKED; no prior ratification is amended.** No implementation authorized.
+  *Note: clauses in D-5, D-7 cl. 9 and D-9 cl. 9 that record linkage as unresolved are
+  **ratified historical text and are deliberately left unedited**; they are superseded forward
+  by this entry, in the register's established manner.*
 - **D-20 — RATIFIED 2026-08-18 — MINIMAL / NO NEW GOVERNANCE READ SURFACE IN PHASE 1.**
   **D-9's database-layer tenant isolation / fail-closed RLS remains the applicable read
   authorization boundary.** **No new Governance HTTP read surface**, **no `approval_requests` /

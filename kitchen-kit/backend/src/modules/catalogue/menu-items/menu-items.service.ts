@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { newId } from '../../../common/ids';
 import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { assertPriceCompleteness } from '../pricing/price-completeness';
 import {
   AUDIT_ACTION,
   AUDIT_ENTITY,
@@ -355,6 +356,15 @@ export class MenuItemsService {
               : {}),
           },
         });
+        // C-11 (amended): a new variant defaults to active, so it must already
+        // be priced in every administratively active price list. Creating it
+        // otherwise would leave those lists incomplete.
+        await assertPriceCompleteness(
+          tx,
+          { menuItemVariantId: created.id },
+          'This variant cannot be created while active price lists exist without a price for it.',
+        );
+
         await this.audit.record(tx, {
           tenantId,
           action: AUDIT_ACTION.VARIANT_CREATED,
@@ -404,6 +414,16 @@ export class MenuItemsService {
           where: { id: variantId },
           data: { isActive },
         });
+        // C-11 (amended): activating a variant must not leave any active price
+        // list without a price for it.
+        if (isActive) {
+          await assertPriceCompleteness(
+            tx,
+            { menuItemVariantId: variantId, assumeVariantActive: variantId },
+            'This variant cannot be activated while active price lists have no price for it.',
+          );
+        }
+
         await this.audit.record(tx, {
           tenantId,
           action: isActive

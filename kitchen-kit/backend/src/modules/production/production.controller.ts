@@ -27,9 +27,11 @@ import {
   CreateRecipeDto,
   CreateRecipeVersionDto,
   CreateSubstituteGroupDto,
+  RecipeCompletenessQueryDto,
   ReplaceRecipeLinesDto,
 } from './production.dto';
 import { PRODUCTION_PERMISSIONS } from './production.permissions';
+import { RecipeCompletenessService } from './costing/recipe-completeness.service';
 import { RecipesService } from './recipes/recipes.service';
 import { SubstituteGroupsService } from './substitute-groups/substitute-groups.service';
 import { RecipeVersionsService } from './versions/recipe-versions.service';
@@ -67,7 +69,35 @@ export class ProductionController {
     private readonly recipes: RecipesService,
     private readonly versions: RecipeVersionsService,
     private readonly groups: SubstituteGroupsService,
+    private readonly completeness: RecipeCompletenessService,
   ) {}
+
+  // ------------------------------------------- recipes requiring completion --
+
+  /**
+   * BR-MNU-012's mandated report.
+   *
+   * "SHALL list the item in a 'recipes requiring completion' report" is the one
+   * clause of BR-MNU-012 that is not satisfied inside the sale, so it needs a
+   * surface. It is a READ of recipe state, so `recipe.view` governs it — the
+   * same SRS 15.2 code the other reads use, and D-17-06's zero-invented-codes
+   * rule is intact.
+   *
+   * `branchId` is optional because D-17-03 scopes recipes: without a branch the
+   * report answers "is there any tenant-scope recipe", with one it answers
+   * "which recipe actually applies here", and those legitimately differ.
+   *
+   * This is deliberately NOT the Catalogue completeness route: that one reports
+   * the C-11 PRICING invariant, and BR-MNU-012 must never be read as weakening it.
+   */
+  @Get('recipes/requiring-completion')
+  @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
+  recipesRequiringCompletion(
+    @CurrentTenantContext() c: TenantContext,
+    @Query() query: RecipeCompletenessQueryDto,
+  ) {
+    return this.completeness.report(c.tenantId, query.branchId);
+  }
 
   // ------------------------------------------------------------ recipes --
 

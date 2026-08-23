@@ -1,0 +1,481 @@
+{
+  "corpusVersion": "1",
+  "cases": [
+    {
+      "id": "tax-two-components-001",
+      "description": "Two simultaneous components on one net base, each with its own rate. FR-FIN-032.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "components": [
+                {
+                  "code": "vat",
+                  "rate": "5.0"
+                },
+                {
+                  "code": "municipality",
+                  "rate": "2.5"
+                }
+              ]
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "10000",
+            "tax": "750",
+            "gross": "10750",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "vat",
+                "ratePercent": "5.0",
+                "amount": "500"
+              },
+              {
+                "code": "municipality",
+                "ratePercent": "2.5",
+                "amount": "250"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "750"
+      }
+    },
+    {
+      "id": "tax-component-own-rounding-002",
+      "description": "A component with its own rounding mode and rounding point. FR-FIN-032.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "components": [
+                {
+                  "code": "vat",
+                  "rate": "5.0"
+                },
+                {
+                  "code": "municipality",
+                  "rate": "2.5",
+                  "roundingMode": "FLOOR",
+                  "roundingPrecision": 0
+                }
+              ]
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "10000",
+            "tax": "700",
+            "gross": "10700",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "vat",
+                "ratePercent": "5.0",
+                "amount": "500"
+              },
+              {
+                "code": "municipality",
+                "ratePercent": "2.5",
+                "amount": "200"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "700"
+      }
+    },
+    {
+      "id": "tax-components-inclusive-003",
+      "description": "Two components under inclusive pricing: net is derived once, never rounded twice. FR-FIN-032, BR-FIN-001.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_inclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "components": [
+                {
+                  "code": "vat",
+                  "rate": "5.0"
+                },
+                {
+                  "code": "municipality",
+                  "rate": "2.5"
+                }
+              ]
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "11750",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "10930",
+            "tax": "820",
+            "gross": "11750",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "vat",
+                "ratePercent": "5.0",
+                "amount": "547"
+              },
+              {
+                "code": "municipality",
+                "ratePercent": "2.5",
+                "amount": "273"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "820"
+      }
+    },
+    {
+      "id": "tax-components-mixed-scale-004",
+      "description": "Components of different decimal scales combined on one exact denominator.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "components": [
+                {
+                  "code": "vat",
+                  "rate": "14"
+                },
+                {
+                  "code": "tourism",
+                  "rate": "0.125"
+                }
+              ]
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "10000",
+            "tax": "1413",
+            "gross": "11413",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "vat",
+                "ratePercent": "14",
+                "amount": "1400"
+              },
+              {
+                "code": "tourism",
+                "ratePercent": "0.125",
+                "amount": "13"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "1413"
+      }
+    },
+    {
+      "id": "tax-order-type-override-005",
+      "description": "Order-type-dependent rates: takeaway overridden, dine-in on the base class. FR-FIN-033.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": [
+            {
+              "orderType": "takeaway",
+              "classCode": "standard",
+              "rate": "5.0"
+            }
+          ]
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": "takeaway"
+        },
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": "dine_in"
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "10000",
+            "tax": "500",
+            "gross": "10500",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "5.0",
+                "amount": "500"
+              }
+            ]
+          },
+          {
+            "net": "10000",
+            "tax": "1400",
+            "gross": "11400",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "1400"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "1900"
+      }
+    },
+    {
+      "id": "tax-order-type-override-exempt-006",
+      "description": "An override may make a class exempt for one order type only.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": [
+            {
+              "orderType": "delivery",
+              "classCode": "standard",
+              "rate": null
+            }
+          ]
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": "delivery"
+        },
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": "drive_thru"
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "10000",
+            "tax": "0",
+            "gross": "10000",
+            "exempt": true,
+            "zeroRated": false,
+            "components": []
+          },
+          {
+            "net": "10000",
+            "tax": "1400",
+            "gross": "11400",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "1400"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "1400"
+      }
+    }
+  ]
+}

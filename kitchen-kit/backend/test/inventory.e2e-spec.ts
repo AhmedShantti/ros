@@ -784,13 +784,38 @@ describe('Inventory (e2e)', () => {
     it('no out-of-scope schemas were created', async () => {
       // `production` is deliberately absent from this list: Production Spec is
       // an authorized, implemented phase (design gate CLOSED/RATIFIED), so a
-      // `production` schema is expected. Every unbuilt context stays guarded.
+      // `production` schema is expected. `sales` and `sync` are likewise absent
+      // now that the P1A Order capture foundation is implemented — `sync` holds
+      // ONLY the §26.5 idempotency table, not the sync protocol.
+      // Every unbuilt context stays guarded.
+      // `fiscal` was removed by the C-04 AMENDMENT (2026-08-20), which
+      // authorises `fiscal.tax_classes` and nothing else; the narrowed boundary
+      // is asserted directly below rather than dropped.
       const rows = await admin.$queryRawUnsafe<{ nspname: string }[]>(
         `SELECT nspname FROM pg_namespace WHERE nspname IN
-         ('procurement','sales','workforce','treasury','crm',
-          'fiscal','analytics','sync','platform','ck')`,
+         ('procurement','crm','analytics','platform','ck')`,
       );
       expect(rows).toHaveLength(0);
+
+      // `workforce` and `treasury` were removed from this guard by carried item
+      // P1D-A (2026-08-20), which authorises `workforce.shifts`,
+      // `treasury.drawers` and `treasury.cash_sessions` — and NOTHING else in
+      // either schema. The guard is narrowed rather than dropped: the assertion
+      // below proves neither context quietly grew the rest of itself.
+      const p1dTables = await admin.$queryRawUnsafe<{ qualified: string }[]>(
+        `SELECT schemaname || '.' || tablename AS qualified FROM pg_tables
+          WHERE schemaname IN ('workforce','treasury') ORDER BY 1`,
+      );
+      expect(p1dTables.map((t) => t.qualified)).toEqual([
+        'treasury.cash_sessions',
+        'treasury.drawers',
+        'workforce.shifts',
+      ]);
+
+      const fiscalTables = await admin.$queryRawUnsafe<{ tablename: string }[]>(
+        `SELECT tablename FROM pg_tables WHERE schemaname = 'fiscal' ORDER BY 1`,
+      );
+      expect(fiscalTables.map((t) => t.tablename)).toEqual(['tax_classes']);
     });
 
     it('stock_movements is RANGE-partitioned by occurred_at (D-INV-01)', async () => {

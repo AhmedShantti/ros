@@ -129,12 +129,65 @@ Every source below was actually inspected during this gate.
 | **D-17-02** | Polymorphic references use typed nullable columns + real composite FKs to tenant-scoped targets + XOR CHECK. Service validation may supplement but MUST NOT be the sole tenant guarantee. Follows ADR 0008 D-09. |
 | **D-17-03** | Recipe scope = `tenant` \| `brand` \| `branch`; `scope_id` required for brand and branch. Precedence **branch > brand > tenant**, documented as analogy-derived from FR-PLT-025, **not** a recipe-specific SRS requirement. No additional scope levels. |
 | **D-17-04** | Published recipe versions immutable at database level. Lifecycle `draft → published → superseded`. `archived` unimplemented. Enforcement mirrors the `governance.audit_entries` pattern **where technically applicable**. |
-| **D-17-05** | Costing deferred. `computed_cost` / `cost_computed_at` may exist but remain unpopulated. FR-MNU-046 / BR-MNU-003 not implemented. |
+| **D-17-05** | Costing deferred. `computed_cost` / `cost_computed_at` may exist but remain unpopulated. FR-MNU-046 / BR-MNU-003 not implemented. — **NARROWLY AMENDED 2026-08-20; original text above is preserved verbatim. See §4.1.** |
 | **D-17-06** | Exactly `recipe.view`, `recipe.edit`, `recipe.publish`. No additional codes. |
 | **D-17-07** | `modifiers.recipe_delta` remains opaque. No component-resolution, operation-identifier, or substitution semantics. FR-MNU-013 deferred. |
 | **D-17-08** | Max one `published` version per recipe; partial unique index required; `effective_from` **informational only**; no temporal resolution; Q3/Q4/Q5 not applicable; the published version is selected by lifecycle state **after** applying D-17-03 scope precedence. |
 | **GAP-1** | **CLOSED / RATIFIED — Option A.** `POST /v1/recipes` authorized as a documented API deviation. No auto-creation from version creation. No invented auto-create key or uniqueness rule. `recipe.edit` governs it. |
 | **GAP-2** | **CLOSED / RATIFIED — CONFIRMED.** Column-level `UPDATE (status)` grant + status-predicated RLS on children. No triggers. No blanket `REVOKE UPDATE`. |
+
+
+### 4.1 D-17-05 AMENDMENT (2026-08-20) — NARROW REOPEN
+
+> **REOPENED BY EXPLICIT USER GOVERNANCE ACTION, and only as far as the active
+> Sales critical path requires.** The original D-17-05 text is preserved verbatim
+> in the table above and is **not deleted**. **No new numbered decision; no D-21;
+> the decision tally is unchanged.** D-17-01 … D-17-04 and D-17-06 … D-17-08,
+> GAP-1 and GAP-2 are untouched.
+
+**Why reopened.** BR-POS-004 requires `unit_cost_snapshot` on every OrderLine at
+sale time and forbids recomputing it later. With costing deferred wholesale,
+`recipe_versions.computed_cost` was provably never written, so Sales line capture
+could only have fabricated a zero. BR-MNU-012 permits zero cost **only** for an
+incomplete or absent recipe; it has never permitted a fabricated zero for a
+complete one. The defer had therefore become the sole blocker on a mandatory
+sale-time snapshot.
+
+**The defer is lifted ONLY for:**
+
+- **FR-MNU-046** — recipe-cost recomputation on component valuation change,
+  cascading through dependent sub-recipes and parent recipes.
+- **BR-MNU-003** — the recipe-cost formula, including wastage, yield, recursive
+  sub-recipe expansion and the depth-10 limit.
+- **FR-CST-001 / FR-CST-002** — only so far as obtaining a truthful unit cost and
+  persisting it as a sale-time snapshot requires.
+- **BR-POS-004** — `unit_cost_snapshot` at line capture.
+
+**Still deferred, and NOT authorised by this amendment:**
+
+- theoretical-vs-actual analysis;
+- menu-engineering and profitability analytics;
+- contribution-margin reporting (FR-CST-005);
+- cost-variance dashboards;
+- the wider FR-CST reporting surface;
+- the completion-time COGS posting workflow;
+- any analytics not required to produce a truthful sale snapshot.
+
+**This is NOT permission to implement the Costing bounded context.**
+
+**Binding constraints on the implementation:**
+
+1. **Every component is valued by ITS OWN configured costing method** —
+   `inventory.stock_items.costing_method` ∈ `fifo | weighted_average | standard`
+   (FR-INV-001). There is **no global default**, no fallback from one method to
+   another, and no "latest purchase cost" standing in for FIFO.
+2. **BR-MNU-012 is preserved exactly.** An incomplete or absent recipe may yield
+   zero or partial cost. A **complete** recipe whose component valuation is
+   unavailable **fails**; it does not silently become zero.
+3. Arithmetic is exact. No floating point enters a cost result.
+4. Recomputation hooks the **actual valuation mutation boundary**, not a
+   scheduler — the SRS says "when component costs change", and §20 of this gate
+   still excludes schedulers, jobs and message brokers.
 
 ---
 
@@ -627,7 +680,7 @@ becomes its first Production Spec publisher.
 | BR-MNU-001 cycle detection with full path | **Service** — no declarative form exists |
 | `version = max + 1` assignment | **Service**, guaranteed by DB UNIQUE |
 | Unit-dimension compatibility | **Not enforced** — no source rule |
-| Costing | **Deferred** (D-17-05) |
+| Costing | **Deferred** (D-17-05) — **narrowly reopened 2026-08-20 for BR-MNU-003 / FR-MNU-046 / BR-POS-004 only; see §4.1** |
 
 ---
 
@@ -727,7 +780,7 @@ prose.
 - Catalogue changes of any kind
 - Sales `order_lines.recipe_version_id` writes (BR-POS-004 is Sales' obligation)
 - Central Kitchen `production_orders.recipe_version_id` writes (FR-BRN-021…025)
-- Recipe costing — FR-MNU-046, BR-MNU-003 (D-17-05)
+- Recipe costing — FR-MNU-046, BR-MNU-003 (D-17-05) — **narrowly reopened 2026-08-20, see §4.1**
 - `modifiers.recipe_delta` semantics — FR-MNU-013 (D-17-07)
 - `archived` lifecycle semantics (D-17-04)
 - Nutritional aggregation — FR-MNU-050 [C]

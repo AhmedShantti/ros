@@ -25,8 +25,11 @@ interface TerminalBody {
   status: string;
 }
 const password = 's3cure-passphrase';
-const branchA = newId();
-const branchB = newId();
+// Real branches: `terminals` now carries a tenant-safe composite FK to
+// `org.branches` (D-2 amendment item 3), so a fabricated UUID is no longer a
+// valid branch. The fixture creates genuine rows instead of inventing ids.
+let branchA: string;
+let branchB: string;
 
 function tamper(token: string, key: string, value: string): string {
   const [h, p, s] = token.split('.');
@@ -125,6 +128,36 @@ describe('Terminals (e2e)', () => {
       }
       return u.id;
     };
+    const mkBranch = async (tenantId: string, code: string) => {
+      const brand = await admin.brand.create({
+        data: { id: newId(), tenantId, name: `Brand ${code}` },
+      });
+      const branch = await admin.branch.create({
+        data: {
+          id: newId(),
+          tenantId,
+          brandId: brand.id,
+          code,
+          name: `Branch ${code}`,
+          timezone: 'Africa/Cairo',
+          baseCurrency: 'EGP',
+          countryCode: 'EG',
+        },
+      });
+      await admin.location.create({
+        data: {
+          id: newId(),
+          tenantId,
+          locationType: 'branch',
+          refId: branch.id,
+          branchId: branch.id,
+        },
+      });
+      return branch.id;
+    };
+    branchA = await mkBranch(tenantAId, `TA${Date.now() % 10000}`);
+    branchB = await mkBranch(tenantBId, `TB${Date.now() % 10000}`);
+
     await mk(emailAdminA, tenantAId, true);
     await mk(emailPlainA, tenantAId, false);
     await mk(emailAdminB, tenantBId, true);

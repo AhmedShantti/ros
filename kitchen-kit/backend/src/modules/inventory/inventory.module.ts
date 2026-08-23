@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
+import { ProductionModule } from '../production/production.module';
 import { CountsService } from './counts/counts.service';
 import { InventoryController } from './inventory.controller';
 import { MovementsService } from './movements/movements.service';
@@ -17,7 +18,10 @@ import { WasteService } from './waste/waste.service';
  * system, no scheduler, no outbox, no Governance workflow.
  */
 @Module({
-  imports: [IdentityModule, AuditModule],
+  // FR-MNU-046: a valuation change must recompute the recipe costs that depend
+  // on it. The dependency is one narrow port (RECIPE_COST_RECOMPUTER), not a
+  // reach into Production internals, and Production imports nothing back.
+  imports: [IdentityModule, AuditModule, ProductionModule],
   controllers: [InventoryController],
   providers: [
     StockItemsService,

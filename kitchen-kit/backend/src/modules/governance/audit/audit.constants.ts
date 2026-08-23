@@ -10,6 +10,25 @@ export const SENTINEL_TENANT_ID = '00000000-0000-0000-0000-000000000000';
 export type AuditActorType = 'user' | 'anonymous' | 'system' | 'terminal';
 
 export const AUDIT_ACTION = {
+  // P1A Sales. Canonical verbs follow the repository's existing
+  // <ENTITY>_<PAST_TENSE> convention (FR-AUD-002 "canonical verb").
+  ORDER_CREATED: 'ORDER_CREATED',
+  ORDER_STATE_CHANGED: 'ORDER_STATE_CHANGED',
+  // P1C line capture. Same <ENTITY>_<PAST_TENSE> convention; no new taxonomy
+  // shape is introduced, only the two verbs the new commands actually perform.
+  ORDER_LINE_ADDED: 'ORDER_LINE_ADDED',
+  ORDER_LINE_VOIDED: 'ORDER_LINE_VOIDED',
+  // P1D-1 Workforce / Treasury. Same <ENTITY>_<PAST_TENSE> convention; the
+  // audit taxonomy is not governance-controlled, so these follow the existing
+  // shape rather than inventing one. Opening a shift and taking custody of a
+  // drawer are two separately accountable events, hence two verbs.
+  SHIFT_OPENED: 'SHIFT_OPENED',
+  CASH_SESSION_OPENED: 'CASH_SESSION_OPENED',
+  // D-2 (amended) PIN substrate. Security-sensitive state changes only; a PIN
+  // value never appears in any payload.
+  EMPLOYEE_CREATED: 'EMPLOYEE_CREATED',
+  EMPLOYEE_BRANCH_ASSIGNED: 'EMPLOYEE_BRANCH_ASSIGNED',
+  PIN_SET: 'PIN_SET',
   LOGIN_SUCCESS: 'LOGIN_SUCCESS',
   LOGIN_FAILURE: 'LOGIN_FAILURE',
   LOGOUT: 'LOGOUT',
@@ -98,6 +117,12 @@ export const AUDIT_ACTION = {
 } as const;
 
 export const AUDIT_ENTITY = {
+  ORDER: 'order',
+  ORDER_LINE: 'order_line',
+  SHIFT: 'shift',
+  CASH_SESSION: 'cash_session',
+  DRAWER: 'drawer',
+  EMPLOYEE: 'employee',
   USER: 'user',
   SESSION: 'session',
   TENANT: 'tenant',

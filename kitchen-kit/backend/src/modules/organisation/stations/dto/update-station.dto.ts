@@ -20,4 +20,9 @@ export class UpdateStationDto {
   @IsOptional()
   @Matches(UUID_PATTERN, { message: 'displayTerminalId must be a UUID' })
   displayTerminalId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 9)
+  displayColour?: string;
 }

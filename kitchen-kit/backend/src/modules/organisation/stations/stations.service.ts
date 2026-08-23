@@ -19,6 +19,7 @@ export interface CreateStationInput {
   name: string;
   capacityConfig?: Record<string, unknown>;
   displayTerminalId?: string;
+  displayColour?: string;
 }
 
 export type UpdateStationInput = Partial<CreateStationInput>;
@@ -61,6 +62,7 @@ export class StationsService {
                   }
                 : {}),
               displayTerminalId: input.displayTerminalId ?? null,
+              displayColour: input.displayColour ?? null,
             },
           });
           await this.audit.record(tx, {
@@ -132,6 +134,9 @@ export class StationsService {
               ...(input.displayTerminalId !== undefined
                 ? { displayTerminalId: input.displayTerminalId }
                 : {}),
+              ...(input.displayColour !== undefined
+                ? { displayColour: input.displayColour }
+                : {}),
             },
           });
           await this.audit.record(tx, {
@@ -144,10 +149,12 @@ export class StationsService {
             before: {
               name: existing.name,
               displayTerminalId: existing.displayTerminalId,
+              displayColour: existing.displayColour,
             },
             metadata: {
               name: updated.name,
               displayTerminalId: updated.displayTerminalId,
+              displayColour: updated.displayColour,
             },
           });
           return updated;

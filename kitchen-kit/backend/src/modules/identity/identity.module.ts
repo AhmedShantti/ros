@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
+import { LocalisationModule } from '../localisation/localisation.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthThrottlerGuard } from '../../common/throttler/auth-throttler.guard';
 import { AccessTokenService } from './auth/access-token.service';
@@ -18,6 +19,8 @@ import { TerminalController } from './terminals/terminal.controller';
 import { TerminalSessionService } from './terminals/terminal-session.service';
 import { TerminalsService } from './terminals/terminals.service';
 import { PasswordController } from './password/password.controller';
+import { EmployeesService } from './employees/employees.service';
+import { PinService } from './employees/pin.service';
 import { PasswordService } from './password/password.service';
 import {
   LoggingPasswordResetNotifier,
@@ -85,6 +88,10 @@ import { UsersService } from './users/users.service';
         ],
       }),
     }),
+    // C-04 AMENDMENT: a tenant's jurisdiction assignment is where its TaxClass
+    // identities are provisioned. Identity depends on ONE port
+    // (TAX_CLASS_PROVISIONER), and Localisation imports nothing back.
+    LocalisationModule,
   ],
   controllers: [
     AuthController,
@@ -119,6 +126,8 @@ import { UsersService } from './users/users.service';
       provide: PASSWORD_RESET_NOTIFIER,
       useClass: LoggingPasswordResetNotifier,
     },
+    EmployeesService,
+    PinService,
   ],
   exports: [
     UsersService,
@@ -137,6 +146,8 @@ import { UsersService } from './users/users.service';
     TerminalsService,
     TerminalSessionService,
     PasswordService,
+    EmployeesService,
+    PinService,
   ],
 })
 export class IdentityModule {}

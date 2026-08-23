@@ -1,4 +1,4 @@
-import { plainToInstance } from 'class-transformer';
+import { Type, plainToInstance } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
@@ -70,12 +70,51 @@ export class EnvironmentVariables {
   @Max(100_000)
   AUTH_THROTTLE_LIMIT: number = 10;
 
+  /**
+   * FR-SEC-022: "lockout after a CONFIGURABLE number of failures". The SRS does
+   * not state a number, so this is an IMPLEMENTATION-level default following the
+   * repository's existing explicit-default convention (as `AUTH_THROTTLE_LIMIT`
+   * does) — it is documented here rather than hidden in a service, and it is NOT
+   * a requirement-level value.
+   */
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  PIN_MAX_FAILED_ATTEMPTS: number = 5;
+
+  /** How long a PIN stays locked once the threshold is reached. */
+  @IsInt()
+  @Min(1000)
+  @Type(() => Number)
+  PIN_LOCKOUT_MS: number = 900_000;
+
   // Express `trust proxy` setting. Unset/`false` trusts NO forwarding header
   // (safe default). Set to a hop count (e.g. `1`), `true`, or a subnet string
   // only when running behind a known, trusted reverse proxy. See docs/auth.
   @IsOptional()
   @IsString()
   TRUST_PROXY?: string;
+
+  /**
+   * FR-LOC-022 / FR-LOC-024 — directory holding signed Country Pack bundles
+   * (`*.pack.json`). OPTIONAL and unset by default: an unconfigured deployment
+   * activates no pack, and because the signature verifier is deny-all until a
+   * concrete signing scheme is ratified, the system refuses to price a sale
+   * rather than pricing one under an unverified pack.
+   */
+  @IsOptional()
+  @IsString()
+  COUNTRY_PACK_DIR?: string;
+
+  /**
+   * FR-LOC-022 - path to the trusted release-key manifest (PUBLIC keys only).
+   * OPTIONAL and unset by default: with no manifest nothing is trusted, every
+   * pack signature is rejected, and the system refuses to price a sale rather
+   * than pricing one under an unverified rate.
+   */
+  @IsOptional()
+  @IsString()
+  COUNTRY_PACK_TRUST_MANIFEST?: string;
 
   @IsEnum(NodeEnv)
   NODE_ENV: NodeEnv = NodeEnv.Development;

@@ -9,6 +9,7 @@ import { MenuItemsService } from './menu-items/menu-items.service';
 import { MenusService } from './menus/menus.service';
 import { ModifierGroupsService } from './modifier-groups/modifier-groups.service';
 import { PriceListsService } from './price-lists/price-lists.service';
+import { PriceResolutionService } from './pricing/price-resolution.service';
 
 /**
  * Catalogue bounded context (Phase 16, ADR-ratified design gate C-01…C-11).
@@ -27,6 +28,7 @@ import { PriceListsService } from './price-lists/price-lists.service';
     MenuItemsService,
     ModifierGroupsService,
     PriceListsService,
+    PriceResolutionService,
     AvailabilityService,
     CatalogueCompletenessService,
   ],
@@ -36,6 +38,7 @@ import { PriceListsService } from './price-lists/price-lists.service';
     MenuItemsService,
     ModifierGroupsService,
     PriceListsService,
+    PriceResolutionService,
     AvailabilityService,
     CatalogueCompletenessService,
   ],

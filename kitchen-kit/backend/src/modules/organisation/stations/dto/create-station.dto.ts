@@ -24,4 +24,11 @@ export class CreateStationDto {
   @IsOptional()
   @Matches(UUID_PATTERN, { message: 'displayTerminalId must be a UUID' })
   displayTerminalId?: string;
+
+  // FR-KDS-001 [M]: "configurable name, display colour, and capacity."
+  // Same nullable VARCHAR(9) convention as catalogue categories/menu items.
+  @IsOptional()
+  @IsString()
+  @Length(1, 9)
+  displayColour?: string;
 }

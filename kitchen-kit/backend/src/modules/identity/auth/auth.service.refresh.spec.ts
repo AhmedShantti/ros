@@ -8,6 +8,7 @@ import { TerminalsService } from '../terminals/terminals.service';
 import { UsersRepository } from '../users/users.repository';
 import { AccessTokenService } from './access-token.service';
 import { AuditService } from '../../governance/audit/audit.service';
+import { PinService } from '../employees/pin.service';
 import { AuthService } from './auth.service';
 
 function activeUser(overrides: Record<string, unknown> = {}) {
@@ -53,6 +54,9 @@ describe('AuthService refresh/logout', () => {
       findInTenant: jest.fn().mockResolvedValue(null),
     } as unknown as TerminalsService;
     const audit = { emit: jest.fn() } as unknown as AuditService;
+    // PIN authentication has its own suites; these password/refresh specs only
+    // need the dependency to exist.
+    const pins = { authenticate: jest.fn() } as unknown as PinService;
 
     service = new AuthService(
       {} as unknown as PrismaService,
@@ -63,6 +67,7 @@ describe('AuthService refresh/logout', () => {
       memberships,
       terminals,
       audit,
+      pins,
       config,
     );
   });

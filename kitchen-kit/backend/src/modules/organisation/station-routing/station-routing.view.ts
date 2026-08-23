@@ -6,6 +6,7 @@ export interface StationRoutingRuleSummary {
   stationId: string;
   menuItemId: string | null;
   categoryId: string | null;
+  modifierId: string | null;
   priority: number;
 }
 
@@ -18,6 +19,7 @@ export function toStationRoutingRuleSummary(
     stationId: r.stationId,
     menuItemId: r.menuItemId,
     categoryId: r.categoryId,
+    modifierId: r.modifierId,
     priority: r.priority,
   };
 }

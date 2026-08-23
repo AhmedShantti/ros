@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
+import { RecipeCompletenessService } from './costing/recipe-completeness.service';
+import { RECIPE_COST_RECOMPUTER } from './costing/recipe-cost.port';
+import { RecipeCostService } from './costing/recipe-cost.service';
+import { StockValuationService } from './costing/stock-valuation.service';
 import { ProductionController } from './production.controller';
 import { RecipesService } from './recipes/recipes.service';
 import { SubstituteGroupsService } from './substitute-groups/substitute-groups.service';
@@ -22,7 +26,25 @@ import { RecipeVersionsService } from './versions/recipe-versions.service';
 @Module({
   imports: [IdentityModule, AuditModule],
   controllers: [ProductionController],
-  providers: [RecipesService, RecipeVersionsService, SubstituteGroupsService],
-  exports: [RecipesService, RecipeVersionsService, SubstituteGroupsService],
+  providers: [
+    RecipesService,
+    RecipeVersionsService,
+    SubstituteGroupsService,
+    // D-17-05 NARROW AMENDMENT (design gate 4.1): the costing substrate.
+    StockValuationService,
+    RecipeCostService,
+    // BR-MNU-012's third clause: the "recipes requiring completion" report.
+    RecipeCompletenessService,
+    { provide: RECIPE_COST_RECOMPUTER, useExisting: RecipeCostService },
+  ],
+  exports: [
+    RecipesService,
+    RecipeVersionsService,
+    SubstituteGroupsService,
+    StockValuationService,
+    RecipeCostService,
+    RecipeCompletenessService,
+    RECIPE_COST_RECOMPUTER,
+  ],
 })
 export class ProductionModule {}

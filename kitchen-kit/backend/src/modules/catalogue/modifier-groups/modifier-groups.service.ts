@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { newId } from '../../../common/ids';
-import { Prisma } from '../../../generated/prisma/client';
+import { ModifierKind, Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   AUDIT_ACTION,
@@ -25,6 +25,8 @@ export interface CreateModifierGroupInput {
 
 export interface CreateModifierInput {
   name: Record<string, unknown>;
+  /** FR-POS-021 [M]. Required for every NEW modifier — see the DTO docblock. */
+  kind: ModifierKind;
   priceDelta?: string;
   stockItemId?: string;
   consumptionQuantity?: string;
@@ -183,8 +185,10 @@ export class ModifierGroupsService {
         const created = await tx.modifier.create({
           data: {
             id: newId(),
+            tenantId,
             modifierGroupId: groupId,
             name: input.name as Prisma.InputJsonValue,
+            kind: input.kind,
             priceDelta,
             stockItemId: input.stockItemId ?? null,
             consumptionQuantity: input.consumptionQuantity ?? null,

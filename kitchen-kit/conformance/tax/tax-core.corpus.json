@@ -1,0 +1,1189 @@
+{
+  "corpusVersion": "1",
+  "cases": [
+    {
+      "id": "tax-inclusive-standard-001",
+      "description": "Tax-inclusive pricing, single standard-rate line. FR-FIN-031.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_inclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "12000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "10526",
+            "tax": "1474",
+            "gross": "12000",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "1474"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "1474"
+      }
+    },
+    {
+      "id": "tax-exclusive-standard-002",
+      "description": "Tax-exclusive pricing, single standard-rate line. FR-FIN-031.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "12000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "12000",
+            "tax": "1680",
+            "gross": "13680",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "1680"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "1680"
+      }
+    },
+    {
+      "id": "tax-reduced-rate-003",
+      "description": "Reduced tax class, both pricing modes. FR-FIN-033.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "reduced",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "10000",
+            "tax": "500",
+            "gross": "10500",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "reduced",
+                "ratePercent": "5.0",
+                "amount": "500"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "500"
+      }
+    },
+    {
+      "id": "tax-reduced-rate-inclusive-004",
+      "description": "Reduced tax class under inclusive pricing. FR-FIN-033.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_inclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "reduced",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "9524",
+            "tax": "476",
+            "gross": "10000",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "reduced",
+                "ratePercent": "5.0",
+                "amount": "476"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "476"
+      }
+    },
+    {
+      "id": "tax-zero-rated-005",
+      "description": "Zero-rated supply: inside the scope of the tax, at 0%. FR-FIN-033.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "1500",
+          "quantity": "1",
+          "taxClass": "zero",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "1500",
+            "tax": "0",
+            "gross": "1500",
+            "exempt": false,
+            "zeroRated": true,
+            "components": [
+              {
+                "code": "zero",
+                "ratePercent": "0.0",
+                "amount": "0"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "0"
+      }
+    },
+    {
+      "id": "tax-exempt-006",
+      "description": "Exempt supply: outside the scope, no component in the breakdown. FR-FIN-033.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "5000",
+          "quantity": "1",
+          "taxClass": "exempt",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "5000",
+            "tax": "0",
+            "gross": "5000",
+            "exempt": true,
+            "zeroRated": false,
+            "components": []
+          }
+        ],
+        "taxTotal": "0"
+      }
+    },
+    {
+      "id": "tax-integer-quantity-007",
+      "description": "Quantity greater than one, exact.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "1250",
+          "quantity": "4",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "5000",
+            "tax": "700",
+            "gross": "5700",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "700"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "700"
+      }
+    },
+    {
+      "id": "tax-fractional-quantity-008",
+      "description": "Fractional quantity (0.5 kg), rounded once at the pack point.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "2500",
+          "quantity": "0.5",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "1250",
+            "tax": "175",
+            "gross": "1425",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "175"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "175"
+      }
+    },
+    {
+      "id": "tax-large-amount-009",
+      "description": "Amount above Number.MAX_SAFE_INTEGER; must stay exact.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "9007199254740993",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "9007199254740993",
+            "tax": "1261007895663739",
+            "gross": "10268207150404732",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "1261007895663739"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "1261007895663739"
+      }
+    },
+    {
+      "id": "tax-currency-exponent-0-010",
+      "description": "Zero-decimal currency, inclusive pricing. ADR-008.",
+      "pack": {
+        "code": "XA",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "JPY",
+          "exponent": 0,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_inclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 0,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "10.0"
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "1000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "909",
+            "tax": "91",
+            "gross": "1000",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "10.0",
+                "amount": "91"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "91"
+      }
+    },
+    {
+      "id": "tax-currency-exponent-3-011",
+      "description": "Three-decimal currency, exclusive pricing. ADR-008.",
+      "pack": {
+        "code": "XB",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "KWD",
+          "exponent": 3,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 3,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "5.0"
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "10000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "10000",
+            "tax": "500",
+            "gross": "10500",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "5.0",
+                "amount": "500"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "500"
+      }
+    },
+    {
+      "id": "tax-half-up-boundary-012",
+      "description": "An exact .5 tie under the BR-FIN-002 default: away from zero.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "10.0"
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "5",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "5",
+            "tax": "1",
+            "gross": "6",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "10.0",
+                "amount": "1"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "1"
+      }
+    },
+    {
+      "id": "tax-half-even-override-013",
+      "description": "The same tie under a pack HALF_EVEN override. BR-FIN-002.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_EVEN",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "10.0"
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "5",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "5",
+            "tax": "0",
+            "gross": "5",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "10.0",
+                "amount": "0"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "0"
+      }
+    },
+    {
+      "id": "tax-coarse-rounding-point-014",
+      "description": "Pack rounding POINT coarser than the minor unit. FR-FIN-035.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 0,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "12000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "12000",
+            "tax": "1700",
+            "gross": "13700",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "1700"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "1700"
+      }
+    },
+    {
+      "id": "tax-negative-base-015",
+      "description": "Refund-shaped negative base; sign handled symmetrically.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "-12000",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "-12000",
+            "tax": "-1680",
+            "gross": "-13680",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "-1680"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "-1680"
+      }
+    },
+    {
+      "id": "tax-line-level-summation-016",
+      "description": "Three identical lines each rounding .5 up: the sum is 12, not the 11 an order-total computation would give. FR-FIN-034.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_exclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "25",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        },
+        {
+          "unitPrice": "25",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        },
+        {
+          "unitPrice": "25",
+          "quantity": "1",
+          "taxClass": "standard",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "25",
+            "tax": "4",
+            "gross": "29",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "4"
+              }
+            ]
+          },
+          {
+            "net": "25",
+            "tax": "4",
+            "gross": "29",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "4"
+              }
+            ]
+          },
+          {
+            "net": "25",
+            "tax": "4",
+            "gross": "29",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "4"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "12"
+      }
+    },
+    {
+      "id": "tax-srs-eg-inclusive-multi-rate-017",
+      "description": "SRS 21.9 scenario as DATA: inclusive pricing, two rates. The order-discount arm of the SRS example is omitted because BR-FIN-003 distribution is not implemented in this slice.",
+      "pack": {
+        "code": "EG",
+        "version": "2026.1",
+        "effectiveFrom": "2026-01-01",
+        "currency": {
+          "code": "EGP",
+          "exponent": 2,
+          "cashRounding": {
+            "enabled": false
+          }
+        },
+        "tax": {
+          "engine": "vat_standard",
+          "pricingMode": "tax_inclusive",
+          "computationLevel": "line",
+          "roundingMode": "HALF_UP",
+          "roundingPrecision": 2,
+          "classes": [
+            {
+              "code": "standard",
+              "rate": "14.0"
+            },
+            {
+              "code": "reduced",
+              "rate": "5.0"
+            },
+            {
+              "code": "zero",
+              "rate": "0.0"
+            },
+            {
+              "code": "exempt",
+              "rate": null
+            }
+          ],
+          "serviceChargeTaxable": true,
+          "orderTypeOverrides": []
+        }
+      },
+      "lines": [
+        {
+          "unitPrice": "12000",
+          "quantity": "2",
+          "taxClass": "standard",
+          "orderType": null
+        },
+        {
+          "unitPrice": "1500",
+          "quantity": "1",
+          "taxClass": "zero",
+          "orderType": null
+        }
+      ],
+      "expected": {
+        "lines": [
+          {
+            "net": "21053",
+            "tax": "2947",
+            "gross": "24000",
+            "exempt": false,
+            "zeroRated": false,
+            "components": [
+              {
+                "code": "standard",
+                "ratePercent": "14.0",
+                "amount": "2947"
+              }
+            ]
+          },
+          {
+            "net": "1500",
+            "tax": "0",
+            "gross": "1500",
+            "exempt": false,
+            "zeroRated": true,
+            "components": [
+              {
+                "code": "zero",
+                "ratePercent": "0.0",
+                "amount": "0"
+              }
+            ]
+          }
+        ],
+        "taxTotal": "2947"
+      }
+    }
+  ]
+}

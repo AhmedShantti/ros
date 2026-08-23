@@ -13,9 +13,10 @@ import { createMigratorClient } from './rls-admin';
  * The migrator client is used solely to arrange fixtures and to observe true row
  * state — never as evidence of application isolation.
  *
- * Covers both anchoring styles introduced in Phase 16:
- *   - direct tenant_id  (menus, menu_items, price_lists, …)
- *   - parent inheritance via EXISTS (modifiers → modifier_groups)
+ * Covers the direct tenant_id anchor used by every Catalogue table, including
+ * `modifiers` — migrated from PARENT (EXISTS via modifier_groups) to DIRECT
+ * anchor by P1E-3 (`20260821010000_catalogue_modifier_tenancy`), the
+ * prerequisite for a tenant-safe composite FK to a modifier (ADR 0008 D-09).
  */
 describe('Catalogue RLS enforcement as ros_app (e2e)', () => {
   let app: INestApplication<App>;
@@ -62,7 +63,12 @@ describe('Catalogue RLS enforcement as ros_app (e2e)', () => {
       data: { id: groupA, tenantId: A, name: { en: 'Group A' } },
     });
     await admin.modifier.create({
-      data: { id: modifierA, modifierGroupId: groupA, name: { en: 'Mod A' } },
+      data: {
+        id: modifierA,
+        tenantId: A,
+        modifierGroupId: groupA,
+        name: { en: 'Mod A' },
+      },
     });
   });
 
@@ -115,7 +121,7 @@ describe('Catalogue RLS enforcement as ros_app (e2e)', () => {
       expect(ids).not.toContain(menuB);
     });
 
-    it('sees a child row through parent inheritance (modifiers → groups)', async () => {
+    it('sees its own modifier rows (direct tenant_id anchor)', async () => {
       const mods = await prisma.withAuthContext({ tenantId: A }, (tx) =>
         tx.modifier.findMany({ select: { id: true } }),
       );
@@ -131,7 +137,7 @@ describe('Catalogue RLS enforcement as ros_app (e2e)', () => {
       expect(rows).toHaveLength(0);
     });
 
-    it('child SELECT returns nothing (inherited anchor)', async () => {
+    it('modifier SELECT returns nothing (direct anchor)', async () => {
       const rows = await prisma.withAuthContext({ tenantId: B }, (tx) =>
         tx.modifier.findMany({
           where: { id: modifierA },
@@ -151,13 +157,29 @@ describe('Catalogue RLS enforcement as ros_app (e2e)', () => {
       ).rejects.toThrow();
     });
 
-    it('child INSERT under another tenant parent is rejected', async () => {
+    it('modifier INSERT spoofing another tenant_id is rejected', async () => {
       await expect(
         prisma.withAuthContext({ tenantId: B }, (tx) =>
           tx.modifier.create({
             data: {
               id: newId(),
-              modifierGroupId: groupA, // belongs to tenant A
+              tenantId: A, // spoof — context is B
+              modifierGroupId: groupA,
+              name: { en: 'spoof' },
+            },
+          }),
+        ),
+      ).rejects.toThrow();
+    });
+
+    it('modifier INSERT under another tenant parent group is rejected (ADR 0008 D-09 composite FK)', async () => {
+      await expect(
+        prisma.withAuthContext({ tenantId: B }, (tx) =>
+          tx.modifier.create({
+            data: {
+              id: newId(),
+              tenantId: B, // matches context — passes RLS
+              modifierGroupId: groupA, // belongs to tenant A — fails the composite FK
               name: { en: 'spoof' },
             },
           }),

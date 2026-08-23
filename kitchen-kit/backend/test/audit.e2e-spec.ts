@@ -188,13 +188,40 @@ describe('Audit trail (e2e)', () => {
         ).id,
       })
       .expect(204);
+    // A real branch: `terminals` now carries a tenant-safe composite FK to
+    // `org.branches` (D-2 amendment item 3), so a fabricated UUID is rejected.
+    const auditBrand = await admin.brand.create({
+      data: { id: newId(), tenantId, name: `AuditBrand ${Date.now()}` },
+    });
+    const auditBranch = await admin.branch.create({
+      data: {
+        id: newId(),
+        tenantId,
+        brandId: auditBrand.id,
+        code: `AU${Date.now() % 10000}`,
+        name: 'Audit Branch',
+        timezone: 'Africa/Cairo',
+        baseCurrency: 'EGP',
+        countryCode: 'EG',
+      },
+    });
+    await admin.location.create({
+      data: {
+        id: newId(),
+        tenantId,
+        locationType: 'branch',
+        refId: auditBranch.id,
+        branchId: auditBranch.id,
+      },
+    });
+
     await request(http)
       .post('/auth/terminals')
       .set('Authorization', `Bearer ${tok.accessToken}`)
       .send({
         name: `POS-${Date.now()}`,
         terminalType: 'pos',
-        branchId: newId(),
+        branchId: auditBranch.id,
       })
       .expect(201);
 

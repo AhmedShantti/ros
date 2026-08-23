@@ -1,0 +1,676 @@
+<title>ROS MVP Readiness</title>
+<style>
+  :root{
+    --ground:#F6F8F8; --surface:#FFFFFF; --surface-2:#EAEFEF;
+    --ink:#111819; --ink-2:#37474A; --muted:#5C6A6E; --hair:#D5DEDD; --hair-2:#E6ECEB;
+    --accent:#0F5F68; --accent-soft:#E0EFF0;
+    --ok:#1B6145; --ok-soft:#E1EFE9;
+    --warn:#8A5A12; --warn-soft:#F6EEDD;
+    --stop:#8E2A2A; --stop-soft:#F7E7E7;
+    --off:#5C6A6E; --off-soft:#E8ECEC;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0C1214; --surface:#131A1C; --surface-2:#1A2325;
+      --ink:#E2E9E9; --ink-2:#B4C1C2; --muted:#8797 99; --muted:#879799;
+      --hair:#283537; --hair-2:#1F2A2C;
+      --accent:#5FB3BA; --accent-soft:#12292C;
+      --ok:#6CC5A2; --ok-soft:#12261F;
+      --warn:#DFAE5E; --warn-soft:#2A2113;
+      --stop:#E08585; --stop-soft:#2B1919;
+      --off:#93A2A4; --off-soft:#1C2527;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0C1214; --surface:#131A1C; --surface-2:#1A2325;
+    --ink:#E2E9E9; --ink-2:#B4C1C2; --muted:#879799;
+    --hair:#283537; --hair-2:#1F2A2C;
+    --accent:#5FB3BA; --accent-soft:#12292C;
+    --ok:#6CC5A2; --ok-soft:#12261F;
+    --warn:#DFAE5E; --warn-soft:#2A2113;
+    --stop:#E08585; --stop-soft:#2B1919;
+    --off:#93A2A4; --off-soft:#1C2527;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--ground); color:var(--ink); margin:0;
+    font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1200px; margin:0 auto; padding:0 24px 100px}
+  .col{max-width:74ch}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  code{font-size:.86em; background:var(--surface-2); padding:.1em .36em; border-radius:2px}
+
+  header.mast{border-bottom:2px solid var(--ink); padding:46px 0 22px; margin-bottom:38px}
+  .eyebrow{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 14px}
+  h1{font-family:ui-serif,Georgia,"Times New Roman",serif; font-size:clamp(32px,4.6vw,48px);
+    line-height:1.08; font-weight:600; letter-spacing:-.014em; margin:0 0 14px; text-wrap:balance}
+  .standfirst{font-size:17.5px; color:var(--ink-2); margin:0; max-width:68ch}
+  .stamp{display:flex; flex-wrap:wrap; gap:8px 26px; margin-top:22px;
+    font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; color:var(--muted)}
+  .stamp b{color:var(--ink-2); font-weight:600}
+
+  .verdict{background:var(--stop-soft); border:1px solid var(--stop); border-left-width:5px;
+    padding:24px 26px; margin:0 0 18px}
+  .verdict .lab{font-family:ui-monospace,Menlo,monospace; font-size:11px; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--stop); display:block; margin-bottom:8px}
+  .verdict .val{font-family:ui-serif,Georgia,serif; font-size:clamp(26px,3.4vw,36px); line-height:1.1;
+    font-weight:600; color:var(--stop); margin:0 0 12px}
+  .verdict p{margin:0 0 10px; max-width:70ch; color:var(--ink-2); font-size:16.5px}
+  .verdict p:last-child{margin-bottom:0}
+
+  section{margin-top:58px}
+  h2{font-family:ui-serif,Georgia,serif; font-size:25px; font-weight:600; letter-spacing:-.008em;
+    margin:0 0 6px; padding-bottom:9px; border-bottom:1px solid var(--hair);
+    display:flex; align-items:baseline; gap:13px; text-wrap:balance}
+  h2 .idx{font-family:ui-monospace,Menlo,monospace; font-size:11.5px; letter-spacing:.1em;
+    color:var(--accent); font-weight:600; flex:0 0 auto}
+  h3{font-size:13px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--ink-2); margin:28px 0 10px}
+  .lede{color:var(--muted); font-size:15px; margin:12px 0 20px; max-width:76ch}
+  p{margin:0 0 13px}
+  .col p,.col li{max-width:74ch}
+  ul,ol{margin:0 0 14px; padding-left:22px} li{margin-bottom:6px}
+  a{color:var(--accent)}
+
+  .scroll{overflow-x:auto; border:1px solid var(--hair); background:var(--surface); margin-bottom:18px}
+  table{border-collapse:collapse; width:100%; font-size:13.2px; min-width:780px}
+  th,td{text-align:left; vertical-align:top; padding:9px 12px; border-bottom:1px solid var(--hair-2)}
+  thead th{background:var(--surface-2); color:var(--ink-2); font-family:ui-monospace,Menlo,monospace;
+    font-size:10.2px; letter-spacing:.08em; text-transform:uppercase; font-weight:600;
+    border-bottom:1px solid var(--hair); position:sticky; top:0}
+  tbody tr:last-child td{border-bottom:none}
+  td.id{font-family:ui-monospace,Menlo,monospace; font-weight:600; white-space:nowrap;
+    font-variant-numeric:tabular-nums}
+  .num{font-variant-numeric:tabular-nums; text-align:right}
+
+  .chip{display:inline-block; font-family:ui-monospace,Menlo,monospace; font-size:9.8px;
+    letter-spacing:.05em; text-transform:uppercase; font-weight:600; padding:2.5px 6px;
+    border:1px solid; white-space:nowrap; border-radius:2px}
+  .c-ok{color:var(--ok);border-color:var(--ok);background:var(--ok-soft)}
+  .c-stop{color:var(--stop);border-color:var(--stop);background:var(--stop-soft)}
+  .c-warn{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
+  .c-off{color:var(--off);border-color:var(--off);background:var(--off-soft)}
+  .c-acc{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+
+  .kpis{display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); margin-bottom:20px}
+  .kpi{background:var(--surface); border:1px solid var(--hair); border-top:3px solid var(--accent); padding:14px 15px}
+  .kpi .v{font-size:26px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1}
+  .kpi .k{font-family:ui-monospace,Menlo,monospace; font-size:9.8px; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--muted); margin-top:5px}
+  .kpi.ok{border-top-color:var(--ok)} .kpi.ok .v{color:var(--ok)}
+  .kpi.warn{border-top-color:var(--warn)} .kpi.warn .v{color:var(--warn)}
+  .kpi.stop{border-top-color:var(--stop)} .kpi.stop .v{color:var(--stop)}
+  .kpi.off{border-top-color:var(--off)} .kpi.off .v{color:var(--muted)}
+
+  .note{background:var(--surface); border:1px solid var(--hair); border-left:4px solid var(--accent);
+    padding:15px 18px; margin:18px 0; font-size:14.6px}
+  .note.stop{border-left-color:var(--stop)} .note.warn{border-left-color:var(--warn)}
+  .note.ok{border-left-color:var(--ok)}
+  .note p:last-child{margin-bottom:0} .note strong{color:var(--ink)}
+
+  pre{background:var(--surface); border:1px solid var(--hair); padding:15px 17px; overflow-x:auto;
+    font-size:12.2px; line-height:1.55; margin:0 0 16px; font-family:ui-monospace,Menlo,monospace;
+    color:var(--ink-2)}
+  footer{margin-top:64px; padding-top:20px; border-top:2px solid var(--ink); font-size:13px; color:var(--muted)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+<header class="mast">
+  <p class="eyebrow">Kitchen-Kit Backend · Analysis only — no implementation performed</p>
+  <h1>ROS MVP Readiness &amp; Remaining Work</h1>
+  <p class="standfirst">What is genuinely finished, what the first real MVP must contain, and the shortest defensible path from the current repository to it — measured against <code>ROS_SRS_v1.0.pdf</code> and the implementation progress audit.</p>
+  <div class="stamp">
+    <span><b>SRS</b> 634 defined requirements</span>
+    <span><b>Audit baseline</b> 2026-08-16 · <code>48a16f9</code></span>
+    <span><b>Repo now</b> <code>e5648fb</code> · feat/production-spec</span>
+    <span><b>Governance</b> 17 ratified · 1 part · 1 blocked · 1 open</span>
+  </div>
+</header>
+
+<section style="margin-top:0">
+  <div class="verdict">
+    <span class="lab">MVP Readiness</span>
+    <p class="val">NOT READY — but design prerequisites for the critical path are clear</p>
+    <p>The repository holds a genuinely excellent foundation covering roughly one seventh of the SRS. <strong>Every revenue-generating domain is absent.</strong> No order can be created, no payment taken, no ticket fired, no receipt printed. A restaurant cannot operate on this system today.</p>
+    <p><strong>The MVP is not blocked by unresolved design.</strong> Sales/POS — the critical path — has no open governance decision against it. The three unresolved schema items and the two blocked decisions all sit on Governance approvals, which is <em>not</em> on the MVP critical path.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="idx">0</span>Source discipline &amp; discrepancies</h2>
+  <p class="lede">Reported, not silently resolved.</p>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:180px">Discrepancy</th><th style="min-width:330px">Detail</th><th style="min-width:130px">MVP impact</th></tr></thead>
+    <tbody>
+      <tr><td><strong>The audit baseline is stale</strong></td>
+        <td>The progress audit is dated <strong>2026-08-16</strong> at commit <code>48a16f92</code> on <code>main</code>. It scores <strong>Production Spec as DESIGNED ONLY, 0%</strong> and names it "the single largest overcounting risk". Since then commit <code>896b572</code> <strong>implemented Production Spec</strong>: migration <code>20260817120000</code>, 5 tables live, 5 Prisma models, 9 routes, a service layer, 1 unit spec and 2 E2E specs. <strong>The audit's headline number and its critical path both predate this.</strong></td>
+        <td><span class="chip c-warn">Corrected below</span></td></tr>
+      <tr><td><strong>Four dangling requirement IDs</strong></td>
+        <td><code>FR-INT-020</code>, <code>FR-PLT-041</code>, <code>FR-RPT-055</code>, <code>FR-SEC-018</code> are referenced in the SRS but never defined. Excluded from the 634 inventory.</td>
+        <td><span class="chip c-off">Deferrable</span> — resolve in the SRS</td></tr>
+      <tr><td><strong>Test-count basis differs</strong></td>
+        <td>The audit reports <strong>384 passing tests (136 unit, 248 E2E)</strong> from an executed run. This report did <strong>not re-run the suite</strong> (no execution permitted), so that figure is carried as the audit's, not re-verified. File-level counts today: 25 unit specs, 18 E2E specs.</td>
+        <td><span class="chip c-off">None</span></td></tr>
+      <tr><td><strong>Source file count</strong></td>
+        <td>Audit: 221 TypeScript files. This report counts 171 excluding <code>src/generated/</code>. <strong>Different counting basis, not a regression.</strong></td>
+        <td><span class="chip c-off">None</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="idx">1</span>Current state</h2>
+
+  <h3>Baseline as audited (2026-08-16, <code>48a16f9</code>)</h3>
+  <div class="kpis">
+    <div class="kpi"><div class="v">13.3%</div><div class="k">Weighted progress</div></div>
+    <div class="kpi"><div class="v">11.6%</div><div class="k">Unweighted</div></div>
+    <div class="kpi ok"><div class="v">50</div><div class="k">Complete</div></div>
+    <div class="kpi warn"><div class="v">46</div><div class="k">Partial</div></div>
+    <div class="kpi"><div class="v">12</div><div class="k">Designed only</div></div>
+    <div class="kpi stop"><div class="v">23</div><div class="k">Blocked</div></div>
+    <div class="kpi off"><div class="v">501</div><div class="k">Not implemented</div></div>
+    <div class="kpi off"><div class="v">2</div><div class="k">Out of scope</div></div>
+  </div>
+
+  <h3>Revised snapshot including the Production Spec delta</h3>
+  <div class="col">
+    <p>Applying the audit's own method to the delta: <strong>FR-MNU-040, 041, 042, 043, 044, 045, 047, 049 and BR-MNU-001</strong> move to COMPLETE; <strong>BR-MNU-002</strong> becomes PARTIAL (versions are retained, but there are no orders to reference them). <strong>FR-MNU-046 [M], FR-MNU-048 [S], FR-MNU-050 [C] and BR-MNU-003 remain NOT IMPLEMENTED</strong> — cost expansion was explicitly deferred by D-17-05.</p>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="v">≈14.5%</div><div class="k">Weighted (estimated)</div></div>
+    <div class="kpi ok"><div class="v">≈59</div><div class="k">Complete</div></div>
+    <div class="kpi warn"><div class="v">≈47</div><div class="k">Partial</div></div>
+    <div class="kpi"><div class="v">≈3</div><div class="k">Designed only</div></div>
+    <div class="kpi stop"><div class="v">23</div><div class="k">Blocked</div></div>
+    <div class="kpi off"><div class="v">≈498</div><div class="k">Not implemented</div></div>
+  </div>
+  <div class="note warn"><p><strong>This revised figure is an inference, not a re-audit.</strong> It applies the audit's stated weighting to a delta I verified in the repository. It is not a fresh pass over all 634 requirements, and it should not be quoted as one. <strong>The audit's 13.3% remains the only fully-derived figure.</strong></p></div>
+
+  <h3>Vocabulary — used strictly throughout</h3>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:130px">Term</th><th style="min-width:400px">Means</th></tr></thead>
+    <tbody>
+      <tr><td class="id">IMPLEMENTED</td><td>Executable code exists and runs.</td></tr>
+      <tr><td class="id">DESIGNED</td><td>A design gate or ADR exists. <strong>Contributes 0% to progress.</strong></td></tr>
+      <tr><td class="id">RATIFIED</td><td>A governance decision is closed. <strong>Says nothing about code.</strong></td></tr>
+      <tr><td class="id">VERIFIED</td><td>Automated tests, or live database probes with positive controls, prove the behaviour.</td></tr>
+      <tr><td class="id">PRODUCTION-READY</td><td>Implemented + verified + the mandatory security and operational controls for that surface are in place.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Domains with executable implementation — 7 of 29</h3>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:120px">Domain</th><th style="min-width:250px">What actually works</th><th style="min-width:200px">Verified by</th><th style="min-width:230px">Most important gap</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Identity &amp; Auth</strong></td><td>Email/password (Argon2), 15-min access tokens, 30-day refresh with rotation and reuse detection revoking the whole family, password reset</td><td><code>auth</code>, <code>refresh</code>, <code>password</code> E2E</td><td><strong>No PIN auth (FR-SEC-021/022) — the primary POS method. No MFA (FR-SEC-023/024)</strong></td></tr>
+      <tr><td><strong>Tenancy</strong></td><td>RLS <code>ENABLE</code>+<code>FORCE</code> on 62 tables, 213 policies, fail-closed predicate, non-bypassing runtime role</td><td>3 dedicated RLS E2E suites, live <code>ros_app</code> probes with positive controls</td><td><strong>Tenant lifecycle absent</strong> — no self-signup (FR-PLT-020), export (021), termination (023)</td></tr>
+      <tr><td><strong>RBAC</strong></td><td>Roles, permission catalogue, role–permission and membership–role assignment, guard-enforced on all 123 routes</td><td><code>rbac.e2e-spec.ts</code></td><td><strong>Branch scope not enforced</strong> — <code>membership_roles.branch_id</code> exists but is never read (FR-SEC-002/003/004)</td></tr>
+      <tr><td><strong>Audit</strong></td><td>SHA-256 per-tenant hash chain, append-only by privilege, advisory-lock serialised</td><td><code>audit.e2e-spec.ts</code>, hash + verify unit specs</td><td><strong>3 of 10 FR-AUD complete.</strong> No verification job (005), no query surface (007/008), no retention (009)</td></tr>
+      <tr><td><strong>Organisation</strong></td><td>Tenants, brands, branches, warehouses, central kitchens, stations, tables, operating hours, print routing, <code>org.locations</code> registry</td><td><code>organisation.e2e-spec.ts</code></td><td>Branch groups and <code>org.settings</code> deferred → <code>FR-PLT-025…028</code> settings resolver unimplemented</td></tr>
+      <tr><td><strong>Catalogue</strong></td><td>Menus, categories, items, variants, modifier groups, price lists, availability rules, 86-ing, branch menu resolution</td><td><code>catalogue.e2e-spec.ts</code>, <code>menu-resolution.spec.ts</code></td><td><strong>Price resolution not implemented</strong> — <code>valid_from</code>, <code>valid_to</code>, <code>recurrence_rule</code>, <code>priority</code> stored but never evaluated (FR-MNU-021/022/023)</td></tr>
+      <tr><td><strong>Inventory</strong></td><td>Stock items, batches, levels, append-only partitioned movements, transfers with counterpart pairing, counts, waste, FIFO/FEFO, weighted-average/standard/FIFO valuation</td><td><code>inventory.e2e-spec.ts</code>, <code>inventory-rls.e2e-spec.ts</code></td><td><strong>13 FR-INV BLOCKED</strong> on Procurement/Sales/Governance; 5 need a scheduler</td></tr>
+      <tr><td><strong>Production / Recipes</strong> <span class="chip c-acc">new since audit</span></td><td>Recipes by scope, versions with single-published invariant, lines with sub-recipe references, cycle detection with full path, substitute groups, publish transition</td><td><code>production.e2e-spec.ts</code>, <code>production-rls.e2e-spec.ts</code>, <code>recipe-graph.spec.ts</code></td><td><strong>No costing</strong> — FR-MNU-046 [M] and BR-MNU-003 deferred by D-17-05</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Domains with zero implementation</h3>
+  <div class="col"><p><strong>Sales/POS (76)</strong> · Offline &amp; Sync (36) · Procurement (33) · Costing &amp; Analytics (31) · Workforce (29) · Finance &amp; Treasury (27) · CRM &amp; Loyalty (26) · Kitchen Ops/KDS (23) · Reporting (18) · DevOps &amp; Release (15) · Integrations (6) · Quality Assurance (5) · plus most of Localisation and nearly all NFRs.</p></div>
+</section>
+
+<section>
+  <h2><span class="idx">2</span>If we stopped development today</h2>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:170px">Capability</th><th style="min-width:100px">Status</th><th style="min-width:250px">Evidence</th><th style="min-width:230px">Most important limitation</th></tr></thead>
+    <tbody>
+      <tr><td>Authentication / session lifecycle</td><td><span class="chip c-ok">Complete</span></td><td>Argon2, JWT rotation, reuse detection, family revocation; 4 E2E suites</td><td>PIN and MFA missing — POS cannot authenticate an operator</td></tr>
+      <tr><td>Tenant isolation</td><td><span class="chip c-ok">Complete</span></td><td>62 tables RLS-forced, 213 policies, live non-bypassing role probes with positive controls</td><td>None material. This is the strongest part of the system</td></tr>
+      <tr><td>RBAC</td><td><span class="chip c-warn">Partial</span></td><td>All routes guarded; permission catalogue enforced</td><td><strong>Tenant-scope only.</strong> Branch scope unenforced</td></tr>
+      <tr><td>Organisation hierarchy</td><td><span class="chip c-ok">Complete</span></td><td>Full hierarchy + locations registry; ADR 0008, 17 decisions</td><td>Settings resolver absent</td></tr>
+      <tr><td>Catalogue</td><td><span class="chip c-warn">Partial</span></td><td>13 tables, 40 routes, branch menu resolution tested</td><td><strong>Price resolution absent</strong> — an order could not be priced</td></tr>
+      <tr><td>Recipes / Production</td><td><span class="chip c-warn">Partial</span></td><td>5 tables, 9 routes, 3 spec files</td><td>No cost computation; no consumption path (needs orders)</td></tr>
+      <tr><td>Inventory</td><td><span class="chip c-warn">Partial</span></td><td>30 tables, append-only ledger, valuation, counts, waste</td><td>Depletion never fires — nothing consumes stock</td></tr>
+      <tr><td>Audit integrity</td><td><span class="chip c-warn">Partial</span></td><td>Hash chain verified live; append-only by privilege</td><td>Unqueryable, unverified by any job, unretained</td></tr>
+      <tr><td>API surface</td><td><span class="chip c-warn">Partial</span></td><td>123 routes, all guarded; validation and 404-on-cross-tenant tested</td><td>No stable error codes, no idempotency, no pagination cursors, no machine clients</td></tr>
+      <tr><td>Database / security foundations</td><td><span class="chip c-ok">Complete</span></td><td>Composite tenant-safe FKs, CHECK constraints, forward-only migrations, zero drift</td><td>8 of 14 required schemas do not exist</td></tr>
+      <tr><td><strong>Any revenue operation</strong></td><td><span class="chip c-stop">Absent</span></td><td>—</td><td><strong>No order, payment, ticket, or receipt exists in any form</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note stop"><p><strong>The honest summary.</strong> What exists is a well-engineered, well-verified platform substrate. It is not a restaurant system. A restaurant could configure its organisation, menu and recipes, and could not then sell anything.</p></div>
+</section>
+
+<section>
+  <h2><span class="idx">3</span>Domain gap matrix</h2>
+  <p class="lede">MVP decisions are derived from SRS dependency, not intuition. Reasons cite requirement IDs.</p>
+  <div class="scroll"><table>
+    <thead><tr>
+      <th style="min-width:130px">Domain</th><th class="num">Reqs</th><th class="num">Cmp</th><th class="num">Part</th><th class="num">Dsg</th><th class="num">Blk</th><th class="num">None</th>
+      <th style="min-width:66px">Progress</th><th style="min-width:110px">MVP decision</th><th style="min-width:150px">Critical dependencies</th><th style="min-width:60px">Cplx</th><th style="min-width:250px">Reason</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><strong>Sales / POS</strong></td><td class="num">80</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">80</td><td>0%</td>
+        <td><span class="chip c-stop">Must have</span></td><td>Catalogue pricing, PIN auth, Org</td><td>XL</td>
+        <td><code>FR-POS-001/002</code> order creation and numbering are the atomic unit of restaurant operation; §2.5.3 makes the order the event that drives inventory, cost, cash, tax and audit. Nothing downstream exists without it.</td></tr>
+      <tr><td><strong>Security &amp; Authz</strong></td><td class="num">45</td><td class="num">4</td><td class="num">10</td><td class="num">0</td><td class="num">0</td><td class="num">31</td><td>20%</td>
+        <td><span class="chip c-stop">Must have</span></td><td>—</td><td>L</td>
+        <td><code>FR-SEC-021/022</code> PIN is the primary POS authentication method; <code>FR-SEC-002/003/004</code> branch scope is required the moment a second branch transacts.</td></tr>
+      <tr><td><strong>Catalogue / Menu</strong></td><td class="num">42</td><td class="num">6→14</td><td class="num">9</td><td class="num">12→3</td><td class="num">0</td><td class="num">13</td><td>26%→45%</td>
+        <td><span class="chip c-stop">Must have</span></td><td>—</td><td>M</td>
+        <td><code>FR-MNU-021/022/023</code> price resolution is unimplemented; an order line cannot be priced without it.</td></tr>
+      <tr><td><strong>Inventory</strong></td><td class="num">53</td><td class="num">24</td><td class="num">9</td><td class="num">0</td><td class="num">13</td><td class="num">7</td><td>55%</td>
+        <td><span class="chip c-warn">Should have</span></td><td>Sales, Recipes</td><td>M</td>
+        <td>The ledger exists; <strong>depletion on sale</strong> (§2.5.3 step 13) is what makes it operational. 13 requirements are blocked on domains that do not exist.</td></tr>
+      <tr><td><strong>Platform &amp; Tenancy</strong></td><td class="num">22</td><td class="num">7</td><td class="num">3</td><td class="num">0</td><td class="num">0</td><td class="num">12</td><td>45%</td>
+        <td><span class="chip c-warn">Should have</span></td><td>—</td><td>M</td>
+        <td>Isolation is complete. <code>FR-PLT-025…028</code> settings resolver is needed for per-branch POS configuration.</td></tr>
+      <tr><td><strong>Audit</strong></td><td class="num">10</td><td class="num">3</td><td class="num">2</td><td class="num">0</td><td class="num">0</td><td class="num">5</td><td>40%</td>
+        <td><span class="chip c-warn">Should have</span></td><td>Scheduler</td><td>S</td>
+        <td><code>FR-AUD-001</code> is [M] for every state change — orders and payments must emit entries. <code>FR-AUD-005</code> verification job needs a scheduler.</td></tr>
+      <tr><td><strong>API Platform</strong></td><td class="num">14</td><td class="num">2</td><td class="num">5</td><td class="num">0</td><td class="num">0</td><td class="num">7</td><td>36%</td>
+        <td><span class="chip c-stop">Must have</span></td><td>—</td><td>M</td>
+        <td><code>FR-API-020…023</code> idempotency is mandatory on financially significant endpoints; <code>FR-POS-065</code> and <code>NFR-REL-011</code> make it non-optional for payments.</td></tr>
+      <tr><td><strong>Kitchen Ops (KDS)</strong></td><td class="num">23</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">23</td><td>0%</td>
+        <td><span class="chip c-warn">Should have</span></td><td>Sales</td><td>L</td>
+        <td>A dine-in order must reach the kitchen. Minimum ticket lifecycle only; the full KDS feature set is deferrable.</td></tr>
+      <tr><td><strong>Finance &amp; Treasury</strong></td><td class="num">32</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">32</td><td>0%</td>
+        <td><span class="chip c-warn">Should have</span></td><td>Sales, Payments</td><td>L</td>
+        <td><code>FR-FIN-001…010</code> cash session open/close and variance are required to reconcile a shift that took cash. Only the cash-drawer subset is MVP.</td></tr>
+      <tr><td><strong>Localisation</strong></td><td class="num">20</td><td class="num">0</td><td class="num">1</td><td class="num">0</td><td class="num">0</td><td class="num">19</td><td>2%</td>
+        <td><span class="chip c-warn">Should have</span></td><td>Sales</td><td>M</td>
+        <td><code>FR-LOC-020…022</code> country pack governs tax and receipt legality; <code>FR-POS-100</code> requires country-pack receipt elements. One pack only for MVP.</td></tr>
+      <tr><td><strong>Reporting</strong></td><td class="num">18</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">18</td><td>0%</td>
+        <td><span class="chip c-warn">Should have</span></td><td>Sales, Finance</td><td>M</td>
+        <td>A branch cannot be run blind. Minimum: daily sales summary and shift close. Full analytics deferred.</td></tr>
+      <tr><td><strong>Costing &amp; Analytics</strong></td><td class="num">31</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">31</td><td>0%</td>
+        <td><span class="chip c-off">Can defer</span></td><td>Sales, Recipes</td><td>L</td>
+        <td>Theoretical-vs-actual is the product differentiator (§2.5.3) but not required to <em>operate</em>. Recipe cost (<code>FR-MNU-046</code>) is its prerequisite.</td></tr>
+      <tr><td><strong>Procurement</strong></td><td class="num">33</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">33</td><td>0%</td>
+        <td><span class="chip c-off">Can defer</span></td><td>Inventory</td><td>L</td>
+        <td>Stock can be established by opening balances and counts. Purchasing is not required to sell.</td></tr>
+      <tr><td><strong>Offline &amp; Sync</strong></td><td class="num">36</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">36</td><td>0%</td>
+        <td><span class="chip c-off">Can defer</span></td><td>POS, Catalogue, Inventory</td><td>XL</td>
+        <td>Genuinely required for production restaurant use (<code>FR-OFF-001</code>), but an <strong>internal MVP can run online-only</strong>. The single largest post-MVP workstream.</td></tr>
+      <tr><td><strong>Workforce</strong></td><td class="num">29</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">29</td><td>0%</td>
+        <td><span class="chip c-off">Can defer</span></td><td>—</td><td>L</td>
+        <td>Staff can be modelled as users with roles. Scheduling, attendance and payroll are not required to sell.</td></tr>
+      <tr><td><strong>CRM &amp; Loyalty</strong></td><td class="num">26</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">26</td><td>0%</td>
+        <td><span class="chip c-off">Can defer</span></td><td>Sales</td><td>L</td>
+        <td>Only 9 of 26 are [M]. Walk-in service needs no customer record.</td></tr>
+      <tr><td><strong>Branch Ops &amp; Central Kitchen</strong></td><td class="num">30</td><td class="num">2</td><td class="num">3</td><td class="num">0</td><td class="num">10</td><td class="num">15</td><td>12%</td>
+        <td><span class="chip c-stop">Blocked</span></td><td>Production, Sales</td><td>L</td>
+        <td>10 blocked. Central-kitchen distribution is a multi-branch concern, not a single-branch MVP one.</td></tr>
+      <tr><td><strong>Governance approvals</strong></td><td class="num">—</td><td class="num">0</td><td class="num">0</td><td class="num">~14</td><td class="num">2 dec.</td><td class="num">—</td><td>0%</td>
+        <td><span class="chip c-off">Can defer</span></td><td>Consuming domain</td><td>M</td>
+        <td>Extensively ratified, zero code. <strong>D-14 A-1 removed the HTTP surface and no consuming domain exists</strong>, so it delivers nothing until POS needs a discount approval.</td></tr>
+      <tr><td><strong>DevOps &amp; Release</strong></td><td class="num">15</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">15</td><td>0%</td>
+        <td><span class="chip c-warn">Should have</span></td><td>—</td><td>M</td>
+        <td><code>FR-SEC-049</code> dependency scanning and <code>FR-PLT-014</code> both fail with no CI. Required before production, not before functional work.</td></tr>
+      <tr><td><strong>NFR — all groups</strong></td><td class="num">52</td><td class="num">0</td><td class="num">4</td><td class="num">0</td><td class="num">0</td><td class="num">48</td><td>~2%</td>
+        <td><span class="chip c-warn">Should have</span></td><td>Observability baseline</td><td>M</td>
+        <td>48 of 52 unimplemented and, more importantly, <strong>unmeasurable</strong>. No NFR can be claimed until a measurement baseline exists.</td></tr>
+      <tr><td><strong>Integrations / QA / Portability</strong></td><td class="num">17</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">17</td><td>0%</td>
+        <td><span class="chip c-off">Can defer</span></td><td>—</td><td>M</td>
+        <td>No SRS dependency from the core sell-a-meal workflow.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="idx">4</span>The first ROS MVP, defined</h2>
+  <p class="lede">The smallest coherent product that lets <strong>one branch of one tenant take an order, get paid, feed the kitchen, deplete stock, and close the day</strong> — with tenant isolation and audit intact. Every capability traces to SRS IDs.</p>
+
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:44px">#</th><th style="min-width:165px">Capability</th><th style="min-width:200px">Required SRS IDs</th><th style="min-width:110px">Status now</th><th style="min-width:200px">What is missing</th><th style="min-width:90px">Hard blocker</th></tr></thead>
+    <tbody>
+      <tr><td class="id">1</td><td>Establish a tenant</td><td><code>FR-PLT-001/002/003</code>, <code>FR-SEC-001/010/011</code></td><td><span class="chip c-ok">Complete</span></td><td>Nothing for an internal MVP. Self-signup <code>FR-PLT-020</code> is post-MVP</td><td>No</td></tr>
+      <tr><td class="id">2</td><td>Establish organisation / branch</td><td><code>FR-BRN-001/002</code>, <code>FR-PLT-001/002</code></td><td><span class="chip c-ok">Complete</span></td><td>Nothing</td><td>No</td></tr>
+      <tr><td class="id">3</td><td>Configure catalogue &amp; pricing</td><td><code>FR-MNU-001…030</code>, esp. <strong><code>021/022/023</code></strong></td><td><span class="chip c-warn">Partial</span></td><td><strong>Price resolution engine</strong> — <code>valid_from</code>, <code>valid_to</code>, <code>recurrence_rule</code>, <code>priority</code> are stored but never evaluated</td><td><span class="chip c-stop">Yes</span></td></tr>
+      <tr><td class="id">4</td><td>Configure recipes</td><td><code>FR-MNU-040…045</code>, <code>BR-MNU-001/002</code></td><td><span class="chip c-ok">Complete</span></td><td>Costing (<code>FR-MNU-046</code>, <code>BR-MNU-003</code>) — not needed to sell</td><td>No</td></tr>
+      <tr><td class="id">5</td><td>Operator authentication at the terminal</td><td><strong><code>FR-SEC-021/022</code></strong>, <code>FR-SEC-028</code></td><td><span class="chip c-stop">Absent</span></td><td><strong>PIN authentication entirely.</strong> Terminal pairing/activation deferred</td><td><span class="chip c-stop">Yes</span></td></tr>
+      <tr><td class="id">6</td><td>Order entry &amp; lifecycle</td><td><code>FR-POS-001/002/005/010</code>, <code>FR-POS-020…040</code>, <code>BR-POS-*</code></td><td><span class="chip c-stop">Absent</span></td><td><strong>The entire order aggregate</strong> — schema, state machine, numbering, lines, modifiers</td><td><span class="chip c-stop">Yes</span></td></tr>
+      <tr><td class="id">7</td><td>Pricing, tax &amp; totals</td><td><code>FR-FIN-030…032</code>, <code>BR-FIN-001/003</code>, <code>BR-CORE-001/002</code>, <code>FR-LOC-020…022</code></td><td><span class="chip c-stop">Absent</span></td><td>Tax computation, rounding policy, <code>Money</code> value object (<strong><code>BR-CORE-001/002</code> unimplemented in application code</strong>), one country pack</td><td><span class="chip c-stop">Yes</span></td></tr>
+      <tr><td class="id">8</td><td>Payment &amp; tender</td><td><code>FR-POS-060/065</code>, <code>FR-API-020…023</code>, <code>NFR-REL-011</code></td><td><span class="chip c-stop">Absent</span></td><td>Tender types (cash + card-external minimum), <strong>idempotency infrastructure</strong></td><td><span class="chip c-stop">Yes</span></td></tr>
+      <tr><td class="id">9</td><td>Receipt</td><td><code>FR-POS-100</code>, <code>FR-LOC-022</code></td><td><span class="chip c-stop">Absent</span></td><td>Receipt document generation with country-pack elements</td><td><span class="chip c-stop">Yes</span></td></tr>
+      <tr><td class="id">10</td><td>Kitchen ticket</td><td><code>FR-KDS-001…010</code></td><td><span class="chip c-stop">Absent</span></td><td>Minimum ticket lifecycle: fire, display, bump. Routing tables already exist in <code>org</code></td><td><span class="chip c-warn">Dine-in only</span></td></tr>
+      <tr><td class="id">11</td><td>Inventory depletion on sale</td><td><code>FR-INV-030</code>, <code>BR-INV-001</code>, §2.5.3 step 13</td><td><span class="chip c-warn">Half</span></td><td>Ledger and recipes exist; <strong>the consumption path from a completed order does not</strong></td><td><span class="chip c-stop">Yes</span></td></tr>
+      <tr><td class="id">12</td><td>Cash session &amp; day close</td><td><code>FR-FIN-001…010</code>, esp. <code>FR-FIN-006</code></td><td><span class="chip c-stop">Absent</span></td><td>Session open/close, declaration, variance. <code>FR-FIN-006</code> variance approval needs Governance <em>or</em> a documented MVP carve-out</td><td><span class="chip c-stop">Yes</span></td></tr>
+      <tr><td class="id">13</td><td>Multi-tenant safety</td><td><code>FR-PLT-003/010/011/012</code>, <code>FR-SEC-045/047</code></td><td><span class="chip c-ok">Complete</span></td><td>Must be extended to every new table — not re-built</td><td>No</td></tr>
+      <tr><td class="id">14</td><td>Audit of new operations</td><td><code>FR-AUD-001/002/003/006</code></td><td><span class="chip c-warn">Partial</span></td><td>Writer exists; orders, payments and cash events must emit entries</td><td><span class="chip c-warn">Yes, at build time</span></td></tr>
+      <tr><td class="id">15</td><td>Minimum operational visibility</td><td><code>FR-RPT-001…010</code> subset</td><td><span class="chip c-stop">Absent</span></td><td>Daily sales summary, shift/session report, stock-on-hand view</td><td><span class="chip c-warn">Yes</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note ok"><p><strong>What is deliberately excluded from MVP:</strong> offline operation, table floor plans, delivery and aggregator channels, loyalty, procurement, workforce scheduling, theoretical-vs-actual costing, central-kitchen distribution, multi-branch consolidation, integrations. Each is justified in Part 10.</p></div>
+</section>
+
+<section>
+  <h2><span class="idx">5</span>MVP blockers, ranked</h2>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:44px">Pri</th><th style="min-width:180px">Workstream</th><th style="min-width:160px">Requirement IDs</th><th style="min-width:230px">Why it blocks</th><th style="min-width:130px">Upstream</th><th style="min-width:150px">Downstream affected</th><th style="min-width:120px">D / I / V</th></tr></thead>
+    <tbody>
+      <tr><td><span class="chip c-stop">P0</span></td><td><strong>Order aggregate &amp; state machine</strong></td><td><code>FR-POS-001/002/005</code>, <code>FR-POS-020…040</code>, <code>BR-POS-*</code></td><td>Nothing can be sold. §2.5.3 makes the completed order the event that drives every other subsystem</td><td>Catalogue pricing</td><td>Payments, KDS, Inventory, Finance, Costing, Reporting, Offline</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-stop">P0</span></td><td><strong>Catalogue price resolution</strong></td><td><code>FR-MNU-021/022/023</code></td><td>An order line cannot be priced. Columns exist and are never evaluated</td><td>—</td><td>Sales, Finance, Reporting</td><td>none / partial / none</td></tr>
+      <tr><td><span class="chip c-stop">P0</span></td><td><strong>PIN authentication</strong></td><td><code>FR-SEC-021/022</code></td><td>The primary POS authentication method. An operator cannot identify themselves at a terminal</td><td>—</td><td>Sales, Finance, SoD</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-stop">P0</span></td><td><strong>Money value object &amp; rounding</strong></td><td><code>BR-CORE-001/002</code>, <code>BR-FIN-001/003</code></td><td>Columns are <code>BIGINT</code> minor units but <strong>no <code>Money</code> type exists in application code</strong>. Currency mismatch and allocation are unenforced</td><td>—</td><td>All financial computation</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-stop">P0</span></td><td><strong>Tax computation &amp; one country pack</strong></td><td><code>FR-FIN-030…032</code>, <code>FR-LOC-020…022</code></td><td>A receipt is not legally issuable without country-pack tax elements</td><td>Money</td><td>Sales, Finance, Receipts</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-stop">P0</span></td><td><strong>Payment &amp; idempotency</strong></td><td><code>FR-POS-060/065</code>, <code>FR-API-020…023</code>, <code>NFR-REL-011</code></td><td><code>FR-POS-065</code> names double-charging the most damaging POS defect class. Mandatory on financially significant endpoints</td><td>Order</td><td>Finance, Reporting</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-stop">P0</span></td><td><strong>Inventory depletion on sale</strong></td><td><code>FR-INV-030</code>, <code>BR-INV-001</code></td><td>Without it the ledger never moves and inventory is decorative</td><td>Order, Recipes</td><td>Costing, Reporting</td><td>none / half / none</td></tr>
+      <tr><td><span class="chip c-warn">P1</span></td><td><strong>Cash session &amp; variance</strong></td><td><code>FR-FIN-001…010</code></td><td>A shift that took cash cannot be closed or reconciled</td><td>Payments</td><td>Reporting</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-warn">P1</span></td><td><strong>Receipt generation</strong></td><td><code>FR-POS-100</code>, <code>FR-POS-104/106</code></td><td>Customers must receive a compliant document</td><td>Tax, country pack</td><td>—</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-warn">P1</span></td><td><strong>Kitchen ticket lifecycle</strong></td><td><code>FR-KDS-001…010</code></td><td>A dine-in order must reach the kitchen. Print routing already modelled in <code>org</code></td><td>Order</td><td>—</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-warn">P1</span></td><td><strong>Branch-scoped RBAC</strong></td><td><code>FR-SEC-002/003/004</code></td><td>The column exists and is never read. The moment two branches transact, staff see each other's data</td><td>—</td><td>All operational domains</td><td>none / column only / none</td></tr>
+      <tr><td><span class="chip c-warn">P1</span></td><td><strong>Minimum reporting</strong></td><td><code>FR-RPT-001…010</code> subset</td><td>A branch cannot be operated blind</td><td>Sales, Finance</td><td>—</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-warn">P1</span></td><td><strong>Audit emission for new domains</strong></td><td><code>FR-AUD-001/006</code></td><td>[M] for every state change; discounts, voids, refunds and cash variance are named explicitly</td><td>Sales</td><td>—</td><td>n/a / writer exists / none</td></tr>
+      <tr><td><span class="chip c-off">P2</span></td><td>Scheduler / jobs</td><td><code>FR-AUD-005</code>, <code>FR-DR-002</code>, 5 <code>FR-INV</code></td><td>Converts 5 inventory requirements and enables partition creation — a live operational risk</td><td>—</td><td>Inventory, Audit, DR</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-off">P2</span></td><td>Settings resolver</td><td><code>FR-PLT-025…028</code></td><td>Per-branch POS configuration; MVP can hardcode defaults</td><td>—</td><td>POS, Finance</td><td>designed / none / none</td></tr>
+      <tr><td><span class="chip c-off">P2</span></td><td>CI/CD &amp; dependency scanning</td><td><code>FR-SEC-049</code>, <code>FR-PLT-014</code>, <code>FR-OPS-*</code></td><td>No <code>.github</code> exists. Required before production, not before functional work</td><td>—</td><td>Release</td><td>none / none / none</td></tr>
+      <tr><td><span class="chip c-off">P2</span></td><td>Observability baseline</td><td><code>NFR-OBS-*</code>, all <code>NFR-PERF-*</code></td><td>No NFR can be <em>claimed</em> without measurement</td><td>—</td><td>All NFRs</td><td>none / correlation id only / none</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="idx">6</span>Critical path</h2>
+  <div class="col"><p>The audit's chain was <strong>Production Spec → Sales/POS → Payments / Kitchen / Costing / Finance / Reporting / Offline</strong>. That was correct when written. <strong>It is now out of date in one respect and imprecise in another.</strong></p></div>
+
+  <pre>DONE      Identity/Auth ─ Tenant context ─ RLS ─ RBAC(tenant) ─ Organisation
+DONE      Production/Recipes            <span style="opacity:.7">← was the critical path head; now implemented</span>
+
+CRITICAL PATH (serial — each genuinely gates the next)
+
+  [1] Catalogue price resolution ──┐            FR-MNU-021/022/023
+  [2] Money + rounding + tax    ──┤            BR-CORE-001/002, FR-FIN-030..032
+  [3] PIN authentication        ──┤            FR-SEC-021/022
+                                   ▼
+  [4] ORDER AGGREGATE ─────────────────────────  FR-POS-001..040   ◄ largest single item
+                                   │
+      ┌────────────┬───────────────┼──────────────┬──────────────┐
+  [5] Payment    [6] Receipt    [7] Kitchen    [8] Depletion  [9] Cash session
+      +idempotency                  ticket        FR-INV-030     FR-FIN-001..010
+      FR-POS-060/065               FR-KDS-001..010
+                                   │
+                                   ▼
+  [10] Minimum reporting ─────────────────────── FR-RPT subset
+
+TRULY PARALLEL — no upstream dependency, can start today
+  Branch-scoped RBAC · Scheduler/jobs · Settings resolver · CI/CD ·
+  Observability baseline · Audit query surface · Governance approvals
+
+NOT ON THE MVP CRITICAL PATH (looks important, is not)
+  Costing/theoretical-vs-actual · Procurement · Offline/Sync ·
+  Workforce · CRM · Central-kitchen distribution · Integrations</pre>
+
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:200px">Assessment of the audit's chain</th><th style="min-width:400px">Finding</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Production Spec as head</strong></td><td><strong>No longer correct — it is implemented.</strong> Commit <code>896b572</code>, migration <code>20260817120000</code>, 5 live tables, 9 routes, 3 spec files. The head of the critical path is now <strong>Sales/POS</strong>.</td></tr>
+      <tr><td><strong>Sales/POS as the pivot</strong></td><td><strong>Confirmed and strengthened.</strong> 80 requirements, and the upstream dependency for Costing (31), Finance (32), CRM (26), Kitchen Ops (23), Reporting (18), most of Offline (36) and 13 blocked FR-INV. Roughly 230 requirements sit downstream.</td></tr>
+      <tr><td><strong>Chain is imprecise</strong></td><td>Three prerequisites are <strong>not</strong> in the audit's chain but genuinely gate the order aggregate: <strong>price resolution</strong>, the <strong><code>Money</code> value object</strong>, and <strong>PIN authentication</strong>. Treating "Sales/POS" as one undifferentiated block hides them.</td></tr>
+      <tr><td><strong>Offline placement</strong></td><td>Correctly last, but it should be <strong>outside MVP entirely</strong> — an internal MVP can run online-only. It is the single largest remaining workstream at 36 requirements, 34 of them [M].</td></tr>
+      <tr><td><strong>Costing placement</strong></td><td>The audit places Costing immediately after Sales. <strong>It is the product differentiator but not required to operate.</strong> Recommend post-MVP; its prerequisite <code>FR-MNU-046</code> is already deferred by D-17-05.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="idx">7</span>Implementation phases</h2>
+  <p class="lede">Derived from SRS dependency, not assumed. Phase 1 differs materially from the suggested outline because Production/Recipes is already done.</p>
+
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:56px">Phase</th><th style="min-width:150px">Goal</th><th style="min-width:150px">SRS requirements</th><th style="min-width:140px">Prerequisites</th><th style="min-width:200px">Deliverables</th><th style="min-width:170px">Verification</th><th style="min-width:150px">Exit criteria</th></tr></thead>
+    <tbody>
+      <tr><td class="id">P0</td><td>Clear foundations that gate everything financial</td><td><code>BR-CORE-001/002</code>, <code>BR-FIN-001/003</code>, <code>FR-MNU-021/022/023</code>, <code>FR-SEC-021/022</code></td><td>None — all startable today</td><td><code>Money</code> value object with currency guard and <code>allocate</code>; rounding policy; price-resolution engine; PIN auth with lockout</td><td>Unit specs for allocation exactness; price-resolution matrix; PIN lockout E2E</td><td>A menu item resolves to a price for a branch at a time; a PIN authenticates an operator</td></tr>
+      <tr><td class="id">P1</td><td>Order aggregate</td><td><code>FR-POS-001…040</code>, <code>BR-POS-*</code>, <code>FR-AUD-001</code></td><td>P0</td><td><code>sales</code> schema with RLS + composite FKs; order/line/modifier model; branch-day order numbering; state machine; audit emission</td><td>RLS E2E mirroring <code>production-rls</code>; state-machine unit specs; numbering uniqueness under concurrency</td><td>An order can be opened, itemised, priced and closed within one tenant and branch</td></tr>
+      <tr><td class="id">P2</td><td>Money in, legally</td><td><code>FR-POS-060/065</code>, <code>FR-API-020…023</code>, <code>FR-FIN-030…032</code>, <code>FR-LOC-020…022</code>, <code>FR-POS-100</code></td><td>P1</td><td>Tender handling (cash + external card); idempotency key store with replay and fingerprint conflict; tax engine; one country pack; receipt document</td><td>Idempotent-replay E2E; tax conformance against the pack; receipt element assertions</td><td>A paid order produces a compliant receipt and cannot be double-charged</td></tr>
+      <tr><td class="id">P3</td><td>Operational consequences</td><td><code>FR-INV-030</code>, <code>BR-INV-001</code>, <code>FR-KDS-001…010</code>, <code>FR-FIN-001…010</code></td><td>P2</td><td>Recipe-expansion depletion on order completion; kitchen ticket fire/display/bump; cash session open/close/declare/variance</td><td>Depletion E2E proving ledger movement equals recipe expansion; session variance E2E</td><td>Selling a dish moves stock, fires a ticket, and the shift reconciles</td></tr>
+      <tr><td class="id">P4</td><td>See the branch</td><td><code>FR-RPT-001…010</code> subset, <code>FR-SEC-002/003/004</code></td><td>P3</td><td>Daily sales summary; session report; stock-on-hand; <strong>branch-scope enforcement in the guard</strong></td><td>Branch-scope isolation E2E with positive controls</td><td>A manager can read yesterday's trading, and cannot read another branch's</td></tr>
+      <tr><td class="id">P5</td><td>Production hardening</td><td><code>FR-SEC-023/024</code>, <code>FR-SEC-041/042</code>, <code>FR-SEC-049/050</code>, <code>FR-AUD-005/008</code>, <code>NFR-OBS-*</code>, <code>FR-DR-*</code></td><td>Parallel from P1</td><td>MFA for privileged roles; encryption at rest/KMS; secrets injection; CI with dependency scanning; scheduler; audit verification job and query surface; observability baseline; backup/restore</td><td>Restore drill; SLO measurement; scan gate</td><td><strong>Gate between INTERNAL MVP and PRODUCTION MVP</strong></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="idx">8</span>Parallel work</h2>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:170px">Candidate</th><th style="min-width:190px">Classification</th><th style="min-width:380px">SRS-dependency reasoning</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Governance approvals</strong></td><td><span class="chip c-off">Post-MVP</span></td><td>Extensively ratified, zero code. <strong>D-14 A-1 removed the HTTP surface and no consuming domain exists</strong>, so it cannot be exercised. It becomes required when POS implements <code>FR-POS-047</code> discount approval or <code>FR-FIN-006</code> cash variance — both P1/P2 of the MVP. <strong>Reclassified from the audit's "parallel, unblocked" to post-MVP</strong>, because building it now delivers nothing callable.</td></tr>
+      <tr><td><strong>Scheduler / jobs</strong></td><td><span class="chip c-warn">Before production</span></td><td>Converts 5 <code>FR-INV</code> from PARTIAL, enables <code>FR-AUD-005</code> and <code>FR-DR-002</code> automatic partition creation. <strong>Partition creation is a live operational risk</strong> — the ledger has no <code>DEFAULT</code> partition and inserts past the last boundary fail hard. Cheapest high-leverage item in the repository.</td></tr>
+      <tr><td><strong>Settings resolver</strong></td><td><span class="chip c-warn">Before production</span></td><td><code>FR-PLT-025…028</code>. POS needs per-branch configuration, but an MVP can carry defaults in code. Deferring is safe; skipping is not.</td></tr>
+      <tr><td><strong>Branch-scoped RBAC</strong></td><td><span class="chip c-stop">MVP required now</span></td><td><code>FR-SEC-002/003/004</code>. <code>membership_roles.branch_id</code> exists and is never read. <strong>Start it in parallel immediately</strong> — retrofitting scope enforcement after Sales/POS exists is materially harder than building it alongside.</td></tr>
+      <tr><td><strong>CI/CD</strong></td><td><span class="chip c-warn">Before production</span></td><td><code>FR-SEC-049</code> dependency scanning and <code>FR-PLT-014</code> both fail with no pipeline. No functional dependency, so it need not gate P0–P4 — but it must precede any production claim.</td></tr>
+      <tr><td><strong>Observability</strong></td><td><span class="chip c-warn">Before production</span></td><td><code>NFR-OBS-*</code>. <strong>No <code>NFR-PERF</code> requirement can be asserted without it</strong> — 16 performance requirements are currently unmeasurable, not merely unmet.</td></tr>
+      <tr><td><strong>Procurement</strong></td><td><span class="chip c-off">Post-MVP</span></td><td>33 requirements, unblocks only 2 <code>FR-INV</code>. Stock can be established by opening balances and counts, both implemented. <strong>Genuinely parallel but low MVP value.</strong></td></tr>
+      <tr><td><strong>Audit query surface</strong></td><td><span class="chip c-warn">Before production</span></td><td><code>FR-AUD-007/008</code> [M]. Recorded in the governance register as knowingly unmet. An auditor cannot read the log today.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="idx">9</span>Security &amp; control gates</h2>
+  <p class="lede">The SRS supports distinguishing an <strong>internal MVP</strong> (a controlled pilot on non-production data) from a <strong>production MVP</strong> (real money, real customers). Nothing mandatory is waived — some controls are sequenced after functional work.</p>
+
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:170px">Control</th><th style="min-width:130px">Requirement</th><th style="min-width:110px">State</th><th style="min-width:130px">Gate</th><th style="min-width:220px">Note</th></tr></thead>
+    <tbody>
+      <tr><td>Tenant isolation</td><td><code>FR-PLT-003/010/011/012</code></td><td><span class="chip c-ok">Complete</span></td><td>Done</td><td>Must be extended to every new schema, never re-derived</td></tr>
+      <tr><td>Server-side authorization</td><td><code>FR-SEC-045</code></td><td><span class="chip c-ok">Complete</span></td><td>Done</td><td>All 123 routes guarded</td></tr>
+      <tr><td>Input validation</td><td><code>FR-SEC-047</code></td><td><span class="chip c-ok">Complete</span></td><td>Done</td><td>Whitelist + forbid-non-whitelisted, tested</td></tr>
+      <tr><td>Authentication &amp; session</td><td><code>FR-SEC-020</code>, <code>FR-API-010/013</code></td><td><span class="chip c-ok">Complete</span></td><td>Done</td><td>Rotation with reuse detection</td></tr>
+      <tr><td>Audit integrity</td><td><code>FR-AUD-002/003/004</code></td><td><span class="chip c-ok">Complete</span></td><td>Done</td><td>Hash chain verified live</td></tr>
+      <tr><td><strong>PIN authentication</strong></td><td><code>FR-SEC-021/022</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-stop">Blocks MVP</span></td><td>Primary POS auth method</td></tr>
+      <tr><td><strong>Branch scope</strong></td><td><code>FR-SEC-002/003/004</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-stop">Blocks MVP</span></td><td>Multi-branch data separation</td></tr>
+      <tr><td><strong>Idempotency</strong></td><td><code>FR-API-020…023</code>, <code>NFR-REL-011</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-stop">Blocks MVP</span></td><td>Mandatory on financial endpoints; double-charge is the named worst defect</td></tr>
+      <tr><td>Audit emission for new domains</td><td><code>FR-AUD-001/006</code></td><td><span class="chip c-warn">Partial</span></td><td><span class="chip c-stop">Blocks MVP</span></td><td>Discounts, voids, refunds, cash variance named explicitly</td></tr>
+      <tr><td>Segregation of duties</td><td><code>FR-SEC-015/016/017</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-warn">Internal → prod</span></td><td><code>FR-SEC-016</code> requires <em>blocking</em>. Needed once approvals exist</td></tr>
+      <tr><td>Approval workflow</td><td><code>FR-SEC-030…035</code></td><td><span class="chip c-off">Designed</span></td><td><span class="chip c-warn">Internal → prod</span></td><td>Needed for <code>FR-POS-047</code> / <code>FR-FIN-006</code>. Carve-out must be explicit if deferred</td></tr>
+      <tr><td>MFA</td><td><code>FR-SEC-023/024</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-warn">Before production</span></td><td><strong>Mandatory</strong> for <code>security.user.manage</code>, <code>settings.tenant.manage</code>, <code>api.key.manage</code></td></tr>
+      <tr><td>Rate limiting (per-tenant)</td><td><code>FR-PLT-015</code>, <code>FR-SEC-046</code></td><td><span class="chip c-warn">Partial</span></td><td><span class="chip c-warn">Before production</span></td><td>IP-based on auth only; no per-tenant limits, no progressive lockout</td></tr>
+      <tr><td>Encryption at rest / KMS</td><td><code>FR-SEC-041/042/043</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-warn">Before production</span></td><td>No envelope encryption, no per-tenant keys</td></tr>
+      <tr><td>Secrets management</td><td><code>FR-SEC-050</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-warn">Before production</span></td><td>Configuration via <code>.env</code> only</td></tr>
+      <tr><td>Dependency scanning / CI</td><td><code>FR-SEC-049</code>, <code>FR-PLT-014</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-warn">Before production</span></td><td>No <code>.github</code> exists</td></tr>
+      <tr><td>Observability</td><td><code>NFR-OBS-*</code></td><td><span class="chip c-warn">Partial</span></td><td><span class="chip c-warn">Before production</span></td><td>Correlation id only; no structured logging, tracing, RED metrics or alerting</td></tr>
+      <tr><td>Performance SLOs</td><td><code>NFR-PERF-*</code> (16)</td><td><span class="chip c-stop">Unmeasured</span></td><td><span class="chip c-warn">Before production</span></td><td><strong>Unmeasurable, not merely unmet</strong></td></tr>
+      <tr><td>Backup / restore</td><td><code>FR-DR-020/021</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-warn">Before production</span></td><td>No per-tenant restore capability</td></tr>
+      <tr><td>Data retention &amp; privacy</td><td><code>FR-SEC-060…064</code>, <code>FR-AUD-009</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-off">Post-MVP</span></td><td>Required before real customer data</td></tr>
+      <tr><td>IP allow-listing / SIEM</td><td><code>FR-SEC-052/053</code></td><td><span class="chip c-stop">Missing</span></td><td><span class="chip c-off">Post-MVP</span></td><td>Enterprise-tier controls</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note stop"><p><strong>Non-negotiable.</strong> Four controls must ship <em>with</em> the functional MVP, not after: <strong>PIN authentication</strong>, <strong>branch scope</strong>, <strong>idempotency on payments</strong>, and <strong>audit emission for orders, payments and cash</strong>. Each is [M] and each is materially harder to retrofit than to build alongside.</p></div>
+</section>
+
+<section>
+  <h2><span class="idx">10</span>What to defer</h2>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:150px">Capability</th><th style="min-width:120px">SRS IDs</th><th style="min-width:230px">Why deferrable</th><th style="min-width:180px">Risk of deferral</th><th style="min-width:100px">Later phase</th></tr></thead>
+    <tbody>
+      <tr><td>Offline &amp; Sync</td><td><code>FR-OFF-001…047</code></td><td>An internal MVP runs online-only. No other MVP capability depends on it</td><td><strong>High.</strong> 34 [M] requirements; retrofitting offline into an online-only design is expensive. Design for it early even if built late</td><td>Post-MVP 1</td></tr>
+      <tr><td>Costing / theoretical-vs-actual</td><td><code>FR-CST-*</code>, <code>FR-MNU-046</code>, <code>BR-MNU-003</code></td><td>The differentiator, but not required to operate. Already deferred by D-17-05</td><td>Medium — it is the product's stated value proposition</td><td>Post-MVP 1</td></tr>
+      <tr><td>Procurement</td><td><code>FR-PRC-*</code></td><td>Stock established via opening balances and counts, both implemented</td><td>Low</td><td>Post-MVP 2</td></tr>
+      <tr><td>Workforce</td><td><code>FR-HRM-*</code></td><td>Staff modelled as users with roles</td><td>Low</td><td>Post-MVP 2</td></tr>
+      <tr><td>CRM &amp; Loyalty</td><td><code>FR-CRM-*</code></td><td>Only 9 of 26 are [M]; walk-in service needs no customer record</td><td>Low</td><td>Post-MVP 2</td></tr>
+      <tr><td>Table management / floor plan</td><td><code>FR-POS-080…090</code></td><td>Mostly [S]. Orders can carry a table reference without a graphical plan</td><td>Low</td><td>Post-MVP 1</td></tr>
+      <tr><td>Delivery, drive-through, aggregators</td><td><code>FR-POS-001</code> subset, <code>FR-INT-*</code></td><td>MVP covers dine-in and takeaway only</td><td>Medium — aggregator revenue matters commercially</td><td>Post-MVP 1</td></tr>
+      <tr><td>Central-kitchen distribution</td><td><code>FR-BRN-*</code> subset</td><td>Multi-branch concern; single-branch MVP does not need it</td><td>Low</td><td>Post-MVP 2</td></tr>
+      <tr><td>Full reporting &amp; analytics</td><td><code>FR-RPT-011…055</code></td><td>MVP needs daily sales, session close and stock-on-hand only</td><td>Low</td><td>Post-MVP 1</td></tr>
+      <tr><td>Additional country packs</td><td><code>FR-LOC-023…030</code></td><td>One pack proves the architecture</td><td>Low</td><td>Post-MVP 2</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="idx">11</span>False-completion risks</h2>
+  <p class="lede">Assessed on executable evidence, not document existence. The audit identified nine; this reassessment updates two and adds one.</p>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:180px">Claim</th><th style="min-width:120px">Reality</th><th style="min-width:400px">Evidence</th></tr></thead>
+    <tbody>
+      <tr><td>"Production Spec is ratified and authorized"</td><td><span class="chip c-warn">Now partly built</span></td><td><strong>Updated.</strong> The audit scored this DESIGNED/0% and was right at the time. It is now implemented — but <strong>still not complete</strong>: <code>FR-MNU-046</code> [M] cost recomputation and <code>BR-MNU-003</code> remain unbuilt, deferred by D-17-05. Do not report Production as done.</td></tr>
+      <tr><td>"Phase 15 Organisation complete"</td><td><span class="chip c-warn">Mostly</span></td><td>Complete for entities defined, but D-02 branch-scoped RBAC, D-10 branch groups and D-11 <code>org.settings</code> were deferred, leaving <code>FR-SEC-002/003/004</code>, <code>FR-BRN-005</code> and <code>FR-PLT-025…028</code> unimplemented.</td></tr>
+      <tr><td>"Phase 16 Catalogue complete"</td><td><span class="chip c-stop">Partial</span></td><td>13 tables and 40 routes exist, but <strong>price resolution is not implemented</strong> — <code>valid_from</code>, <code>valid_to</code>, <code>recurrence_rule</code>, <code>priority</code> are stored and returned, never evaluated. <strong>This is an MVP P0 blocker hiding inside a "complete" phase.</strong></td></tr>
+      <tr><td>"Inventory complete, 248 E2E passing"</td><td><span class="chip c-warn">Partial</span></td><td>22 of 50 <code>FR-INV</code> complete; 13 blocked; 5 need a scheduler; 7 dropped by explicit decision.</td></tr>
+      <tr><td>"RLS is fully enforced"</td><td><span class="chip c-ok">True now</span></td><td>True today — <strong>but it was false when Inventory was first reported complete.</strong> 14 ledger partitions had no RLS of their own, leaking every tenant's ledger to a direct-partition query. Caught by a live probe, not the test suite. <strong>Direct evidence that green tests did not equal a secure boundary.</strong></td></tr>
+      <tr><td>"Audit trail satisfies FR-AUD"</td><td><span class="chip c-warn">3 of 10</span></td><td>Hash chain and append-only storage are excellent; no verification job (005), no query/search/export surface (007/008), no retention (009), no impersonation capture (010).</td></tr>
+      <tr><td>"Rate limiting implemented"</td><td><span class="chip c-warn">Partial</span></td><td>IP-based throttling on <em>authentication</em> endpoints only. <code>FR-PLT-015</code> per-tenant limits and <code>FR-SEC-046</code> progressive lockout both absent.</td></tr>
+      <tr><td>"Multi-tenant SaaS platform"</td><td><span class="chip c-stop">0 of 4</span></td><td>Tenant <em>isolation</em> is excellent; tenant <em>lifecycle</em> is absent — no self-signup (020), no export (021), no downgrade (022), no termination (023).</td></tr>
+      <tr><td>"Passing build / green suite"</td><td><span class="chip c-off">Not coverage</span></td><td>Passing tests prove the implemented slice works. They cannot prove absent domains exist. <strong>Around 498 requirements have no code to test.</strong></td></tr>
+      <tr><td><strong>"Governance is nearly done"</strong> <span class="chip c-acc">new</span></td><td><span class="chip c-stop">0% code</span></td><td><strong>Added by this report.</strong> Governance has 17 ratified decisions, a ratified parent-linkage decision, and a large register — and <strong>zero executable code</strong>: no approval tables, no service, no route, no test. <code>governance</code> contains only <code>audit_entries</code>. <strong>Ratification volume is the newest false-completion risk in the project.</strong></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="idx">12</span>Remaining MVP effort</h2>
+  <p class="lede">Relative engineering size only. The repository contains no velocity evidence, so no calendar estimate is defensible.</p>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:200px">Workstream</th><th style="min-width:56px">Size</th><th style="min-width:330px">Basis</th></tr></thead>
+    <tbody>
+      <tr><td>Money value object + rounding</td><td><span class="chip c-ok">S</span></td><td>Well-specified in §7.2 with exact semantics; pure logic, no schema</td></tr>
+      <tr><td>Catalogue price resolution</td><td><span class="chip c-warn">M</span></td><td>Columns exist; resolution and recurrence semantics are non-trivial</td></tr>
+      <tr><td>PIN authentication</td><td><span class="chip c-ok">S</span></td><td>Salted hash + branch uniqueness + lockout; auth patterns already established</td></tr>
+      <tr><td>Branch-scoped RBAC</td><td><span class="chip c-warn">M</span></td><td>Column exists; guard, token claims and every query path must honour scope</td></tr>
+      <tr><td><strong>Order aggregate</strong></td><td><span class="chip c-stop">XL</span></td><td>New schema, state machine, numbering, lines, modifiers, discounts, voids. 80 requirements</td></tr>
+      <tr><td>Tax + one country pack</td><td><span class="chip c-warn">L</span></td><td>Multi-component tax, rounding points, pack loading and signing</td></tr>
+      <tr><td>Payment + idempotency</td><td><span class="chip c-warn">L</span></td><td>Tender handling plus a general idempotency layer used system-wide</td></tr>
+      <tr><td>Receipt generation</td><td><span class="chip c-warn">M</span></td><td>Document assembly against pack-mandated elements</td></tr>
+      <tr><td>Kitchen ticket lifecycle</td><td><span class="chip c-warn">M</span></td><td>Minimum fire/display/bump; routing already modelled</td></tr>
+      <tr><td>Inventory depletion on sale</td><td><span class="chip c-warn">M</span></td><td>Recipe expansion exists; the consumption path and its transaction boundary do not</td></tr>
+      <tr><td>Cash session &amp; variance</td><td><span class="chip c-warn">M</span></td><td>Session lifecycle, declaration, variance, tolerance</td></tr>
+      <tr><td>Minimum reporting</td><td><span class="chip c-ok">S</span></td><td>Three read models over existing and new tables</td></tr>
+      <tr><td>Scheduler / jobs</td><td><span class="chip c-ok">S</span></td><td>Small capability, disproportionate leverage</td></tr>
+      <tr><td>Production-gate security bundle</td><td><span class="chip c-warn">L</span></td><td>MFA, KMS, secrets, CI, observability, backup/restore</td></tr>
+    </tbody>
+  </table></div>
+  <div class="col">
+    <h3>Sequences</h3>
+    <p><strong>Optimistic</strong> — price resolution, Money and PIN run in parallel; the order aggregate proceeds without rework; tax needs only one pack; depletion reuses the existing ledger cleanly.</p>
+    <p><strong>Realistic</strong> — the order aggregate churns once as pricing, tax and discount interactions surface; idempotency forces a cross-cutting refactor of existing write paths; branch scope forces revisiting query paths already written; the first country pack takes longer than expected because it is also the pack <em>architecture</em>.</p>
+    <h3>Uncertainty factors</h3>
+    <ul>
+      <li><strong>No client exists.</strong> Every requirement here is backend-only; a POS UI is an entirely separate and unestimated effort.</li>
+      <li><strong>Idempotency is cross-cutting</strong> and touches routes already built.</li>
+      <li><strong>Country-pack architecture</strong> is designed but unproven; the first pack validates or invalidates it.</li>
+      <li><strong>Offline design pressure</strong> — building online-only risks an expensive retrofit later. Design decisions taken now should not preclude it.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2><span class="idx">13</span>MVP requirement ledger</h2>
+  <p class="lede">MVP-relevant requirements only. Traceable to the SRS.</p>
+  <div class="scroll"><table>
+    <thead><tr><th style="min-width:44px">Pri</th><th style="min-width:130px">Requirement</th><th style="min-width:180px">Substance</th><th style="min-width:100px">Domain</th><th style="min-width:90px">Status</th><th style="min-width:100px">Dependency</th><th style="min-width:180px">Implementation needed</th><th style="min-width:150px">Verification</th><th style="min-width:56px">Blk</th><th style="min-width:50px">Ph</th></tr></thead>
+    <tbody>
+      <tr><td>P0</td><td class="id">BR-CORE-001/002</td><td>Currency guard; exact allocation</td><td>Core</td><td><span class="chip c-stop">None</span></td><td>—</td><td><code>Money</code> value object</td><td>Allocation exactness specs</td><td>Y</td><td>P0</td></tr>
+      <tr><td>P0</td><td class="id">BR-FIN-001/003</td><td>Round once; distribute discount exactly</td><td>Finance</td><td><span class="chip c-stop">None</span></td><td>Money</td><td>Rounding policy</td><td>Unit specs</td><td>Y</td><td>P0</td></tr>
+      <tr><td>P0</td><td class="id">FR-MNU-021/022/023</td><td>Price list resolution, validity, priority</td><td>Catalogue</td><td><span class="chip c-warn">Stored only</span></td><td>—</td><td>Resolution engine</td><td>Resolution matrix specs</td><td>Y</td><td>P0</td></tr>
+      <tr><td>P0</td><td class="id">FR-SEC-021/022</td><td>PIN auth, branch-unique, lockout</td><td>Security</td><td><span class="chip c-stop">None</span></td><td>—</td><td>PIN credential + lockout</td><td>Lockout E2E</td><td>Y</td><td>P0</td></tr>
+      <tr><td>P0</td><td class="id">FR-POS-001/002</td><td>Order types; branch-day order number</td><td>Sales</td><td><span class="chip c-stop">None</span></td><td>P0</td><td><code>sales</code> schema + numbering</td><td>Uniqueness under concurrency</td><td>Y</td><td>P1</td></tr>
+      <tr><td>P0</td><td class="id">FR-POS-005/010</td><td>Concurrent open orders; item selection</td><td>Sales</td><td><span class="chip c-stop">None</span></td><td>Order</td><td>Order/line model</td><td>E2E</td><td>Y</td><td>P1</td></tr>
+      <tr><td>P0</td><td class="id">FR-POS-020…040</td><td>Lines, modifiers, discounts, voids</td><td>Sales</td><td><span class="chip c-stop">None</span></td><td>Order</td><td>Line lifecycle + state machine</td><td>State-machine specs</td><td>Y</td><td>P1</td></tr>
+      <tr><td>P0</td><td class="id">FR-PLT-003/010/011/012</td><td>Tenant isolation on new tables</td><td>Platform</td><td><span class="chip c-ok">Pattern ready</span></td><td>—</td><td>Extend RLS to <code>sales</code></td><td>RLS E2E with positive controls</td><td>Y</td><td>P1</td></tr>
+      <tr><td>P0</td><td class="id">FR-AUD-001/006</td><td>Audit every state change</td><td>Audit</td><td><span class="chip c-warn">Writer only</span></td><td>Order</td><td>Emission in sales paths</td><td>Entry-per-operation E2E</td><td>Y</td><td>P1</td></tr>
+      <tr><td>P0</td><td class="id">FR-FIN-030…032</td><td>Multi-component tax</td><td>Finance</td><td><span class="chip c-stop">None</span></td><td>Money</td><td>Tax engine</td><td>Conformance vs pack</td><td>Y</td><td>P2</td></tr>
+      <tr><td>P0</td><td class="id">FR-LOC-020/021/022</td><td>Country pack; signed; rejected if invalid</td><td>Localisation</td><td><span class="chip c-stop">None</span></td><td>Tax</td><td>Pack loader + one pack</td><td>Signature rejection test</td><td>Y</td><td>P2</td></tr>
+      <tr><td>P0</td><td class="id">FR-POS-060</td><td>Tender types</td><td>Sales</td><td><span class="chip c-stop">None</span></td><td>Order</td><td>Cash + external card</td><td>E2E</td><td>Y</td><td>P2</td></tr>
+      <tr><td>P0</td><td class="id">FR-POS-065</td><td>Payments idempotent</td><td>Sales</td><td><span class="chip c-stop">None</span></td><td>Payment</td><td>Idempotency layer</td><td>Replay E2E</td><td>Y</td><td>P2</td></tr>
+      <tr><td>P0</td><td class="id">FR-API-020…023</td><td>Idempotency-Key, replay, 409 on mismatch</td><td>API</td><td><span class="chip c-stop">None</span></td><td>—</td><td>Key store + middleware</td><td>Fingerprint-conflict E2E</td><td>Y</td><td>P2</td></tr>
+      <tr><td>P0</td><td class="id">NFR-REL-011</td><td>At-most-once financial effect</td><td>NFR</td><td><span class="chip c-stop">None</span></td><td>Idempotency</td><td>—</td><td>Concurrency test</td><td>Y</td><td>P2</td></tr>
+      <tr><td>P1</td><td class="id">FR-POS-100</td><td>Compliant customer receipt</td><td>Sales</td><td><span class="chip c-stop">None</span></td><td>Tax, pack</td><td>Receipt document</td><td>Element assertions</td><td>Y</td><td>P2</td></tr>
+      <tr><td>P0</td><td class="id">FR-INV-030 · BR-INV-001</td><td>Movements on sale; append-only</td><td>Inventory</td><td><span class="chip c-warn">Ledger only</span></td><td>Order, Recipes</td><td>Depletion via recipe expansion</td><td>Ledger-equals-expansion E2E</td><td>Y</td><td>P3</td></tr>
+      <tr><td>P1</td><td class="id">FR-KDS-001…010</td><td>Ticket fire, display, bump</td><td>Kitchen</td><td><span class="chip c-stop">None</span></td><td>Order</td><td>Ticket lifecycle</td><td>E2E</td><td>Dine-in</td><td>P3</td></tr>
+      <tr><td>P1</td><td class="id">FR-FIN-001…010</td><td>Cash session, declaration, variance</td><td>Finance</td><td><span class="chip c-stop">None</span></td><td>Payment</td><td>Session lifecycle</td><td>Variance E2E</td><td>Y</td><td>P3</td></tr>
+      <tr><td>P1</td><td class="id">FR-SEC-002/003/004</td><td>Branch scope; no cross-scope leakage</td><td>Security</td><td><span class="chip c-warn">Column only</span></td><td>—</td><td>Guard + token + query scope</td><td>Branch isolation E2E</td><td>Y</td><td>P4</td></tr>
+      <tr><td>P1</td><td class="id">FR-RPT-001…010 subset</td><td>Daily sales, session, stock on hand</td><td>Reporting</td><td><span class="chip c-stop">None</span></td><td>Sales, Finance</td><td>Three read models</td><td>Figures reconcile to ledger</td><td>Y</td><td>P4</td></tr>
+      <tr><td>P2</td><td class="id">FR-AUD-005</td><td>Scheduled chain verification + alert</td><td>Audit</td><td><span class="chip c-stop">None</span></td><td>Scheduler</td><td>Job + alerting</td><td>Break-detection test</td><td>N</td><td>P5</td></tr>
+      <tr><td>P2</td><td class="id">FR-AUD-007/008</td><td>Audit access audited; searchable, exportable</td><td>Audit</td><td><span class="chip c-stop">None</span></td><td>Read surface</td><td>Query + export</td><td>Permission-gated E2E</td><td>N</td><td>P5</td></tr>
+      <tr><td>P2</td><td class="id">FR-SEC-023/024</td><td>MFA for privileged roles</td><td>Security</td><td><span class="chip c-stop">None</span></td><td>—</td><td>TOTP enrolment</td><td>E2E</td><td>N</td><td>P5</td></tr>
+      <tr><td>P2</td><td class="id">FR-SEC-041/042/043</td><td>Envelope encryption, per-tenant keys</td><td>Security</td><td><span class="chip c-stop">None</span></td><td>KMS</td><td>Field encryption</td><td>Round-trip test</td><td>N</td><td>P5</td></tr>
+      <tr><td>P2</td><td class="id">FR-SEC-049 · FR-PLT-014</td><td>Dependency scanning; CI gates</td><td>DevOps</td><td><span class="chip c-stop">None</span></td><td>—</td><td>Pipeline</td><td>Failing-scan gate</td><td>N</td><td>P5</td></tr>
+      <tr><td>P2</td><td class="id">FR-PLT-015 · FR-SEC-046</td><td>Per-tenant limits; progressive lockout</td><td>Platform</td><td><span class="chip c-warn">Partial</span></td><td>—</td><td>Extend throttling</td><td>Limit E2E</td><td>N</td><td>P5</td></tr>
+      <tr><td>P2</td><td class="id">FR-DR-002 · FR-DR-020/021</td><td>Partition automation; per-tenant restore</td><td>DR</td><td><span class="chip c-stop">None</span></td><td>Scheduler</td><td>Jobs + restore path</td><td>Restore drill</td><td>N</td><td>P5</td></tr>
+      <tr><td>P2</td><td class="id">NFR-OBS-* · NFR-PERF-*</td><td>Structured logs, tracing, RED, SLOs</td><td>NFR</td><td><span class="chip c-stop">Unmeasured</span></td><td>—</td><td>Observability baseline</td><td>SLO measurement</td><td>N</td><td>P5</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="idx">14</span>Executive summary</h2>
+  <div class="col">
+    <h3>1 · What we have now</h3>
+    <p>A rigorously built platform substrate covering roughly one seventh of the SRS: authentication with token rotation, tenant isolation enforced by 213 RLS policies across 62 tables and verified live against a non-bypassing role, tenant-scoped RBAC on all 123 routes, a tamper-evident audit chain, the full organisation hierarchy, a catalogue, an append-only inventory ledger with valuation, and — new since the audit — recipes with versioning and cycle detection. <strong>Seven of twenty-nine domains have executable code.</strong></p>
+
+    <h3>2 · What is missing for MVP</h3>
+    <p>Everything that makes money. No order, no price resolution, no PIN login, no <code>Money</code> type, no tax, no payment, no receipt, no kitchen ticket, no stock depletion, no cash session, no reporting. <strong>Nothing in the system can complete a sale.</strong></p>
+
+    <h3>3 · The true MVP scope</h3>
+    <p>One tenant, one brand, one branch. Dine-in and takeaway. Staff log in by PIN, build an order from a priced menu, take cash or an external card payment, print a compliant receipt, fire a ticket to the kitchen, deplete stock by recipe, and close the cash session — with tenant isolation, branch scope and audit intact, and a daily sales summary to read the next morning. <strong>Online-only. Single country pack.</strong></p>
+
+    <h3>4 · The #1 critical path</h3>
+    <p><strong>Price resolution + Money + PIN → Order aggregate → Payment + idempotency → depletion, tickets, cash close → minimum reporting.</strong> The order aggregate is the pivot: roughly 230 requirements sit downstream of it.</p>
+
+    <h3>5 · What can run in parallel</h3>
+    <p><strong>Start now:</strong> branch-scoped RBAC (hardest to retrofit), scheduler/jobs (cheapest leverage, and it defuses a live partition risk), observability baseline, CI/CD. <strong>Anytime:</strong> audit query surface, settings resolver.</p>
+
+    <h3>6 · What we should not build yet</h3>
+    <p><strong>Governance approvals</strong> — 17 ratified decisions and zero callable code; it delivers nothing until POS needs discount approval. <strong>Offline/Sync</strong>, <strong>Costing</strong>, <strong>Procurement</strong>, <strong>Workforce</strong>, <strong>CRM</strong>, <strong>central-kitchen distribution</strong>, <strong>integrations</strong>, <strong>floor plans</strong>, <strong>additional country packs</strong>.</p>
+
+    <h3>7 · MVP exit criteria</h3>
+    <ol>
+      <li>A staff member authenticates by PIN at a terminal bound to a branch.</li>
+      <li>An order is created, priced from a resolved price list, taxed by country pack, and closed.</li>
+      <li>Payment is taken and <strong>cannot be double-charged under retry</strong>.</li>
+      <li>A compliant receipt is produced.</li>
+      <li>A dine-in order fires a kitchen ticket that can be bumped.</li>
+      <li>Completing the order <strong>moves the stock ledger</strong> by recipe expansion.</li>
+      <li>The cash session closes with a computed variance.</li>
+      <li>A manager reads a daily sales summary and <strong>cannot read another branch's</strong>.</li>
+      <li>Every one of the above emits an audit entry, and the chain still verifies.</li>
+      <li>Cross-tenant access returns 404 everywhere, proven by live probes with positive controls.</li>
+    </ol>
+
+    <h3>8 · The first ten work items, in order</h3>
+    <ol>
+      <li><strong><code>Money</code> value object</strong> — <code>BR-CORE-001/002</code>, <code>BR-FIN-001/003</code></li>
+      <li><strong>Catalogue price resolution</strong> — <code>FR-MNU-021/022/023</code></li>
+      <li><strong>PIN authentication</strong> — <code>FR-SEC-021/022</code></li>
+      <li><strong>Branch-scoped RBAC</strong> — <code>FR-SEC-002/003/004</code> <em>(parallel; retrofit cost rises daily)</em></li>
+      <li><strong>Scheduler/jobs</strong> — <code>FR-DR-002</code> first, to defuse the partition-boundary risk</li>
+      <li><strong><code>sales</code> schema + RLS + composite FKs</strong> — <code>FR-PLT-003/010/011/012</code></li>
+      <li><strong>Order aggregate &amp; state machine</strong> — <code>FR-POS-001…040</code></li>
+      <li><strong>Idempotency layer</strong> — <code>FR-API-020…023</code></li>
+      <li><strong>Tax engine + first country pack</strong> — <code>FR-FIN-030…032</code>, <code>FR-LOC-020…022</code></li>
+      <li><strong>Payment &amp; tender</strong> — <code>FR-POS-060/065</code></li>
+    </ol>
+  </div>
+
+  <div class="verdict" style="margin-top:26px">
+    <span class="lab">MVP Readiness</span>
+    <p class="val">NOT READY</p>
+    <p>Not ready as a product — no MVP capability can be exercised end to end. <strong>But the design prerequisites for the MVP critical path are sufficiently resolved:</strong> Sales/POS, price resolution, PIN, Money, tax and payments carry <em>no</em> open governance decision. The three unresolved schema items and both blocked decisions sit on Governance approvals, which this report places off the MVP path.</p>
+    <p><strong>Implementation of the MVP critical path can begin immediately.</strong> The blocker is build effort, not unresolved design.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="idx">?</span>Unknown / unresolved</h2>
+  <p class="lede">Matters the SRS does not decide, or that this report cannot settle from the sources. None is resolved here.</p>
+  <div class="col">
+    <ul>
+      <li><strong>Four dangling requirement IDs</strong> — <code>FR-INT-020</code>, <code>FR-PLT-041</code>, <code>FR-RPT-055</code>, <code>FR-SEC-018</code> are referenced but never defined in the SRS.</li>
+      <li><strong>Internal vs production MVP</strong> — the SRS does not formally define this distinction. Part 9 uses it as a sequencing device; <strong>it is inference, not an SRS concept</strong>, and adopting it is a business decision.</li>
+      <li><strong>Which country pack ships first</strong> — the SRS defines the architecture, not the launch jurisdiction.</li>
+      <li><strong>Whether MVP may defer the approval workflow</strong> — <code>FR-SEC-030</code> is [M], and <code>FR-POS-047</code> / <code>FR-FIN-006</code> both reference approval. Deferring requires an <strong>explicit, recorded carve-out</strong>; this report does not grant one.</li>
+      <li><strong>Governance schema items</strong> — <code>required_permission</code> FK posture, <code>value</code> persistence type and nullability, and the <code>approval_requests</code> DELETE posture remain unresolved in the register. <strong>Off the MVP path, so not MVP blockers.</strong></li>
+      <li><strong>D-16</strong> remains OPEN and <strong>D-12</strong> remains BLOCKED. <strong>P-1 stands: <code>approval_decisions</code> references <code>approval_requests</code> directly.</strong> Governance tally unchanged at <strong>17 ratified · 1 in part · 1 blocked · 1 open</strong>.</li>
+      <li><strong>Client/UI effort is entirely unestimated.</strong> Every figure here is backend-only.</li>
+      <li><strong>The 384-test baseline was not re-verified</strong> — no suite was executed for this report.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  Sources: <code>ROS_SRS_v1.0.pdf</code> (634 defined requirements) · <code>ROS_SRS_IMPLEMENTATION_PROGRESS_AUDIT.pdf</code> (2026-08-16, <code>48a16f92</code>) · repository and live database state at <code>e5648fb</code> · <code>GOVERNANCE_DECISION_REGISTER.md</code>. Analysis only — no implementation, no schema, migration, RLS, database, or governance change was made.
+</footer>
+</div>

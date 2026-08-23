@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,8 @@ import {
   AUDIT_ENTITY,
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
+import { RECIPE_COST_RECOMPUTER } from '../../production/costing/recipe-cost.port';
+import type { RecipeCostRecomputer } from '../../production/costing/recipe-cost.port';
 import {
   BatchLot,
   selectBatches,
@@ -72,6 +75,8 @@ export class MovementsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Inject(RECIPE_COST_RECOMPUTER)
+    private readonly recipeCost: RecipeCostRecomputer,
   ) {}
 
   /**
@@ -233,6 +238,17 @@ export class MovementsService {
       },
       ...(input.reasonCodeId ? { reasonCode: 'inventory_reason_code' } : {}),
     });
+
+    // FR-MNU-046 — "recipe cost SHALL recompute when component costs change,
+    // cascading through dependent sub-recipes and parent recipes". THIS is the
+    // valuation mutation boundary: `average_cost` was just rewritten above and
+    // FIFO layers were just depleted, so every recipe using this item now holds
+    // a stale cost. Recomputation runs on the SAME transaction, so a movement
+    // and the costs it invalidates commit or roll back together — there is no
+    // window in which the ledger and the recipe costs disagree.
+    //
+    // D-17-05 NARROW AMENDMENT (design gate 4.1) authorises exactly this.
+    await this.recipeCost.recomputeForStockItem(tx, input.stockItemId);
 
     return {
       id: movement.id,

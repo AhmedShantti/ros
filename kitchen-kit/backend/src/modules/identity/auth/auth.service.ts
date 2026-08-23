@@ -19,6 +19,8 @@ import { UsersService } from '../users/users.service';
 import { AccessTokenService } from './access-token.service';
 import { AuthTokens } from './auth.types';
 import { LoginDto } from './dto/login.dto';
+import { PinLoginDto } from './dto/pin-login.dto';
+import { PinService } from '../employees/pin.service';
 
 @Injectable()
 export class AuthService {
@@ -33,6 +35,7 @@ export class AuthService {
     private readonly memberships: MembershipsService,
     private readonly terminals: TerminalsService,
     private readonly audit: AuditService,
+    private readonly pins: PinService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
@@ -99,6 +102,74 @@ export class AuthService {
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
       metadata: { result: 'success', sessionId: session.id },
+    });
+
+    return this.buildTokens(accessToken, refreshToken, user);
+  }
+
+  /**
+   * FR-SEC-020/021/022 — authenticate an employee by PIN at a registered
+   * terminal and issue a POS-ONLY session.
+   *
+   * The issued access token carries `typ: 'pos'`, which `JwtAuthGuard` refuses
+   * on every route that has not explicitly opted in. That is how "SHALL NOT
+   * grant access to the web dashboard" is executable rather than aspirational:
+   * even though the linked User may hold dashboard permissions, the session
+   * audience denies those routes.
+   */
+  async loginWithPin(
+    dto: PinLoginDto,
+    ctx: SessionContext,
+  ): Promise<AuthTokens> {
+    const result = await this.pins.authenticate(
+      dto.tenantId,
+      dto.terminalId,
+      dto.employeeCode,
+      dto.pin,
+    );
+
+    const user = await this.users.findById(result.userId);
+    if (!user || user.status !== 'active') {
+      throw new UnauthorizedException('Invalid PIN, terminal or employee.');
+    }
+
+    const { session, refreshToken } = await this.sessions.issue(user.id, {
+      ...ctx,
+      terminalId: result.terminalId,
+    });
+    // NOTE: the membership is deliberately NOT persisted onto the session row.
+    // `refresh` rebuilds a token from `session.membershipId` and does not carry
+    // the `pos` audience forward, so storing it there would let a PIN session
+    // refresh itself into a full dashboard session — the exact escalation
+    // FR-SEC-021 forbids. The consequence is that a POS session ends with its
+    // access token and the employee re-enters their PIN; that is a smaller cost
+    // than an escalation path, and POS refresh semantics are not source-decided.
+    // `mid` is what makes the session AUTHORIZABLE: permissions are resolved
+    // per request from the membership, so a POS token without it could reach no
+    // permission-guarded route at all. `emp` names the employee behind the
+    // session, which POS routes need as the acting party (FR-SEC-021).
+    const accessToken = await this.tokens.sign({
+      sub: user.id,
+      sid: session.id,
+      tid: dto.tenantId,
+      mid: result.membershipId,
+      trm: result.terminalId,
+      emp: result.employeeId,
+      typ: 'pos',
+    });
+
+    await this.audit.emit({
+      tenantId: dto.tenantId,
+      action: AUDIT_ACTION.LOGIN_SUCCESS,
+      entityType: AUDIT_ENTITY.USER,
+      actorType: 'user',
+      actorId: user.id,
+      entityId: result.employeeId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      terminalId: result.terminalId,
+      // No PIN, and nothing derived from it, ever enters the payload.
+      metadata: { result: 'success', method: 'pin', sessionId: session.id },
     });
 
     return this.buildTokens(accessToken, refreshToken, user);

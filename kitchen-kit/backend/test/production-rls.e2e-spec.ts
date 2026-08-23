@@ -489,7 +489,16 @@ describe('Production Spec RLS enforcement as ros_app (e2e)', () => {
          WHERE grantee = 'ros_app' AND table_schema = 'production'
            AND table_name = 'recipe_versions' AND privilege_type = 'UPDATE'`,
       );
-      expect(cols.map((c) => c.column_name)).toEqual(['status']);
+      // GAP-2 granted `status` alone, which is how D-17-04's "published versions
+      // immutable at database level" is enforced. The D-17-05 NARROW AMENDMENT
+      // (design gate 4.1) adds exactly the two CACHED cost columns FR-MNU-046
+      // requires to be recomputed. Recipe CONTENT — yield, units, lines — is
+      // still unwritable by the runtime role, which is what this asserts.
+      expect(cols.map((c) => c.column_name).sort()).toEqual([
+        'computed_cost',
+        'cost_computed_at',
+        'status',
+      ]);
     });
 
     it('the partial unique published index exists', async () => {

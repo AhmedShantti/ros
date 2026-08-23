@@ -112,3 +112,11 @@ export class CreateSubstituteGroupDto {
 export class AddSubstituteMemberDto {
   @Matches(UUID_PATTERN) stockItemId!: string;
 }
+
+/**
+ * BR-MNU-012 completion report filter. `branchId` is optional; when present it
+ * selects the D-17-03 scope precedence to resolve against.
+ */
+export class RecipeCompletenessQueryDto {
+  @IsOptional() @Matches(UUID_PATTERN) branchId?: string;
+}

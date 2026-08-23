@@ -3,11 +3,14 @@ import { UUID_PATTERN } from '../../../../common/ids';
 
 /**
  * Organisation-side routing CONFIGURATION only. Resolution precedence
- * (FR-KDS-010) is Kitchen Ops behaviour and is not implemented in Phase 15.
+ * (FR-KDS-010) is Kitchen Ops behaviour, implemented by the Kitchen module's
+ * private resolver against the `organisation/contract` query — not here.
  *
- * `menuItemId` / `categoryId` carry no foreign key because Catalogue does not
- * exist yet — exactly as the approved SQL defines them. Neither source states
- * what "both set" or "both null" means, so no rule is invented.
+ * `menuItemId` / `categoryId` / `modifierId` are tenant-safe composite FKs
+ * (ADR 0008 D-09) to Catalogue. Exactly one of the three must be set — this
+ * is a DB CHECK constraint (`ck_station_routing_rule_one_selector`); the
+ * service validates it up front too, so a malformed request gets a 400
+ * instead of an unmapped constraint-violation 500.
  */
 export class CreateStationRoutingRuleDto {
   @Matches(UUID_PATTERN, { message: 'stationId must be a UUID' })
@@ -20,6 +23,10 @@ export class CreateStationRoutingRuleDto {
   @IsOptional()
   @Matches(UUID_PATTERN, { message: 'categoryId must be a UUID' })
   categoryId?: string;
+
+  @IsOptional()
+  @Matches(UUID_PATTERN, { message: 'modifierId must be a UUID' })
+  modifierId?: string;
 
   @IsOptional()
   @IsInt()

@@ -4,10 +4,12 @@ import { IdentityModule } from '../identity/identity.module';
 import { BranchesService } from './branches/branches.service';
 import { BrandsService } from './brands/brands.service';
 import { CentralKitchensService } from './central-kitchens/central-kitchens.service';
+import { ROUTING_CONFIG_QUERY } from './contract';
 import { LocationsService } from './locations/locations.service';
 import { OperatingHoursService } from './operating-hours/operating-hours.service';
 import { OrganisationController } from './organisation.controller';
 import { PrintRoutingService } from './print-routing/print-routing.service';
+import { RoutingConfigQueryService } from './routing-config/routing-config.query.service';
 import { StationRoutingService } from './station-routing/station-routing.service';
 import { StationsService } from './stations/stations.service';
 import { TablesService } from './tables/tables.service';
@@ -35,6 +37,8 @@ import { WarehousesService } from './warehouses/warehouses.service';
     OperatingHoursService,
     PrintRoutingService,
     StationRoutingService,
+    RoutingConfigQueryService,
+    { provide: ROUTING_CONFIG_QUERY, useExisting: RoutingConfigQueryService },
   ],
   exports: [
     LocationsService,
@@ -47,6 +51,7 @@ import { WarehousesService } from './warehouses/warehouses.service';
     OperatingHoursService,
     PrintRoutingService,
     StationRoutingService,
+    ROUTING_CONFIG_QUERY,
   ],
 })
 export class OrganisationModule {}

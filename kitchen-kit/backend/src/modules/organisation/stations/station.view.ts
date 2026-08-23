@@ -5,6 +5,7 @@ export interface StationSummary {
   branchId: string;
   name: string;
   capacityConfig: unknown;
+  displayColour: string | null;
   displayTerminalId: string | null;
   createdAt: Date;
 }
@@ -15,6 +16,7 @@ export function toStationSummary(s: Station): StationSummary {
     branchId: s.branchId,
     name: s.name,
     capacityConfig: s.capacityConfig,
+    displayColour: s.displayColour,
     displayTerminalId: s.displayTerminalId,
     createdAt: s.createdAt,
   };

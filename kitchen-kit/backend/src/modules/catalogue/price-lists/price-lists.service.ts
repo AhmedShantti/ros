@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,11 @@ import {
 import { AuditService } from '../../governance/audit/audit.service';
 import { rethrowAsNotFoundOnFk } from '../../organisation/prisma-errors';
 import { toPriceEntryView, toPriceListView } from '../catalogue.views';
+import {
+  findConflicting,
+  isExclusionViolation,
+} from '../pricing/price-list-overlap';
+import { assertPriceCompleteness } from '../pricing/price-completeness';
 
 export interface CreatePriceListInput {
   name: string;
@@ -85,6 +91,28 @@ export class PriceListsService {
   }
 
   async create(tenantId: string, actorId: string, input: CreatePriceListInput) {
+    try {
+      return await this.createChecked(tenantId, actorId, input);
+    } catch (err) {
+      // The pre-check inside `createChecked` cannot see a concurrent writer's
+      // uncommitted row, so the database constraint is what actually decides.
+      // Its loser gets the same 409, not a 500.
+      if (isExclusionViolation(err)) {
+        throw new ConflictException(
+          'Another price list already covers this scope at this priority for an ' +
+            'overlapping validity window. SRS §7.3 forbids overlapping windows of ' +
+            'the same priority for the same scope.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  private async createChecked(
+    tenantId: string,
+    actorId: string,
+    input: CreatePriceListInput,
+  ) {
     const list = await this.prisma.withAuthContext(
       { userId: actorId, tenantId },
       async (tx) => {
@@ -94,6 +122,40 @@ export class PriceListsService {
           input.scopeType,
           input.scopeId,
         );
+
+        // SRS §7.3 #10 — no overlapping windows of same priority for same scope.
+        // This pre-check exists to return a clear 409 naming the conflicting
+        // list; the authoritative guarantee is the exclusion constraint
+        // `ex_price_list_no_overlap`, which also holds under concurrency.
+        const candidate = {
+          scopeType: input.scopeType,
+          scopeId,
+          priority: input.priority ?? 0,
+          validFrom: input.validFrom ? new Date(input.validFrom) : null,
+          validTo: input.validTo ? new Date(input.validTo) : null,
+        };
+        const siblings = await tx.priceList.findMany({
+          where: { scopeType: input.scopeType, scopeId },
+          select: {
+            id: true,
+            name: true,
+            scopeType: true,
+            scopeId: true,
+            priority: true,
+            validFrom: true,
+            validTo: true,
+          },
+        });
+        const clash = findConflicting(candidate, siblings);
+        if (clash) {
+          throw new ConflictException(
+            `Price list "${clash.name}" already covers this scope at this ` +
+              'priority for an overlapping validity window. SRS §7.3 forbids ' +
+              'overlapping windows of the same priority for the same scope — use a ' +
+              'different priority or a non-overlapping validity window.',
+          );
+        }
+
         const created = await tx.priceList.create({
           data: {
             id: newId(),
@@ -115,6 +177,16 @@ export class PriceListsService {
             ...(input.status !== undefined ? { status: input.status } : {}),
           },
         });
+        // C-11 (amended): an administratively ACTIVE list must be complete the
+        // moment it exists. A future `valid_from` does NOT weaken this gate.
+        if (created.status === 'active') {
+          await assertPriceCompleteness(
+            tx,
+            { priceListId: created.id },
+            'This price list cannot be created as active while it is incomplete.',
+          );
+        }
+
         await this.audit.record(tx, {
           tenantId,
           action: AUDIT_ACTION.PRICE_LIST_CREATED,
@@ -237,6 +309,53 @@ export class PriceListsService {
     } catch (err) {
       rethrowAsNotFoundOnFk(err, 'Variant not found.');
     }
+  }
+
+  /**
+   * Transition a price list to `active`, enforcing C-11 as amended.
+   *
+   * NO PUBLIC HTTP SURFACE EXISTS for this: the catalogue controller exposes no
+   * price-list status route, and inventing one solely to satisfy this task was
+   * out of scope. This is the internal application service the invariant hangs
+   * on; when an activation endpoint is added it must call through here. The
+   * absent public surface is reported rather than papered over.
+   */
+  async activate(tenantId: string, actorId: string, priceListId: string) {
+    const list = await this.prisma.withAuthContext(
+      { userId: actorId, tenantId },
+      async (tx) => {
+        const existing = await tx.priceList.findUnique({
+          where: { id: priceListId },
+          select: { id: true, status: true },
+        });
+        if (!existing) {
+          throw new NotFoundException('Price list not found.');
+        }
+
+        await assertPriceCompleteness(
+          tx,
+          { priceListId, assumeListActive: priceListId },
+          'This price list cannot be activated while it is incomplete.',
+        );
+
+        const updated = await tx.priceList.update({
+          where: { id: priceListId },
+          data: { status: 'active' },
+        });
+        await this.audit.record(tx, {
+          tenantId,
+          action: AUDIT_ACTION.PRICE_LIST_CREATED,
+          entityType: AUDIT_ENTITY.PRICE_LIST,
+          actorType: 'user',
+          actorId,
+          entityId: updated.id,
+          before: { status: existing.status },
+          metadata: { status: updated.status, name: updated.name },
+        });
+        return updated;
+      },
+    );
+    return toPriceListView(list);
   }
 
   listEntries(tenantId: string, priceListId: string) {

@@ -13,7 +13,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["catalogue", "governance", "identity", "inventory", "kitchen", "org", "production"]
+  schemas  = ["catalogue", "fiscal", "governance", "identity", "inventory", "kitchen", "org", "production", "sales", "sync", "treasury", "workforce"]
 }
 
 // ---------------------------------------------------------------------------
@@ -49,18 +49,21 @@ model User {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  credentials         Credential[]
-  sessions            Session[]
-  memberships         Membership[]
-  ownedTenants        Tenant[]             @relation("TenantOwner")
-  passwordResetTokens PasswordResetToken[]
-  countSessionsStarted CountSession[]  @relation("CountStartedBy")
-  countSessionsPosted  CountSession[]  @relation("CountPostedBy")
+  credentials          Credential[]
+  sessions             Session[]
+  memberships          Membership[]
+  ownedTenants         Tenant[]             @relation("TenantOwner")
+  passwordResetTokens  PasswordResetToken[]
+  countSessionsStarted CountSession[]       @relation("CountStartedBy")
+  countSessionsPosted  CountSession[]       @relation("CountPostedBy")
   wasteRecorded        WasteRecord[]
   movementsPerformed   StockMovement[]
 
   // Production Spec back-relations (virtual; no DDL impact).
   publishedRecipeVersions RecipeVersion[] @relation("RecipeVersionPublisher")
+
+  /// D-2 (amended) PIN substrate: an Employee may link to at most one User.
+  employee Employee?
 
   @@map("users")
   @@schema("identity")
@@ -74,6 +77,10 @@ model Credential {
   pinForTerminal Boolean        @default(false) @map("pin_for_terminal")
   mustReset      Boolean        @default(false) @map("must_reset")
   rotatedAt      DateTime       @default(now()) @map("rotated_at") @db.Timestamptz(6)
+  /// FR-SEC-022 lockout state. Persisted so a lockout survives request and
+  /// process boundaries; reset to 0 on a successful verification.
+  failedAttempts Int            @default(0) @map("failed_attempts")
+  lockedUntil    DateTime?      @map("locked_until") @db.Timestamptz(6)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -192,21 +199,36 @@ model Tenant {
 
   // Catalogue back-relations (Phase 16). Prisma requires both sides of a
   // relation; these add no column and no behaviour to `tenants`.
-  locations      Location[]
-  stockItems          StockItem[]
-  stockItemCategories StockItemCategory[]
-  stockBatches        StockBatch[]
-  stockMovements      StockMovement[]
-  stockLevels         StockLevel[]
-  countSessions       CountSession[]
-  wasteRecords        WasteRecord[]
-  reasonCodes         ReasonCode[]
-  reorderConfigs      StockItemReorderConfig[]
-  stockLevelBatchAllocs StockLevelBatchAllocation[]
-  menus          Menu[]
-  menuItems      MenuItem[]
-  modifierGroups ModifierGroup[]
-  priceLists     PriceList[]
+  locations                 Location[]
+  stockItems                StockItem[]
+  stockItemCategories       StockItemCategory[]
+  stockBatches              StockBatch[]
+  stockMovements            StockMovement[]
+  stockLevels               StockLevel[]
+  countSessions             CountSession[]
+  wasteRecords              WasteRecord[]
+  reasonCodes               ReasonCode[]
+  reorderConfigs            StockItemReorderConfig[]
+  stockLevelBatchAllocs     StockLevelBatchAllocation[]
+  menus                     Menu[]
+  menuItems                 MenuItem[]
+  taxClasses                TaxClass[]
+  shifts                    Shift[]
+  drawers                   Drawer[]
+  cashSessions              CashSession[]
+  modifierGroups            ModifierGroup[]
+  priceLists                PriceList[]
+  /// P1E-3 back-relations. Prisma requires both sides of a relation; these add
+  /// no column and no behaviour to `tenants`.
+  modifiers                 Modifier[]
+  stationRoutingRules       StationRoutingRule[]
+  branchKdsConfigs          BranchKdsConfig[]
+  orderLineStationOverrides OrderLineStationOverride[]
+  /// P1E-5 back-relations.
+  tickets                   Ticket[]
+  ticketFireBatches         TicketFireBatch[]
+  ticketLines               TicketLine[]
+  ticketLineModifiers       TicketLineModifier[]
 
   // Production Spec back-relations (virtual; no DDL impact).
   recipes                Recipe[]
@@ -214,6 +236,9 @@ model Tenant {
   recipeLines            RecipeLine[]
   substituteGroups       SubstituteGroup[]
   substituteGroupMembers SubstituteGroupMember[]
+  /// D-2 (amended) PIN substrate.
+  employees              Employee[]
+  idempotencyKeys        IdempotencyKey[]
 
   @@map("tenants")
   @@schema("identity")
@@ -348,11 +373,17 @@ model Terminal {
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// D-2 (amended): FR-SEC-021 cannot be trusted while the terminal's branch is
+  /// an unenforced UUID. Composite tenant-safe FK per ADR 0008 D-09 — a terminal
+  /// can never reference another tenant's branch.
+  branch          Branch              @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
   fingerprints    DeviceFingerprint[]
   sessions        Session[]
   // Stations that use this terminal as their KDS display (ADR 0008 D-16).
   // Back-relation only — no column, no behaviour change on `terminals`.
   displayStations Station[]
+  // P1D-1: drawers optionally bound to this terminal. Back-relation only.
+  drawers         Drawer[]
 
   // Prevent duplicate terminal registration within a branch (409 on conflict).
   @@unique([tenantId, branchId, name])
@@ -476,6 +507,7 @@ model Brand {
 
   // Production Spec back-relations (virtual; no DDL impact).
   recipes Recipe[]
+
   @@unique([tenantId, id])
   // D-15 natural key. Tenant-prefixed, so a 409 can never disclose another
   // tenant's brand names.
@@ -511,18 +543,30 @@ model Branch {
   /// D-09: composite FK — a branch can never point at another tenant's brand.
   brand  Brand  @relation(fields: [tenantId, brandId], references: [tenantId, id])
 
-  warehouses     Warehouse[]
-  stations       Station[]
-  menuBranches   MenuBranch[]
+  warehouses        Warehouse[]
+  stations          Station[]
+  menuBranches      MenuBranch[]
   availabilityRules AvailabilityRule[]
-  locations      Location[]
-  tables         BranchTable[]
-  operatingHours OperatingHours[]
-  printRouting   PrintRouting[]
-  routingRules   StationRoutingRule[]
+  locations         Location[]
+  tables            BranchTable[]
+  operatingHours    OperatingHours[]
+  printRouting      PrintRouting[]
+  routingRules      StationRoutingRule[]
+  /// FR-KDS-010 tier 5 (P1E-3) — at most one config row per branch.
+  kdsConfig         BranchKdsConfig?
 
   // Production Spec back-relations (virtual; no DDL impact).
   recipes Recipe[]
+
+  // D-2 (amended) PIN substrate back-relations.
+  terminals         Terminal[]
+  homeEmployees     Employee[]       @relation("EmployeeHomeBranch")
+  permittedForStaff EmployeeBranch[]
+
+  // P1D-1 Workforce / Treasury back-relations (virtual; no DDL impact).
+  shifts       Shift[]
+  drawers      Drawer[]
+  cashSessions CashSession[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_branch_code")
@@ -564,8 +608,8 @@ model CentralKitchen {
   warehouseId String @map("warehouse_id") @db.Uuid
   name        String @db.VarChar(120)
 
-  tenant    Tenant    @relation(fields: [tenantId], references: [id])
-  warehouse Warehouse @relation(fields: [tenantId, warehouseId], references: [tenantId, id])
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  warehouse Warehouse  @relation(fields: [tenantId, warehouseId], references: [tenantId, id])
   locations Location[]
 
   /// P15-1: supporting key for the org.locations composite FK. Branches and
@@ -587,6 +631,9 @@ model Station {
   branchId          String   @map("branch_id") @db.Uuid
   name              String   @db.VarChar(64)
   capacityConfig    Json     @default("{}") @map("capacity_config") @db.JsonB
+  /// FR-KDS-001 [M]. P1E-3 addition — same VARCHAR(9) nullable convention as
+  /// `catalogue.categories.colour` / `catalogue.menu_items.colour`.
+  displayColour     String?  @map("display_colour") @db.VarChar(9)
   displayTerminalId String?  @map("display_terminal_id") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -595,8 +642,11 @@ model Station {
   /// and therefore to the same tenant.
   displayTerminal Terminal? @relation(fields: [branchId, displayTerminalId], references: [branchId, id])
 
-  printRouting PrintRouting[]
-  routingRules StationRoutingRule[]
+  printRouting         PrintRouting[]
+  routingRules         StationRoutingRule[]
+  kdsConfigFallbackOf  BranchKdsConfig[]
+  lineStationOverrides OrderLineStationOverride[]
+  tickets              Ticket[]
 
   // D-09 composite-FK target for print routing and station routing rules.
   @@unique([branchId, id])
@@ -617,6 +667,7 @@ model BranchTable {
 
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
+  @@unique([branchId, id])
   @@unique([branchId, label], map: "uq_table_label")
   @@map("tables")
   @@schema("org")
@@ -669,20 +720,386 @@ model PrintRouting {
 /// (FR-KDS-010) belongs to Kitchen Ops. `menu_item_id` / `category_id` carry no
 /// FK because Catalogue does not exist yet, exactly as the approved SQL defines.
 /// Lives in the `kitchen` schema per SRS §25.1 (D-06).
+/// FR-KDS-010 routing configuration. P1E-3 hardening (P1E-2 §J):
+/// - `tenant_id` added — ADR 0008 D-06's stated reason for FK-less selectors
+///   ("Catalogue does not exist") has expired now that Catalogue exists.
+/// - `modifier_id` added (tier 2).
+/// - Exactly-one-selector is enforced by a DB CHECK constraint (hand-written
+///   in the migration; Prisma cannot express CHECK constraints — see
+///   `PrintRouting`'s equivalent NULLS NOT DISTINCT precedent).
+/// - Duplicate `(branch, selector, station)` rows are prevented by a
+///   `UNIQUE ... NULLS NOT DISTINCT` index (ADR 0008 D-15 left this
+///   "deliberately open" pending Catalogue keys that now exist).
+/// `priority` is retained physically with NO assigned semantics (P1E-2 §D,
+/// KDS-R9) — the resolver (`modules/kitchen`) MUST NOT read it.
 model StationRoutingRule {
   id         String  @id @db.Uuid
+  tenantId   String  @map("tenant_id") @db.Uuid
   branchId   String  @map("branch_id") @db.Uuid
   stationId  String  @map("station_id") @db.Uuid
   menuItemId String? @map("menu_item_id") @db.Uuid
   categoryId String? @map("category_id") @db.Uuid
+  modifierId String? @map("modifier_id") @db.Uuid
   priority   Int     @default(0) @db.SmallInt
 
-  branch  Branch  @relation(fields: [branchId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  /// D-09 composite FK — a rule can only target a branch within its own tenant.
+  branch   Branch    @relation(fields: [tenantId, branchId], references: [tenantId, id])
   /// D-09: composite FK — a rule can only target a station in its own branch.
-  station Station @relation(fields: [branchId, stationId], references: [branchId, id])
+  station  Station   @relation(fields: [branchId, stationId], references: [branchId, id])
+  /// D-09 composite FKs — a rule can never select another tenant's catalogue
+  /// entity. Exactly one of these three is non-null (DB CHECK).
+  menuItem MenuItem? @relation(fields: [tenantId, menuItemId], references: [tenantId, id], onDelete: Cascade)
+  category Category? @relation(fields: [tenantId, categoryId], references: [tenantId, id], onDelete: Cascade)
+  modifier Modifier? @relation(fields: [tenantId, modifierId], references: [tenantId, id], onDelete: Cascade)
 
+  @@unique([branchId, menuItemId, categoryId, modifierId, stationId], map: "uq_station_routing_rule_selector_station")
   @@index([branchId, stationId])
+  @@index([tenantId, branchId, menuItemId])
+  @@index([tenantId, branchId, categoryId])
+  @@index([tenantId, branchId, modifierId])
   @@map("station_routing_rules")
+  @@schema("kitchen")
+}
+
+/// FR-KDS-010 tier 5 (branch fallback station). P1E-3 addition — one row per
+/// branch. Physical schema `kitchen` (co-located with `station_routing_rules`,
+/// the table it is a configuration sibling of); LOGICAL ownership is
+/// Organisation (ADR 0008 D-07/D-06: station configuration is Organisation;
+/// FR-KDS-010 resolution BEHAVIOUR is Kitchen Ops). `org.settings` was
+/// considered and rejected — ADR 0008 D-11 (DEFERRED) records it "cannot be
+/// RLS-anchored as designed" because it has no `tenant_id`.
+model BranchKdsConfig {
+  branchId                       String  @id @map("branch_id") @db.Uuid
+  tenantId                       String  @map("tenant_id") @db.Uuid
+  fallbackStationId              String? @map("fallback_station_id") @db.Uuid
+  /// FR-KDS-025 [M] — "retained for a configurable period (default 30
+  /// minutes)". The SRS gives the default explicitly, so this one may be
+  /// source-supported. P1E-5.
+  recallWindowSeconds            Int     @default(1800) @map("recall_window_seconds")
+  /// FR-KDS-029 [M] requires a configurable cancelled-line visibility period
+  /// but names NO default — unlike FR-KDS-025. Nullable, no `@default`: no
+  /// source text authorizes a guessed number (900s, 1800s, or otherwise).
+  /// NULL = not yet configured; a future cancellation-handler slice supplies
+  /// a value, not this one. P1E-5.
+  cancelledLineVisibilitySeconds Int?    @map("cancelled_line_visibility_seconds")
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  /// D-09 composite FK — config can only exist for a branch in its own tenant.
+  branch          Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Cascade)
+  /// D-09 composite FK — the fallback MUST belong to this same branch.
+  fallbackStation Station? @relation(fields: [branchId, fallbackStationId], references: [branchId, id])
+
+  @@unique([tenantId, branchId])
+  @@map("branch_kds_config")
+  @@schema("kitchen")
+}
+
+// ---------------------------------------------------------------------------
+// P1E-5 — Kitchen Ops: Ticket/TicketLine persistence (SRS §7.3 #23, §25.1).
+// Design closed by docs/reports/claude/2026-08-22_P1E4_ticket-ticketline-
+// design-closure.md, corrected by the P1E-5 prompt's four acceptance
+// corrections (modifier-kind backfill safety; Sales modifier snapshot
+// idempotency via `orderLineModifierId`; fire-batch sequence-free identity;
+// Kitchen-owned order-type snapshot scalar — see each model's own docblock).
+//
+// Logical ownership: Kitchen Ops (unlike `station_routing_rules`/
+// `branch_kds_config`, which are Organisation-owned configuration stored in
+// this same physical schema per ADR 0008 D-06/D-07). Ticket is Kitchen's own
+// aggregate (§7.3 #23: "Derived from Order; independent lifecycle").
+// ---------------------------------------------------------------------------
+
+/// Kitchen-owned lifecycle state. FR-KDS-040 timestamps are the source of
+/// truth for "when"; this enum answers "what state", which two states
+/// (`recalled`, and a ticket whose lines are not all terminal) cannot be
+/// derived from timestamps alone. No `cancelled` Ticket state — FR-KDS-029
+/// cancels LINES, not tickets (P1E-4 §N).
+enum TicketStatus {
+  queued
+  in_progress
+  ready
+  bumped
+  served
+  recalled
+
+  @@schema("kitchen")
+}
+
+/// Kitchen-owned lifecycle state for one TicketLine. No `recalled` line
+/// state — FR-KDS-025 recalls TICKETS ("restoring the most recently bumped
+/// tickets"); a recalled ticket's lines return to `queued`/`started` (P1E-4
+/// §N/§P).
+enum TicketLineStatus {
+  queued
+  started
+  ready
+  bumped
+  served
+  cancelled
+
+  @@schema("kitchen")
+}
+
+/// Kitchen's OWN copy of the three FR-POS-021 kinds — deliberately NOT
+/// `catalogue.ModifierKind`. P1E-5 acceptance correction: a Kitchen snapshot
+/// crossing the `order.line.fired` domain-event boundary must not create a
+/// hard PostgreSQL type dependency from `kitchen` onto `catalogue` (the same
+/// principle the correction applies to `tickets.order_type_snapshot` not
+/// reusing `sales."OrderType"` — see that field's docblock). The event
+/// CONTRACT (TypeScript union, `kitchen/contract`) is the semantic boundary;
+/// this enum is the Kitchen-local storage of what the contract already
+/// guarantees is one of exactly three values, never null (the handler
+/// receives `kind` as a required, non-nullable field on the event payload —
+/// see `order.line.fired`'s payload type).
+enum ModifierKindSnapshot {
+  addition
+  removal
+  substitution
+
+  @@schema("kitchen")
+}
+
+/// FR-KDS-020 card + FR-KDS-040 timestamps. ONE row per (tenant, order,
+/// station) — the Glossary's "routed to one preparation station", made
+/// stable across amendments by FR-KDS-028 ("never as a new ticket"). A line
+/// routed to N stations produces N `TicketLine` rows, one under each
+/// station's own Ticket — no `ticket_stations` join table (P1E-4 §D).
+///
+/// Self-contained by design (P1E-4 §F): every field a KDS card needs is
+/// snapshotted here or on `TicketLine`/`TicketLineModifier`. Kitchen
+/// application code never reads `sales.*` or `catalogue.*` to render or
+/// operate a ticket — the composite FKs below exist for referential
+/// integrity only (checked by PostgreSQL with RLS disabled, ADR 0008 D-09),
+/// never for a live read path.
+model Ticket {
+  id          String   @id @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  /// ENGINEERING-REQUIRED (not itself an FR-KDS-020 field): `org.stations`
+  /// carries no `tenant_id`, so a tenant-safe Station FK needs `branch_id` to
+  /// compose `(branch_id, station_id)`; the Order FK below additionally
+  /// proves this `branch_id` IS the order's own branch, closing the "Station
+  /// outside the order's branch" gap structurally (P1E-4 §J).
+  branchId    String   @map("branch_id") @db.Uuid
+  businessDay DateTime @map("business_day") @db.Date
+  orderId     String   @map("order_id") @db.Uuid
+  stationId   String   @map("station_id") @db.Uuid
+
+  orderNumberSnapshot      String  @map("order_number_snapshot") @db.VarChar(24)
+  /// P1E-5 acceptance correction (was `sales."OrderType"` in the P1E-4
+  /// design): a Kitchen-owned scalar, not a foreign PostgreSQL enum type —
+  /// this snapshot crosses the `order.line.fired` domain-event boundary and
+  /// must not create a hard Kitchen -> Sales database-type dependency.
+  /// Validated against the v1 event contract's union at the application
+  /// layer (`kitchen/contract`), not by a DB CHECK — the same trust boundary
+  /// as every other event payload field.
+  orderTypeSnapshot        String  @map("order_type_snapshot") @db.VarChar(32)
+  /// FR-KDS-020 "table or customer reference" — a pre-redacted DISPLAY
+  /// STRING supplied by the Fire producer, never customer PII (P1E-4 §F).
+  serviceReferenceSnapshot String? @map("service_reference_snapshot") @db.VarChar(64)
+
+  status  TicketStatus @default(queued)
+  /// §24.6.4 optimistic concurrency — Ticket is an aggregate root whose state
+  /// projection is updated by concurrent bump/recall operations.
+  version Int          @default(1)
+
+  /// FR-KDS-040 "created" — the handler's own instant, explicit (no
+  /// `DEFAULT now()`; P1E-4 §N / §22).
+  createdAt     DateTime  @map("created_at") @db.Timestamptz(6)
+  /// FR-KDS-040 "routed" — `event.payload.firedAt`, the Fire command's own
+  /// instant. Set ONCE, at Ticket creation; an amendment's later fire time
+  /// lives on its own `TicketFireBatch.firedAt`, never overwrites this.
+  routedAt      DateTime  @map("routed_at") @db.Timestamptz(6)
+  firstViewedAt DateTime? @map("first_viewed_at") @db.Timestamptz(6)
+  startedAt     DateTime? @map("started_at") @db.Timestamptz(6)
+  readyAt       DateTime? @map("ready_at") @db.Timestamptz(6)
+  bumpedAt      DateTime? @map("bumped_at") @db.Timestamptz(6)
+  servedAt      DateTime? @map("served_at") @db.Timestamptz(6)
+
+  /// FR-KDS-022/023. Nullable — population is deferred (FR-KDS-044 `[S]`);
+  /// the column exists so a later slice is a value change, not a schema one.
+  targetReadyAt DateTime? @map("target_ready_at") @db.Timestamptz(6)
+
+  /// FR-KDS-025. `bumpedAt` is preserved (never cleared) through a recall —
+  /// FR-KDS-042 needs it; `recallCount > 0` flags a ticket time that is not a
+  /// clean measurement (P1E-4 §P).
+  recalledAt  DateTime? @map("recalled_at") @db.Timestamptz(6)
+  recallCount Int       @default(0) @map("recall_count") @db.SmallInt
+
+  /// FR-KDS-041 "by employee" — otherwise impossible to attribute (P1E-4 §R).
+  startedBy String? @map("started_by") @db.Uuid
+  bumpedBy  String? @map("bumped_by") @db.Uuid
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  /// D-09 composite FK, partition-safe: proves `branchId` is genuinely this
+  /// order's own branch, targeting the P1E-3 K-1 additive unique — no new
+  /// Sales index required by this slice.
+  order   Order   @relation(fields: [tenantId, orderId, businessDay, branchId], references: [tenantId, id, businessDay, branchId], onDelete: Restrict)
+  /// D-09 composite FK — the Station must be in this same branch (chained
+  /// with the Order FK above, a Station outside the order's branch is
+  /// unrepresentable).
+  station Station @relation(fields: [branchId, stationId], references: [branchId, id], onDelete: Restrict)
+
+  fireBatches TicketFireBatch[]
+  lines       TicketLine[]
+
+  /// D-09 target for `TicketLine`'s composite Ticket FK (proves a line's
+  /// `orderId`/`businessDay` match its own Ticket's).
+  @@unique([tenantId, id])
+  /// CARDINALITY INVARIANT (P1E-4 §D) — one Ticket per order+station.
+  @@unique([tenantId, orderId, businessDay, stationId], map: "uq_tickets_order_station")
+  /// Additive FK target for `TicketLine` — proves same-order membership.
+  @@unique([tenantId, id, orderId, businessDay], map: "uq_tickets_id_order_business_day")
+  @@index([tenantId, branchId, stationId, status, routedAt])
+  @@index([tenantId, orderId, businessDay])
+  @@index([tenantId, branchId, stationId, targetReadyAt])
+  @@map("tickets")
+  @@schema("kitchen")
+}
+
+/// FR-POS-038 / FR-KDS-028 amendment identity. P1E-5 acceptance correction
+/// (REMOVES the P1E-4 design's `sequenceNo` allocator): the SRS requires
+/// amendments to be DISTINGUISHABLE, not contiguously numbered, and a
+/// per-ticket `MAX(sequence)+1` allocator is a concurrency race with no
+/// database-authoritative guard. `fireBatchId` (Sales-minted, one per Fire
+/// command) is the idempotency key instead — `UNIQUE (tenant_id, ticket_id,
+/// fire_batch_id)` makes a replayed Fire a no-op with NO retry loop. Display
+/// ordering is `ORDER BY firedAt, id` (id is a ULID, so ties break in
+/// creation order) — the earliest batch is the original fire; every later
+/// one is an amendment. No persisted amendment number.
+model TicketFireBatch {
+  id          String   @id @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  ticketId    String   @map("ticket_id") @db.Uuid
+  /// The Sales Fire COMMAND's own identity — shared by every line event the
+  /// same Fire command publishes, across every station Ticket it touches.
+  fireBatchId String   @map("fire_batch_id") @db.Uuid
+  /// FR-KDS-042 "fire time" — `event.payload.firedAt`, explicit (no
+  /// `DEFAULT now()`).
+  firedAt     DateTime @map("fired_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  ticket Ticket @relation(fields: [tenantId, ticketId], references: [tenantId, id], onDelete: Cascade)
+
+  lines TicketLine[]
+
+  @@unique([tenantId, id])
+  /// IDEMPOTENCY — one Fire command touches a given ticket at most once.
+  @@unique([tenantId, ticketId, fireBatchId], map: "uq_ticket_fire_batches_ticket_fire_batch")
+  /// FK target for `TicketLine` — proves a batch belongs to the line's own ticket.
+  @@unique([tenantId, ticketId, id], map: "uq_ticket_fire_batches_ticket_id")
+  @@index([tenantId, ticketId, firedAt])
+  @@map("ticket_fire_batches")
+  @@schema("kitchen")
+}
+
+/// FR-KDS-020/040. `sequence`/`course` mirror `sales.order_lines`' own
+/// fields, captured at fire time (BR-POS-004 principle extended to the
+/// Kitchen boundary). Deliberately NO `stationId`/`branchId` — both are the
+/// owning Ticket's (P1E-4 §K); FR-KDS-011's multi-station case is expressed
+/// by two `TicketLine` rows under two `Ticket`s, not by a column here.
+model TicketLine {
+  id             String   @id @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  ticketId       String   @map("ticket_id") @db.Uuid
+  fireBatchRowId String   @map("fire_batch_row_id") @db.Uuid
+  /// Carried solely so the two composite FKs below can both be checked
+  /// against it, proving "this line's order = this ticket's order" is
+  /// unrepresentable otherwise (P1E-4 §K/§M) — not read directly by
+  /// application code.
+  orderId        String   @map("order_id") @db.Uuid
+  orderLineId    String   @map("order_line_id") @db.Uuid
+  businessDay    DateTime @map("business_day") @db.Date
+
+  itemNameSnapshot Json    @map("item_name_snapshot") @db.JsonB
+  quantity         Decimal @db.Decimal(12, 3)
+  course           Int?    @db.SmallInt
+  sequence         Int     @db.SmallInt
+  preparationNotes String? @map("preparation_notes")
+
+  status TicketLineStatus @default(queued)
+
+  createdAt     DateTime  @map("created_at") @db.Timestamptz(6)
+  routedAt      DateTime  @map("routed_at") @db.Timestamptz(6)
+  firstViewedAt DateTime? @map("first_viewed_at") @db.Timestamptz(6)
+  startedAt     DateTime? @map("started_at") @db.Timestamptz(6)
+  readyAt       DateTime? @map("ready_at") @db.Timestamptz(6)
+  bumpedAt      DateTime? @map("bumped_at") @db.Timestamptz(6)
+  servedAt      DateTime? @map("served_at") @db.Timestamptz(6)
+
+  /// FR-KDS-029 — marked, never deleted.
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  /// Set only by a ticket-level recall (no line-level recall state; P1E-4 §N).
+  recalledAt  DateTime? @map("recalled_at") @db.Timestamptz(6)
+
+  startedBy String? @map("started_by") @db.Uuid
+  bumpedBy  String? @map("bumped_by") @db.Uuid
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id])
+  /// D-09 composite FK, chained through `orderId`/`businessDay`: proves this
+  /// line's order matches its OWN ticket's order (P1E-4 §K's integrity proof).
+  ticket    Ticket          @relation(fields: [tenantId, ticketId, orderId, businessDay], references: [tenantId, id, orderId, businessDay], onDelete: Cascade)
+  /// D-09 composite FK, partition-safe: proves the OrderLine belongs to the
+  /// SAME order named above — targets the P1E-3 K-1 additive unique, no new
+  /// Sales index required.
+  orderLine OrderLine       @relation(fields: [tenantId, orderId, orderLineId, businessDay], references: [tenantId, orderId, id, businessDay], onDelete: Restrict)
+  /// D-09 composite FK — the batch must belong to THIS line's own ticket.
+  fireBatch TicketFireBatch @relation(fields: [tenantId, ticketId, fireBatchRowId], references: [tenantId, ticketId, id], onDelete: Cascade)
+
+  modifiers TicketLineModifier[]
+
+  @@unique([tenantId, id])
+  /// IDEMPOTENCY + "one line per ticket" — a replayed Fire cannot duplicate
+  /// this row; the SAME OrderLine MAY appear on a different Ticket
+  /// (different `ticketId`), which is exactly FR-KDS-011's multi-station case.
+  @@unique([tenantId, ticketId, orderLineId], map: "uq_ticket_lines_ticket_order_line")
+  @@index([tenantId, ticketId, status])
+  @@index([tenantId, ticketId, fireBatchRowId])
+  @@index([tenantId, orderLineId, businessDay])
+  @@map("ticket_lines")
+  @@schema("kitchen")
+}
+
+/// FR-KDS-020 "modifiers" / FR-KDS-021 (addition vs removal rendered
+/// differently). Relational, not JSON — an enum `kind` makes an invalid
+/// value unrepresentable, which FR-KDS-021 `[M]`'s enforceability needs
+/// (P1E-4 §G). P1E-5 acceptance correction: idempotency keys on the SOURCE
+/// SALES ROW (`sourceOrderLineModifierId`), not on `sourceModifierId` alone —
+/// FR-MNU-011's `allowRepeat`/free-quantity threshold make a repeated
+/// selection of the SAME Catalogue modifier legal, so `modifierId` cannot be
+/// the uniqueness key.
+model TicketLineModifier {
+  id                        String @id @db.Uuid
+  tenantId                  String @map("tenant_id") @db.Uuid
+  ticketLineId              String @map("ticket_line_id") @db.Uuid
+  /// The stable identity of the CAPTURED Sales selection
+  /// (`sales.order_line_modifiers.id`) — the idempotency key. `modifierId`
+  /// alone cannot serve this role (see model docblock).
+  sourceOrderLineModifierId String @map("source_order_line_modifier_id") @db.Uuid
+  /// Traceability only — never read by Kitchen application code as a live
+  /// lookup path.
+  sourceModifierId          String @map("source_modifier_id") @db.Uuid
+
+  nameSnapshot Json                 @map("name_snapshot") @db.JsonB
+  kind         ModifierKindSnapshot
+  quantity     Int                  @default(1) @db.SmallInt
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant                  Tenant            @relation(fields: [tenantId], references: [id])
+  ticketLine              TicketLine        @relation(fields: [tenantId, ticketLineId], references: [tenantId, id], onDelete: Cascade)
+  /// D-09 composite FK — traceability/integrity only, never a live read path.
+  sourceModifier          Modifier          @relation(fields: [tenantId, sourceModifierId], references: [tenantId, id], onDelete: Restrict)
+  /// D-09 composite FK to the Sales-owned capture row — integrity only.
+  sourceOrderLineModifier OrderLineModifier @relation(fields: [tenantId, sourceOrderLineModifierId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  /// IDEMPOTENCY: replaying the same Sales modifier snapshot is a no-op. Two
+  /// DISTINCT Sales rows selecting the same Catalogue modifier (legal under
+  /// `allowRepeat`) remain independently representable.
+  @@unique([tenantId, ticketLineId, sourceOrderLineModifierId], map: "uq_ticket_line_modifiers_line_source")
+  @@index([tenantId, ticketLineId])
+  @@map("ticket_line_modifiers")
   @@schema("kitchen")
 }
 
@@ -773,7 +1190,9 @@ model Category {
   parent   Category?  @relation("CategoryTree", fields: [tenantId, parentCategoryId], references: [tenantId, id])
   children Category[] @relation("CategoryTree")
 
-  placements MenuItemPlacement[]
+  placements          MenuItemPlacement[]
+  /// FR-KDS-010 tier 4 (P1E-3). Prisma requires both sides of a relation.
+  stationRoutingRules StationRoutingRule[]
 
   @@unique([tenantId, id])
   @@index([tenantId, menuId])
@@ -795,9 +1214,12 @@ model MenuItem {
   kitchenNames       Json     @default("{}") @map("kitchen_names") @db.JsonB
   aggregatorNames    Json     @default("{}") @map("aggregator_names") @db.JsonB
   description        Json?    @db.JsonB
-  /// C-04: NULLABLE and FK-less. FR-MNU-004 requires a tax class, but Fiscal is
-  /// outside Phase 16 and `fiscal.tax_classes` does not exist. Informational
-  /// until Fiscal lands; never validated or resolved by this phase.
+  /// C-04 AMENDMENT (2026-08-20): still NULLABLE - onboarding master data
+  /// legitimately arrives incomplete - but no longer FK-less. Every non-null
+  /// value is a real tenant-safe reference to `fiscal.tax_classes`, enforced by
+  /// the DATABASE. An item with NULL here is NOT SELLABLE: line capture fails
+  /// rather than defaulting to `standard`, because a defaulted tax class is a
+  /// wrong tax return.
   taxClassId         String?  @map("tax_class_id") @db.Uuid
   revenueAccountCode String?  @map("revenue_account_code") @db.VarChar(32)
   barcodePlu         String?  @map("barcode_plu") @db.VarChar(32)
@@ -817,11 +1239,16 @@ model MenuItem {
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
-  variants          MenuItemVariant[]
-  images            MenuItemImage[]
-  placements        MenuItemPlacement[]
-  modifierGroupLinks ModifierGroupLink[]
-  availabilityRules AvailabilityRule[]
+  /// D-09 composite FK: a MenuItem can never point at another tenant's TaxClass.
+  taxClass TaxClass? @relation(fields: [tenantId, taxClassId], references: [tenantId, id])
+
+  variants            MenuItemVariant[]
+  images              MenuItemImage[]
+  placements          MenuItemPlacement[]
+  modifierGroupLinks  ModifierGroupLink[]
+  /// FR-KDS-010 tier 3 (P1E-3, C-03) — MenuItem-level, not Variant-level.
+  stationRoutingRules StationRoutingRule[]
+  availabilityRules   AvailabilityRule[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -856,15 +1283,65 @@ model MenuItemPlacement {
 /// branch-scoped, so a single tenant-wide station_id cannot express it — and the
 /// variant carries no branch discriminator to build a tenant-safe composite FK
 /// against. Station routing stays with Organisation/Kitchen Ops.
-model MenuItemVariant {
+/// ---------------------------------------------------------------------------
+/// fiscal.tax_classes - the stable semantic TaxClass identity (C-04 AMENDMENT,
+/// 2026-08-20; see docs/catalogue/README.md).
+///
+/// WHAT THIS TABLE IS. A tenant's answer to "which semantic tax class is this
+/// item assigned to?" - nothing more. `sales.order_lines.tax_class_id` snapshots
+/// this UUID at sale time (BR-POS-004), and it stays meaningful forever because
+/// it never carries a rate.
+///
+/// WHAT THIS TABLE IS NOT. It holds NO rate, NO component definition, NO
+/// rounding rule and NO order-type override. All of those are data inside the
+/// pinned CountryPack VERSION (CR-03, ADR-005). That separation is the whole
+/// design: a pack may change what `standard` charges without rewriting one
+/// historical order line, because the line stores the identity and the order
+/// stores the pack version.
+///
+/// The approved SQL shape (`id, tenant_id, name, country_pack_code`) is extended
+/// by exactly one column - the immutable semantic `code` - because `name` is a
+/// localisable display label and cannot serve as a lookup key into a pack class
+/// list.
+model TaxClass {
   id              String   @id @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
-  menuItemId      String   @map("menu_item_id") @db.Uuid
-  name            Json     @db.JsonB
-  barcode         String?  @db.VarChar(32)
-  prepTimeSeconds Int?     @map("prep_time_seconds")
-  sortOrder       Int      @default(0) @map("sort_order") @db.SmallInt
+  /// The jurisdiction family this class belongs to; matches
+  /// `identity.tenants.country_pack_code` / `org.branches.country_code`.
+  /// Deliberately FK-less: `fiscal.country_packs` is not created - a pack is a
+  /// signed BUNDLE artefact, and the approved SQL registry row has no payload.
+  countryPackCode String   @map("country_pack_code") @db.VarChar(8)
+  /// IMMUTABLE semantic key, matched against the pinned pack `tax.classes[].code`.
+  /// The set is OPEN: a pack may define a code this repository has never seen.
+  code            String   @db.VarChar(32)
+  /// Localised display label. Free to change; never used for lookup.
+  names           Json     @db.JsonB
   isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  menuItems MenuItem[]
+
+  /// Tenant-leading composite target, so catalogue.menu_items can hold a
+  /// tenant-safe FK (ADR 0008 D-09) rather than a bare id an RLS-bypassing FK
+  /// check could satisfy from another tenant.
+  @@unique([tenantId, id])
+  @@unique([tenantId, countryPackCode, code], map: "uq_tax_class_code")
+  @@index([tenantId, countryPackCode])
+  @@map("tax_classes")
+  @@schema("fiscal")
+}
+
+model MenuItemVariant {
+  id              String  @id @db.Uuid
+  tenantId        String  @map("tenant_id") @db.Uuid
+  menuItemId      String  @map("menu_item_id") @db.Uuid
+  name            Json    @db.JsonB
+  barcode         String? @db.VarChar(32)
+  prepTimeSeconds Int?    @map("prep_time_seconds")
+  sortOrder       Int     @default(0) @map("sort_order") @db.SmallInt
+  isActive        Boolean @default(true) @map("is_active")
 
   menuItem MenuItem @relation(fields: [tenantId, menuItemId], references: [tenantId, id], onDelete: Cascade)
 
@@ -946,27 +1423,65 @@ model ModifierGroup {
   @@schema("catalogue")
 }
 
-/// Pure child of ModifierGroup — inherits the tenant boundary via EXISTS.
+/// FR-POS-021 [M] — the three semantic kinds a modifier carries (addition,
+/// removal, substitution). P1E-5. NOT inferable from price sign, name text,
+/// group name, or recipeDelta (all rejected as backfill heuristics — see the
+/// migration header and the P1E-5 report §C) — a modifier created before this
+/// enum existed has an genuinely UNKNOWN kind, which is exactly why
+/// `Modifier.kind` below is nullable rather than backfilled.
+enum ModifierKind {
+  addition
+  removal
+  substitution
+
+  @@schema("catalogue")
+}
+
+/// P1E-3: carries `tenant_id` directly — previously a pure child of
+/// ModifierGroup inheriting tenant scope only via EXISTS. `kitchen.
+/// station_routing_rules` (FR-KDS-010 tier 2 — modifier routing) needs a
+/// tenant-safe composite FK to a modifier, and a tenant-safe FK target
+/// requires `UNIQUE (tenant_id, id)` on this table (ADR 0008 D-09: "For
+/// children that carry no tenant_id... anchor sibling references on the
+/// branch composite instead" — Modifier has no branch to anchor on, so this
+/// is the direct alternative). `sales.order_line_modifiers.modifier_id` gains
+/// the same tenant-safe FK for the identical reason (P1E-2 §F).
 model Modifier {
-  id                  String   @id @db.Uuid
-  modifierGroupId     String   @map("modifier_group_id") @db.Uuid
-  name                Json     @db.JsonB
+  id                  String        @id @db.Uuid
+  tenantId            String        @map("tenant_id") @db.Uuid
+  modifierGroupId     String        @map("modifier_group_id") @db.Uuid
+  name                Json          @db.JsonB
   /// Minor units; may be negative (e.g. "Chicken instead of Beef" = -300).
-  priceDelta          BigInt   @default(0) @map("price_delta")
+  priceDelta          BigInt        @default(0) @map("price_delta")
+  /// FR-POS-021 [M]. Nullable: P1E-5 could not safely backfill 18 pre-existing
+  /// rows (no non-heuristic source data distinguishes their kind — see the
+  /// migration header). Every row created through `ModifierGroupsService.
+  /// addModifier` from this slice forward MUST supply a value; the service
+  /// layer, not the database, enforces "new writes require kind" (a NOT NULL
+  /// column would also reject the legacy rows' own future updates that don't
+  /// touch this column).
+  kind                ModifierKind?
   /// FR-MNU-012 [M] stock linkage. FK-less recorded UUIDs — Inventory is out of
   /// scope, so the requirement stays functionally unmet (documented).
-  stockItemId         String?  @map("stock_item_id") @db.Uuid
-  consumptionQuantity Decimal? @map("consumption_quantity") @db.Decimal(18, 6)
-  consumptionUnitId   String?  @map("consumption_unit_id") @db.Uuid
+  stockItemId         String?       @map("stock_item_id") @db.Uuid
+  consumptionQuantity Decimal?      @map("consumption_quantity") @db.Decimal(18, 6)
+  consumptionUnitId   String?       @map("consumption_unit_id") @db.Uuid
   /// FR-MNU-013 [S]. Opaque JSON — Production Spec is NOT implemented; nothing
   /// in this phase interprets or executes a recipe delta.
-  recipeDelta         Json?    @map("recipe_delta") @db.JsonB
-  isDefault           Boolean  @default(false) @map("is_default")
-  sortOrder           Int      @default(0) @map("sort_order") @db.SmallInt
+  recipeDelta         Json?         @map("recipe_delta") @db.JsonB
+  isDefault           Boolean       @default(false) @map("is_default")
+  sortOrder           Int           @default(0) @map("sort_order") @db.SmallInt
 
-  group ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+  tenant Tenant        @relation(fields: [tenantId], references: [id])
+  /// D-09 composite FK — a modifier can never point at another tenant's group.
+  group  ModifierGroup @relation(fields: [tenantId, modifierGroupId], references: [tenantId, id], onDelete: Cascade)
 
-  @@index([modifierGroupId])
+  orderLineModifiers  OrderLineModifier[]
+  stationRoutingRules StationRoutingRule[]
+  ticketLineModifiers TicketLineModifier[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, modifierGroupId])
   @@map("modifiers")
   @@schema("catalogue")
 }
@@ -1043,6 +1558,528 @@ model PriceEntry {
   @@schema("catalogue")
 }
 
+/// Employee — the MINIMAL substrate authorised by the D-2 amendment for P0 PIN.
+///
+/// SRS §7.3 #25 defines the Employee aggregate ("May link to at most one User")
+/// and §14 distinguishes an Employee (a person in a job) from a User (a login).
+/// `FR-HRM-001` [M] names "permitted branches" and `FR-HRM-005` [M] requires a
+/// designated home branch — the two facts `FR-SEC-021` depends on.
+///
+/// SCOPE: this is NOT the full FR-HRM-001 employee record. No employment terms,
+/// compensation, certifications, documents, scheduling or attendance. Those stay
+/// deferred; FR-HRM-001 is therefore PARTIAL by construction, not by oversight.
+model Employee {
+  id           String         @id @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  /// At most one User (SRS §7.3 #25). NULL = an employee who cannot sign in.
+  userId       String?        @unique @map("user_id") @db.Uuid
+  code         String         @db.VarChar(32)
+  displayName  String         @map("display_name") @db.VarChar(120)
+  /// FR-HRM-005 designated home branch.
+  homeBranchId String         @map("home_branch_id") @db.Uuid
+  status       EmployeeStatus @default(active)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  homeBranch Branch           @relation("EmployeeHomeBranch", fields: [tenantId, homeBranchId], references: [tenantId, id], onDelete: Restrict)
+  branches   EmployeeBranch[]
+
+  // P1D-1: the employee is the business financial actor (carried item P1D-E).
+  shifts       Shift[]
+  cashSessions CashSession[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code], map: "uq_employee_code")
+  @@index([tenantId, homeBranchId])
+  @@map("employees")
+  @@schema("identity")
+}
+
+enum EmployeeStatus {
+  active
+  suspended
+  terminated
+
+  @@schema("identity")
+}
+
+/// FR-HRM-005: employees are assignable to multiple branches. This is the
+/// permitted-branch set FR-SEC-021 checks a PIN against. It is authentication
+/// integrity only — it does NOT grant permissions and does NOT implement
+/// FR-SEC-002/003/004 branch-scoped RBAC, which D-2 still defers.
+model EmployeeBranch {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  branchId   String   @map("branch_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  employee Employee @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+
+  @@id([employeeId, branchId])
+  @@index([tenantId, branchId])
+  @@map("employee_branches")
+  @@schema("identity")
+}
+
+/// Reusable API idempotency record — SRS §26.5 (FR-API-020…023).
+///
+/// Deviates from the approved SQL in two documented ways, both required by the
+/// requirements themselves: the key is scoped `(tenantId, key)` rather than
+/// globally unique (the approved shape would collide — and could replay —
+/// across tenants), and `fingerprint` is added because FR-API-022/023 cannot be
+/// satisfied without it. See the migration for the full reasoning.
+model IdempotencyKey {
+  tenantId       String    @map("tenant_id") @db.Uuid
+  key            String    @db.VarChar(80)
+  /// Operation identity, so one client key reused on a different endpoint is a
+  /// conflict rather than a silent cross-operation replay.
+  endpoint       String    @db.VarChar(120)
+  /// SHA-256 hex over a canonical rendering of the request.
+  fingerprint    String    @db.Char(64)
+  /// `in_flight` while the handler runs; `completed` once the response is stored.
+  state          String    @default("in_flight") @db.VarChar(16)
+  responseStatus Int?      @map("response_status")
+  responseBody   Json?     @map("response_body") @db.JsonB
+  firstSeenAt    DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6)
+  /// FR-API-021 — retained at least 30 days.
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+  @@schema("sync")
+}
+
+// ---------------------------------------------------------------------------
+// P1A — Sales Order capture foundation.
+//
+// `orders` and `order_lines` are monthly RANGE-partitioned on `business_day`
+// (FR-DR-001). PostgreSQL requires the partition key inside every unique
+// constraint, hence the composite ids below — `id` is still the permanent
+// client-generated ULID (FR-OFF-015); the composite is a storage requirement,
+// not a second identity.
+//
+// See the migration header for the documented deviations from the approved SQL
+// (absent crm/treasury/sync contexts, and the two NOT NULL columns whose
+// producers do not exist yet).
+// ---------------------------------------------------------------------------
+
+enum OrderType {
+  dine_in
+  takeaway
+  delivery
+  drive_thru
+  pickup
+  aggregator
+
+  @@schema("sales")
+}
+
+enum OrderChannel {
+  pos
+  kiosk
+  qr
+  aggregator
+  phone
+  api
+
+  @@schema("sales")
+}
+
+enum OrderState {
+  draft
+  open
+  held
+  parked
+  partially_paid
+  completed
+  cancelled
+  partially_refunded
+  refunded
+
+  @@schema("sales")
+}
+
+enum OrderLineState {
+  pending
+  fired
+  preparing
+  ready
+  served
+  voided
+  comped
+
+  @@schema("sales")
+}
+
+model Order {
+  id                 String       @db.Uuid
+  tenantId           String       @map("tenant_id") @db.Uuid
+  branchId           String       @map("branch_id") @db.Uuid
+  terminalId         String       @map("terminal_id") @db.Uuid
+  /// FR-POS-002 `<branch_code>-<business_day_seq>`, drawn from a terminal block.
+  orderNumber        String       @map("order_number") @db.VarChar(24)
+  businessDay        DateTime     @map("business_day") @db.Date
+  orderType          OrderType    @map("order_type")
+  channel            OrderChannel
+  state              OrderState   @default(draft)
+  tableId            String?      @map("table_id") @db.Uuid
+  guestCount         Int?         @map("guest_count") @db.SmallInt
+  openedBy           String       @map("opened_by") @db.Uuid
+  servedBy           String?      @map("served_by") @db.Uuid
+  closedBy           String?      @map("closed_by") @db.Uuid
+  currency           String       @db.Char(3)
+  subtotal           BigInt       @default(0)
+  discountTotal      BigInt       @default(0) @map("discount_total")
+  serviceChargeTotal BigInt       @default(0) @map("service_charge_total")
+  taxTotal           BigInt       @default(0) @map("tax_total")
+  roundingAdjustment BigInt       @default(0) @map("rounding_adjustment")
+  grandTotal         BigInt       @default(0) @map("grand_total")
+  paidTotal          BigInt       @default(0) @map("paid_total")
+  tipTotal           BigInt       @default(0) @map("tip_total")
+  cogsTotal          BigInt?      @map("cogs_total")
+  openedAt           DateTime     @map("opened_at") @db.Timestamptz(6)
+  firstFiredAt       DateTime?    @map("first_fired_at") @db.Timestamptz(6)
+  completedAt        DateTime?    @map("completed_at") @db.Timestamptz(6)
+  originDeviceTime   DateTime     @map("origin_device_time") @db.Timestamptz(6)
+  idempotencyKey     String       @map("idempotency_key") @db.VarChar(80)
+  aggregatorRef      String?      @map("aggregator_ref") @db.VarChar(80)
+  /// No authoritative CountryPack source exists yet; see the migration header.
+  countryPackVersion String       @map("country_pack_version") @db.VarChar(24)
+  notes              String?
+  metadata           Json         @default("{}") @db.JsonB
+  /// §24.6.4 optimistic concurrency.
+  version            Int          @default(1)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  lines                OrderLine[]
+  lineStationOverrides OrderLineStationOverride[]
+  tickets              Ticket[]
+
+  @@id([id, businessDay])
+  @@unique([tenantId, id, businessDay])
+  /// P1E-3 (K-1) — additive index-only target so `sales.
+  /// order_line_station_overrides` can carry a composite FK that proves its
+  /// `branch_id` is genuinely this order's branch. No column added.
+  @@unique([tenantId, id, businessDay, branchId], map: "uq_orders_tenant_id_business_day_branch")
+  @@unique([branchId, businessDay, orderNumber], map: "uq_order_number")
+  @@unique([tenantId, idempotencyKey, businessDay], map: "uq_orders_idempotency")
+  @@index([tenantId, branchId, businessDay])
+  @@index([tenantId, state])
+  @@map("orders")
+  @@schema("sales")
+}
+
+model OrderLine {
+  id               String         @db.Uuid
+  tenantId         String         @map("tenant_id") @db.Uuid
+  orderId          String         @map("order_id") @db.Uuid
+  businessDay      DateTime       @map("business_day") @db.Date
+  sequence         Int            @db.SmallInt
+  menuItemId       String         @map("menu_item_id") @db.Uuid
+  variantId        String         @map("variant_id") @db.Uuid
+  /// BR-POS-004 sale-time snapshots — never recomputed from master data.
+  itemNameSnapshot Json           @map("item_name_snapshot") @db.JsonB
+  quantity         Decimal        @db.Decimal(12, 3)
+  unitPrice        BigInt         @map("unit_price")
+  modifierTotal    BigInt         @default(0) @map("modifier_total")
+  lineDiscount     BigInt         @default(0) @map("line_discount")
+  lineSubtotal     BigInt         @map("line_subtotal")
+  taxClassId       String         @map("tax_class_id") @db.Uuid
+  taxAmount        BigInt         @default(0) @map("tax_amount")
+  lineTotal        BigInt         @map("line_total")
+  unitCostSnapshot BigInt?        @map("unit_cost_snapshot")
+  recipeVersionId  String?        @map("recipe_version_id") @db.Uuid
+  /// FR-POS-042 price provenance.
+  priceListId      String?        @map("price_list_id") @db.Uuid
+  priceEntryId     String?        @map("price_entry_id") @db.Uuid
+  priceRule        String?        @map("price_rule") @db.VarChar(160)
+  course           Int?           @db.SmallInt
+  seatNumber       Int?           @map("seat_number") @db.SmallInt
+  state            OrderLineState @default(pending)
+  firedAt          DateTime?      @map("fired_at") @db.Timestamptz(6)
+  readyAt          DateTime?      @map("ready_at") @db.Timestamptz(6)
+  voidReasonId     String?        @map("void_reason_id") @db.Uuid
+  voidedBy         String?        @map("voided_by") @db.Uuid
+  isComp           Boolean        @default(false) @map("is_comp")
+  notes            String?
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order            Order                      @relation(fields: [tenantId, orderId, businessDay], references: [tenantId, id, businessDay], onDelete: Cascade)
+  modifiers        OrderLineModifier[]
+  stationOverrides OrderLineStationOverride[]
+  ticketLines      TicketLine[]
+
+  @@id([id, businessDay])
+  @@unique([tenantId, id, businessDay])
+  @@unique([tenantId, orderId, businessDay, sequence], map: "uq_order_line_sequence")
+  /// P1E-3 (K-1) — additive index-only target so an override can prove the
+  /// exact chain "this line belongs to this order" via the composite FK.
+  @@unique([tenantId, orderId, id, businessDay], map: "uq_order_lines_tenant_order_id_business_day")
+  @@index([tenantId, orderId, businessDay])
+  @@map("order_lines")
+  @@schema("sales")
+}
+
+model OrderLineModifier {
+  id              String        @id @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  orderLineId     String        @map("order_line_id") @db.Uuid
+  businessDay     DateTime      @map("business_day") @db.Date
+  modifierId      String        @map("modifier_id") @db.Uuid
+  modifierGroupId String        @map("modifier_group_id") @db.Uuid
+  nameSnapshot    Json          @map("name_snapshot") @db.JsonB
+  /// FR-POS-021 [M] / BR-POS-004 sale-time snapshot of `Modifier.kind`.
+  /// Nullable for the identical reason `Modifier.kind` is nullable: a line
+  /// captured against a legacy, unclassified Modifier snapshots that
+  /// unknown-ness rather than inventing a value. P1E-5: `OrderLinesService`
+  /// copies the source Modifier's `kind` verbatim at capture time — never
+  /// re-derived, never defaulted.
+  kindSnapshot    ModifierKind? @map("kind_snapshot")
+  priceDelta      BigInt        @default(0) @map("price_delta")
+  quantity        Int           @default(1) @db.SmallInt
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  line                        OrderLine            @relation(fields: [tenantId, orderLineId, businessDay], references: [tenantId, id, businessDay], onDelete: Cascade)
+  /// P1E-3: was FK-less (Catalogue `modifiers` had no `tenant_id` to compose
+  /// with). D-09 composite FK — a captured selection can never point at
+  /// another tenant's modifier. `ON DELETE RESTRICT`: a modifier referenced by
+  /// sale history must not disappear out from under it (unlike the line's own
+  /// cascade, which follows the ORDER's lifecycle, not the catalogue's).
+  modifier                    Modifier             @relation(fields: [tenantId, modifierId], references: [tenantId, id], onDelete: Restrict)
+  /// P1E-5 back-relation only — Kitchen's FK to this row is integrity-only
+  /// (idempotency key), never a live read path from this side either.
+  ticketLineModifierSnapshots TicketLineModifier[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, orderLineId])
+  @@index([tenantId, modifierId])
+  @@map("order_line_modifiers")
+  @@schema("sales")
+}
+
+/// FR-KDS-010 tier 1 (explicit line-level station override). P1E-3 addition —
+/// 0..N stations per line (FR-KDS-011). NOT partitioned: a leaf reached only
+/// through its line, same pattern as `OrderLineModifier`. Not in FR-DR-001's
+/// partition list. Three composite FKs together make it PostgreSQL-provable
+/// that: the override belongs to the line; the line belongs to the order; the
+/// override's `branch_id` IS the order's branch (K-1 — additive unique
+/// indexes on `orders`/`order_lines`, no `branch_id` column added to every
+/// line); and the station belongs to that same branch.
+model OrderLineStationOverride {
+  id          String   @id @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  orderLineId String   @map("order_line_id") @db.Uuid
+  businessDay DateTime @map("business_day") @db.Date
+  branchId    String   @map("branch_id") @db.Uuid
+  stationId   String   @map("station_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant  Tenant    @relation(fields: [tenantId], references: [id])
+  /// Proves branch_id IS the order's branch.
+  order   Order     @relation(fields: [tenantId, orderId, businessDay, branchId], references: [tenantId, id, businessDay, branchId], onDelete: Cascade)
+  /// Proves this line belongs to that same order.
+  line    OrderLine @relation(fields: [tenantId, orderId, orderLineId, businessDay], references: [tenantId, orderId, id, businessDay], onDelete: Cascade)
+  /// Proves the station belongs to the same branch as the order.
+  station Station   @relation(fields: [branchId, stationId], references: [branchId, id], onDelete: Restrict)
+
+  @@unique([tenantId, orderLineId, businessDay, stationId], map: "uq_order_line_station_overrides_line_station")
+  @@index([tenantId, orderLineId, businessDay])
+  @@map("order_line_station_overrides")
+  @@schema("sales")
+}
+
+/// FR-POS-002 / FR-OFF-016 — server-issued number blocks per terminal per
+/// business day. Numbers come from a held block, never MAX()+1 or a global
+/// sequence, because either would require connectivity.
+model OrderNumberBlock {
+  id          String    @id @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  branchId    String    @map("branch_id") @db.Uuid
+  terminalId  String    @map("terminal_id") @db.Uuid
+  businessDay DateTime  @map("business_day") @db.Date
+  blockStart  Int       @map("block_start")
+  blockEnd    Int       @map("block_end")
+  nextSeq     Int       @map("next_seq")
+  issuedAt    DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+  exhaustedAt DateTime? @map("exhausted_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, id])
+  @@unique([branchId, businessDay, blockStart], map: "uq_block_start")
+  @@index([tenantId, branchId, terminalId, businessDay])
+  @@map("order_number_blocks")
+  @@schema("sales")
+}
+
+// ---------------------------------------------------------------------------
+// P1D-1 — Workforce Operational Shift + Treasury Drawer / CashSession OPEN.
+//
+// Authorised by carried item P1D-A (2026-08-20), which reopens D-2's Workforce
+// defer NARROWLY: an Operational Shift identity and lifecycle, and nothing else.
+// Schedule, ScheduledShift, Attendance, clock events, breaks, leave, swaps and
+// payroll all stay deferred.
+//
+// -- WHY SHIFT AND CASHSESSION ARE TWO TABLES -------------------------------
+// SRS 5.4 lists Shift among Workforce's aggregates, the context map carries
+// `Workforce --> Treasury [shift -> cash session]`, 5.5.4 makes Workforce the
+// publisher of `shift.opened`, and 16.2 models a cash session as "one employee,
+// one SHIFT, one drawer". The approved SQL has no `workforce.shifts` and no
+// shift column on `cash_sessions` -- a physical omission, recorded as a
+// documented deviation rather than read as evidence the two are one concept.
+// ---------------------------------------------------------------------------
+
+enum ShiftStatus {
+  open
+  closed
+
+  @@schema("workforce")
+}
+
+/// Operational Shift - one employee's duty period at one branch.
+///
+/// MINIMAL by ratification. It answers "who was on duty, where, and is that
+/// period still open?" and nothing else. There is no schedule link, no clock
+/// event, no break, no station and no labour cost, because P1D-A authorises the
+/// POS/Treasury accountability substrate only.
+///
+/// NOT bound to a Terminal. A shift legitimately spans devices; the terminal
+/// that initiated an operation is carried on the AUDIT entry, where it belongs,
+/// rather than becoming part of the shift's identity.
+model Shift {
+  id         String      @id @db.Uuid
+  tenantId   String      @map("tenant_id") @db.Uuid
+  branchId   String      @map("branch_id") @db.Uuid
+  employeeId String      @map("employee_id") @db.Uuid
+  status     ShiftStatus @default(open)
+  openedAt   DateTime    @map("opened_at") @db.Timestamptz(6)
+  /// Null while open. No close COMMAND exists yet, and `ros_app` holds no UPDATE
+  /// privilege on this table, so the runtime cannot set it either.
+  closedAt   DateTime?   @map("closed_at") @db.Timestamptz(6)
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  /// D-09 composite FKs: a shift can never reference another tenant's branch or
+  /// another tenant's employee.
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  employee Employee @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+
+  cashSessions CashSession[]
+
+  @@unique([tenantId, id])
+  /// THE composite target `treasury.cash_sessions` references. Because a session
+  /// must match all four columns, a session whose branch or employee disagrees
+  /// with its shift is structurally impossible - not merely validated.
+  @@unique([tenantId, branchId, employeeId, id], map: "uq_shift_scope")
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, employeeId, status])
+  @@map("shifts")
+  @@schema("workforce")
+}
+
+enum CashSessionStatus {
+  open
+  closed
+
+  @@schema("treasury")
+}
+
+/// Drawer - the physical cash container (FR-FIN-001 [M], SRS 6.1 hierarchy).
+///
+/// A BRANCH-level master identity. It holds no balance, no float and no session
+/// data: those belong to the CashSession that is open over it. Terminal binding
+/// is OPTIONAL because the approved SQL makes it nullable - an unbound drawer is
+/// branch-scoped and usable from any terminal in that branch.
+model Drawer {
+  id         String   @id @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  branchId   String   @map("branch_id") @db.Uuid
+  name       String   @db.VarChar(64)
+  /// NULL = not bound to a device. When set, a session may only be opened from
+  /// THAT terminal. Same-branch is structural (see the composite FK below), and
+  /// same-branch implies same-tenant because `branch_id` is itself tenant-safe.
+  terminalId String?  @map("terminal_id") @db.Uuid
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch   Branch    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  /// ADR 0008 D-16 precedent: `(branch_id, id)` on terminals is the same
+  /// branch-safe target `org.stations` already uses for its display terminal.
+  terminal Terminal? @relation(fields: [branchId, terminalId], references: [branchId, id], onDelete: Restrict)
+
+  cashSessions CashSession[]
+
+  @@unique([tenantId, id])
+  /// Composite target for `cash_sessions`, so a session can never reach a drawer
+  /// in another branch.
+  @@unique([tenantId, branchId, id], map: "uq_drawer_scope")
+  @@unique([tenantId, branchId, name], map: "uq_drawer_name")
+  @@index([tenantId, branchId])
+  @@map("drawers")
+  @@schema("treasury")
+}
+
+/// CashSession - cash custody over one drawer, by one employee, under one shift.
+///
+/// SRS 16.2, FR-FIN-001/002. **OPEN ONLY** in this slice: there is no close
+/// command, no counted cash, no denominations and no variance, and `ros_app`
+/// holds no UPDATE privilege on this table so none of that can be written by
+/// accident.
+///
+/// -- THE INVARIANTS, AND WHERE THEY LIVE ------------------------------------
+///   one open session per drawer   PARTIAL UNIQUE INDEX (migration, raw SQL -
+///                                 Prisma cannot express `WHERE status='open'`).
+///                                 NOT `UNIQUE(drawer_id, status)`: that would
+///                                 permit only ONE closed session per drawer
+///                                 ever, which is the approved SQL's own
+///                                 acknowledged defect.
+///   exactly one employee          `employee_id` NOT NULL (FR-FIN-002).
+///   employee matches the shift    the 4-column composite FK below.
+///   branch matches drawer/shift   the composite FKs below.
+///   float is exact money          BIGINT minor units + the branch's currency.
+model CashSession {
+  id           String            @id @db.Uuid
+  tenantId     String            @map("tenant_id") @db.Uuid
+  branchId     String            @map("branch_id") @db.Uuid
+  drawerId     String            @map("drawer_id") @db.Uuid
+  /// P1D-A: the Treasury -> Workforce reference. Never collapsed into this table.
+  shiftId      String            @map("shift_id") @db.Uuid
+  /// P1D-E: the business financial actor is the EMPLOYEE, not the login user.
+  employeeId   String            @map("employee_id") @db.Uuid
+  /// FR-POS-090 declared opening float, minor units (ADR-008: money is BIGINT).
+  openingFloat BigInt            @map("opening_float")
+  /// Snapshot of the branch's authoritative currency at open. Never client-supplied.
+  currency     String            @db.Char(3)
+  status       CashSessionStatus @default(open)
+  openedAt     DateTime          @map("opened_at") @db.Timestamptz(6)
+  closedAt     DateTime?         @map("closed_at") @db.Timestamptz(6)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  /// Same tenant AND same branch as the session.
+  drawer   Drawer   @relation(fields: [tenantId, branchId, drawerId], references: [tenantId, branchId, id], onDelete: Restrict)
+  /// Same tenant, branch AND employee as the session - four columns, so a
+  /// mismatch is a foreign-key violation rather than a missed service check.
+  shift    Shift    @relation(fields: [tenantId, branchId, employeeId, shiftId], references: [tenantId, branchId, employeeId, id], onDelete: Restrict)
+  employee Employee @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, shiftId])
+  @@index([tenantId, employeeId])
+  @@map("cash_sessions")
+  @@schema("treasury")
+}
+
 // ---------------------------------------------------------------------------
 // P15-2 — org.locations: the unified location registry.
 //
@@ -1086,18 +2123,18 @@ model Location {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id])
-  branch         Branch?         @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Cascade)
+  tenant                Tenant                      @relation(fields: [tenantId], references: [id])
+  branch                Branch?                     @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Cascade)
   // Inventory back-relations (Prisma requires both sides). No column added.
-  stockBatches             StockBatch[]
-  stockMovements           StockMovement[]
-  stockLevels              StockLevel[]
-  stockLevelBatchAllocs    StockLevelBatchAllocation[]
-  countSessions            CountSession[]
-  wasteRecords             WasteRecord[]
-  reorderConfigs           StockItemReorderConfig[]
-  warehouse      Warehouse?      @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Cascade)
-  centralKitchen CentralKitchen? @relation(fields: [tenantId, centralKitchenId], references: [tenantId, id], onDelete: Cascade)
+  stockBatches          StockBatch[]
+  stockMovements        StockMovement[]
+  stockLevels           StockLevel[]
+  stockLevelBatchAllocs StockLevelBatchAllocation[]
+  countSessions         CountSession[]
+  wasteRecords          WasteRecord[]
+  reorderConfigs        StockItemReorderConfig[]
+  warehouse             Warehouse?                  @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Cascade)
+  centralKitchen        CentralKitchen?             @relation(fields: [tenantId, centralKitchenId], references: [tenantId, id], onDelete: Cascade)
 
   /// Composite-FK target for Inventory: (tenant_id, location_id).
   @@unique([tenantId, id])
@@ -1335,19 +2372,19 @@ model StockItemReorderConfig {
 /// Batch — SRS §7.3 #14. Expiry >= production date; quantity >= 0 (DB CHECKs).
 /// `supplierId` / `goodsReceiptId` are recorded UUIDs — Procurement is out of scope.
 model StockBatch {
-  id                String   @id @db.Uuid
-  tenantId          String   @map("tenant_id") @db.Uuid
-  stockItemId       String   @map("stock_item_id") @db.Uuid
-  locationId        String   @map("location_id") @db.Uuid
-  batchNumber       String?  @map("batch_number") @db.VarChar(64)
+  id                String    @id @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  stockItemId       String    @map("stock_item_id") @db.Uuid
+  locationId        String    @map("location_id") @db.Uuid
+  batchNumber       String?   @map("batch_number") @db.VarChar(64)
   productionDate    DateTime? @map("production_date") @db.Date
   expiryDate        DateTime? @map("expiry_date") @db.Date
-  quantityReceived  Decimal  @map("quantity_received") @db.Decimal(18, 6)
-  quantityRemaining Decimal  @map("quantity_remaining") @db.Decimal(18, 6)
-  unitCost          BigInt   @map("unit_cost")
-  supplierId        String?  @map("supplier_id") @db.Uuid
-  goodsReceiptId    String?  @map("goods_receipt_id") @db.Uuid
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  quantityReceived  Decimal   @map("quantity_received") @db.Decimal(18, 6)
+  quantityRemaining Decimal   @map("quantity_remaining") @db.Decimal(18, 6)
+  unitCost          BigInt    @map("unit_cost")
+  supplierId        String?   @map("supplier_id") @db.Uuid
+  goodsReceiptId    String?   @map("goods_receipt_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant    Tenant    @relation(fields: [tenantId], references: [id])
   stockItem StockItem @relation(fields: [tenantId, stockItemId], references: [tenantId, id])
@@ -1398,13 +2435,13 @@ model StockMovement {
   reasonCodeId          String?      @map("reason_code_id") @db.Uuid
   notes                 String?
 
-  tenant      Tenant      @relation(fields: [tenantId], references: [id])
-  location    Location    @relation(fields: [tenantId, locationId], references: [tenantId, id])
-  stockItem   StockItem   @relation(fields: [tenantId, stockItemId], references: [tenantId, id])
-  batch       StockBatch? @relation(fields: [tenantId, batchId], references: [tenantId, id])
-  reasonCode  ReasonCode? @relation(fields: [tenantId, reasonCodeId], references: [tenantId, id])
-  unit        Uom         @relation(fields: [unitId], references: [id])
-  performedByUser User    @relation(fields: [performedBy], references: [id])
+  tenant          Tenant      @relation(fields: [tenantId], references: [id])
+  location        Location    @relation(fields: [tenantId, locationId], references: [tenantId, id])
+  stockItem       StockItem   @relation(fields: [tenantId, stockItemId], references: [tenantId, id])
+  batch           StockBatch? @relation(fields: [tenantId, batchId], references: [tenantId, id])
+  reasonCode      ReasonCode? @relation(fields: [tenantId, reasonCodeId], references: [tenantId, id])
+  unit            Uom         @relation(fields: [unitId], references: [id])
+  performedByUser User        @relation(fields: [performedBy], references: [id])
 
   counterpart   StockMovement?  @relation("MovementCounterpart", fields: [tenantId, counterpartMovementId, counterpartOccurredAt], references: [tenantId, id, occurredAt])
   counterpartOf StockMovement[] @relation("MovementCounterpart")
@@ -1469,22 +2506,22 @@ model StockLevelBatchAllocation {
 /// D-INV-05: scope covers full location, category and ad-hoc item list. No
 /// storage-area entity.
 model CountSession {
-  id           String             @id @db.Uuid
-  tenantId     String             @map("tenant_id") @db.Uuid
-  locationId   String             @map("location_id") @db.Uuid
-  scopeType    CountScope         @default(full_location) @map("scope_type")
+  id               String             @id @db.Uuid
+  tenantId         String             @map("tenant_id") @db.Uuid
+  locationId       String             @map("location_id") @db.Uuid
+  scopeType        CountScope         @default(full_location) @map("scope_type")
   /// Category id when scopeType = category; NULL otherwise (typed, not polymorphic).
-  scopeId      String?            @map("scope_id") @db.Uuid
-  status       CountSessionStatus @default(in_progress)
+  scopeId          String?            @map("scope_id") @db.Uuid
+  status           CountSessionStatus @default(in_progress)
   /// FR-INV-042: blind is the SRS default and hides expected quantity.
-  isBlindCount Boolean            @default(true) @map("is_blind_count")
-  startedBy    String             @map("started_by") @db.Uuid
-  startedAt    DateTime           @default(now()) @map("started_at") @db.Timestamptz(6)
-  postedAt     DateTime?          @map("posted_at") @db.Timestamptz(6)
-  postedBy     String?            @map("posted_by") @db.Uuid
+  isBlindCount     Boolean            @default(true) @map("is_blind_count")
+  startedBy        String             @map("started_by") @db.Uuid
+  startedAt        DateTime           @default(now()) @map("started_at") @db.Timestamptz(6)
+  postedAt         DateTime?          @map("posted_at") @db.Timestamptz(6)
+  postedBy         String?            @map("posted_by") @db.Uuid
   /// B-2: caller-supplied approval gate. TRUE blocks posting until Governance
   /// exists. Inventory NEVER evaluates a threshold.
-  requiresApproval Boolean        @default(false) @map("requires_approval")
+  requiresApproval Boolean            @default(false) @map("requires_approval")
 
   tenant        Tenant             @relation(fields: [tenantId], references: [id])
   location      Location           @relation(fields: [tenantId, locationId], references: [tenantId, id])
@@ -1518,10 +2555,10 @@ model CountSessionItem {
 
 /// FR-INV-044: expectedQuantity is FROZEN at session open.
 model CountLine {
-  id              String   @id @db.Uuid
-  countSessionId  String   @map("count_session_id") @db.Uuid
-  stockItemId     String   @map("stock_item_id") @db.Uuid
-  batchId         String?  @map("batch_id") @db.Uuid
+  id               String   @id @db.Uuid
+  countSessionId   String   @map("count_session_id") @db.Uuid
+  stockItemId      String   @map("stock_item_id") @db.Uuid
+  batchId          String?  @map("batch_id") @db.Uuid
   expectedQuantity Decimal? @map("expected_quantity") @db.Decimal(18, 6)
   countedQuantity  Decimal? @map("counted_quantity") @db.Decimal(18, 6)
   variance         Decimal? @db.Decimal(18, 6)
@@ -1658,26 +2695,26 @@ enum RecipeComponentType {
 /// `scope_id` and `target_id` from the approved SQL are decomposed into typed
 /// nullable columns with composite tenant-safe FKs and XOR CHECKs (D-17-02).
 model Recipe {
-  id         String      @id @db.Uuid
-  tenantId   String      @map("tenant_id") @db.Uuid
-  scope      RecipeScope
+  id                String      @id @db.Uuid
+  tenantId          String      @map("tenant_id") @db.Uuid
+  scope             RecipeScope
   /// D-17-03: exactly one of these is populated for brand/branch scope; both
   /// are NULL for tenant scope. Enforced by ck_recipe_scope.
-  brandId    String?     @map("brand_id") @db.Uuid
-  branchId   String?     @map("branch_id") @db.Uuid
-  recipeType RecipeType  @map("recipe_type")
+  brandId           String?     @map("brand_id") @db.Uuid
+  branchId          String?     @map("branch_id") @db.Uuid
+  recipeType        RecipeType  @map("recipe_type")
   /// §7.4.4 target_id = "MenuItemVariant or StockItem produced".
   /// menu_item -> variant; sub_recipe / production_item -> stock item.
   /// Enforced by ck_recipe_target.
-  menuItemVariantId String? @map("menu_item_variant_id") @db.Uuid
-  stockItemId       String? @map("stock_item_id") @db.Uuid
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  menuItemVariantId String?     @map("menu_item_variant_id") @db.Uuid
+  stockItemId       String?     @map("stock_item_id") @db.Uuid
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant           Tenant            @relation(fields: [tenantId], references: [id])
-  brand            Brand?            @relation(fields: [tenantId, brandId], references: [tenantId, id])
-  branch           Branch?           @relation(fields: [tenantId, branchId], references: [tenantId, id])
-  menuItemVariant  MenuItemVariant?  @relation(fields: [tenantId, menuItemVariantId], references: [tenantId, id])
-  stockItem        StockItem?        @relation("RecipeTargetStockItem", fields: [tenantId, stockItemId], references: [tenantId, id])
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  brand           Brand?           @relation(fields: [tenantId, brandId], references: [tenantId, id])
+  branch          Branch?          @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  menuItemVariant MenuItemVariant? @relation(fields: [tenantId, menuItemVariantId], references: [tenantId, id])
+  stockItem       StockItem?       @relation("RecipeTargetStockItem", fields: [tenantId, stockItemId], references: [tenantId, id])
 
   versions        RecipeVersion[]
   usedAsComponent RecipeLine[]    @relation("RecipeLineSubRecipe")
@@ -1713,15 +2750,15 @@ model RecipeVersion {
   /// effective_to, no published_at and no priority column, by ratification.
   effectiveFrom DateTime? @map("effective_from") @db.Timestamptz(6)
 
-  publishedBy      String? @map("published_by") @db.Uuid
-  instructions     Json?   @db.JsonB
-  referenceImages  Json?   @map("reference_images") @db.JsonB
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedBy     String?  @map("published_by") @db.Uuid
+  instructions    Json?    @db.JsonB
+  referenceImages Json?    @map("reference_images") @db.JsonB
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant      Tenant @relation(fields: [tenantId], references: [id])
-  recipe      Recipe @relation(fields: [tenantId, recipeId], references: [tenantId, id], onDelete: Cascade)
-  yieldUnit   Uom    @relation("RecipeVersionYieldUnit", fields: [yieldUnitId], references: [id])
-  publisher   User?  @relation("RecipeVersionPublisher", fields: [publishedBy], references: [id])
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  recipe    Recipe @relation(fields: [tenantId, recipeId], references: [tenantId, id], onDelete: Cascade)
+  yieldUnit Uom    @relation("RecipeVersionYieldUnit", fields: [yieldUnitId], references: [id])
+  publisher User?  @relation("RecipeVersionPublisher", fields: [publishedBy], references: [id])
 
   lines RecipeLine[]
 
@@ -1741,15 +2778,15 @@ model RecipeLine {
   /// D-17-02 decomposition of component_id; XOR by ck_recipe_line_component.
   /// A sub-recipe component references LOGICAL RECIPE IDENTITY (FR-MNU-041,
   /// BR-MNU-001, §7.4.4 all say "recipe", never "recipe version").
-  stockItemId String? @map("stock_item_id") @db.Uuid
-  subRecipeId String? @map("sub_recipe_id") @db.Uuid
+  stockItemId     String?             @map("stock_item_id") @db.Uuid
+  subRecipeId     String?             @map("sub_recipe_id") @db.Uuid
 
   /// §7.4.4 "Per recipe yield, not per portion".
-  quantity           Decimal @db.Decimal(18, 6)
-  unitId             String  @map("unit_id") @db.Uuid
-  wastagePercentage  Decimal @default(0) @map("wastage_percentage") @db.Decimal(5, 2)
-  isOptional         Boolean @default(false) @map("is_optional")
-  substituteGroupId  String? @map("substitute_group_id") @db.Uuid
+  quantity          Decimal @db.Decimal(18, 6)
+  unitId            String  @map("unit_id") @db.Uuid
+  wastagePercentage Decimal @default(0) @map("wastage_percentage") @db.Decimal(5, 2)
+  isOptional        Boolean @default(false) @map("is_optional")
+  substituteGroupId String? @map("substitute_group_id") @db.Uuid
 
   tenant          Tenant           @relation(fields: [tenantId], references: [id])
   recipeVersion   RecipeVersion    @relation(fields: [tenantId, recipeVersionId], references: [tenantId, id], onDelete: Cascade)
@@ -1771,7 +2808,7 @@ model SubstituteGroup {
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
-  members    SubstituteGroupMember[]
+  members     SubstituteGroupMember[]
   recipeLines RecipeLine[]
 
   @@unique([tenantId, id])
