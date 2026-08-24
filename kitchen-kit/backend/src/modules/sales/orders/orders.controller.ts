@@ -60,9 +60,10 @@ import { SALES_PERMISSIONS } from '../sales.permissions';
 import { orderETag, toOrderLineView, toOrderView } from '../sales.views';
 import { OrderLinesService } from './order-lines.service';
 import { OrdersService } from './orders.service';
+import { SalesFireService } from './sales-fire.service';
 
 /**
- * Order capture API.
+ * Order capture + Fire API.
  *
  * Route surface, following how `/inventory`, `/catalogue` and `/production`
  * map SRS §26.3 (the documented `/v1` prefix is applied at deployment, not in
@@ -73,11 +74,9 @@ import { OrdersService } from './orders.service';
  *   GET    /orders/:businessDay/:id                 one order, lines + ETag
  *   POST   /orders/:businessDay/:id/lines           capture a line
  *   DELETE /orders/:businessDay/:id/lines/:lineId   void a PRE-FIRE line
+ *   POST   /orders/:businessDay/:id/fire            fire eligible pending lines (P1E-6)
  *
  * ── DELIBERATELY ABSENT ─────────────────────────────────────────────────────
- *   POST   /orders/:id/fire       · Firing has real KDS/ticket consequences and
- *                                   no kitchen context exists. A state flip
- *                                   would be a lie about production.
  *   POST   /orders/:id/complete   · BR-POS-002 gates COMPLETED on payment, and
  *                                   completion must also drive fiscal documents,
  *                                   inventory depletion, COGS and drawer
@@ -247,6 +246,7 @@ export class OrdersController {
   constructor(
     private readonly orders: OrdersService,
     private readonly lines: OrderLinesService,
+    private readonly fireService: SalesFireService,
   ) {}
 
   /**
@@ -472,6 +472,77 @@ export class OrdersController {
 
     response.setHeader('ETag', orderETag(order));
     return { line: toOrderLineView(line), order: toOrderView(order) };
+  }
+
+  /**
+   * Fire eligible pending lines — UC-POS-01 step 6, FR-POS-035, FR-POS-038
+   * (P1E-6, "Fire Authorization Ratification — 2026-08-24").
+   *
+   * MVP explicit Fire: no request body, no line/station/course selector —
+   * fires every currently-PENDING line. `Idempotency-Key` AND `If-Match` are
+   * both mandatory, the identical convention `addLine` already uses. First
+   * Fire moves the order DRAFT -> OPEN and publishes `order.opened`; every
+   * Fire (first or amendment) publishes one `order.line.fired` per
+   * newly-fired line inside the SAME transaction Kitchen's existing handler
+   * consumes synchronously (SRS §5.5.1/§5.5.2) — see `SalesFireService`.
+   * Requires `pos.order.fire`, deliberately separate from `pos.order.create`.
+   */
+  @Post(':businessDay/:id/fire')
+  @HttpCode(HttpStatus.OK)
+  @Idempotent()
+  @RequirePermission(SALES_PERMISSIONS.ORDER_FIRE)
+  @ApiOperation({
+    summary:
+      'Fire eligible pending lines to production (explicit MVP Fire — no auto-Fire).',
+  })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true) — no second Fire, no second FireBatch.',
+  })
+  @ApiHeader({
+    name: 'if-match',
+    required: true,
+    description:
+      'The order\'s current ETag (W/"<orderId>.<version>") or a bare version integer. Not "*".',
+  })
+  @ApiOkResponse({
+    description:
+      'The order after Fire, including every line (previously-fired and newly-fired alike).',
+    schema: orderSchema,
+    headers: etagHeader,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/malformed If-Match, missing/over-long Idempotency-Key.',
+  })
+  @ApiConflictResponse({
+    description:
+      'The If-Match version is stale (someone else changed the order first), or the Idempotency-Key was already used with a different request body / is still in flight.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'No eligible pending lines to fire, a modifier on an eligible line has an unresolved kind (FR-POS-021), a dine-in order has no table assigned, or the Kitchen routing configuration cannot resolve a destination for a fired line.',
+  })
+  async fire(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param() params: OrderPathParamsDto,
+    @Headers('if-match') ifMatch: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const terminalId = this.requireTerminal(principal);
+    const { order } = await this.fireService.fire(context.tenantId, {
+      orderId: params.id,
+      businessDay: parseBusinessDay(params.businessDay),
+      expectedVersion: parseIfMatch(ifMatch, params.id),
+      actorUserId: context.userId,
+      terminalId,
+    });
+
+    response.setHeader('ETag', orderETag(order));
+    return toOrderView(order);
   }
 
   /**

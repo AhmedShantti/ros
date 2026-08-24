@@ -5,6 +5,8 @@ import { AvailabilityService } from './availability/availability.service';
 import { CatalogueCompletenessService } from './catalogue-completeness.service';
 import { CatalogueController } from './catalogue.controller';
 import { CategoriesService } from './categories/categories.service';
+import { CATALOGUE_FIRE_FACTS_QUERY } from './contract';
+import { CatalogueFireFactsQueryService } from './fire-facts/catalogue-fire-facts.query.service';
 import { MenuItemsService } from './menu-items/menu-items.service';
 import { MenusService } from './menus/menus.service';
 import { ModifierGroupsService } from './modifier-groups/modifier-groups.service';
@@ -31,6 +33,11 @@ import { PriceResolutionService } from './pricing/price-resolution.service';
     PriceResolutionService,
     AvailabilityService,
     CatalogueCompletenessService,
+    CatalogueFireFactsQueryService,
+    {
+      provide: CATALOGUE_FIRE_FACTS_QUERY,
+      useExisting: CatalogueFireFactsQueryService,
+    },
   ],
   exports: [
     MenusService,
@@ -41,6 +48,7 @@ import { PriceResolutionService } from './pricing/price-resolution.service';
     PriceResolutionService,
     AvailabilityService,
     CatalogueCompletenessService,
+    CATALOGUE_FIRE_FACTS_QUERY,
   ],
 })
 export class CatalogueModule {}

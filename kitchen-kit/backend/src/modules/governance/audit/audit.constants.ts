@@ -18,6 +18,9 @@ export const AUDIT_ACTION = {
   // shape is introduced, only the two verbs the new commands actually perform.
   ORDER_LINE_ADDED: 'ORDER_LINE_ADDED',
   ORDER_LINE_VOIDED: 'ORDER_LINE_VOIDED',
+  // P1E-6 Fire. Same convention; one verb for the one material operational
+  // action Fire performs (first Fire and every amendment Fire alike).
+  ORDER_FIRED: 'ORDER_FIRED',
   // P1D-1 Workforce / Treasury. Same <ENTITY>_<PAST_TENSE> convention; the
   // audit taxonomy is not governance-controlled, so these follow the existing
   // shape rather than inventing one. Opening a shift and taking custody of a

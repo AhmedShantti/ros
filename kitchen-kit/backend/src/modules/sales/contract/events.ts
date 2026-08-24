@@ -149,3 +149,51 @@ export type OrderLineFiredEvent = DomainEventEnvelope<
   typeof ORDER_LINE_FIRED_EVENT_TYPE,
   OrderLineFiredPayload
 >;
+
+/**
+ * `order.opened` — SRS §5.5.4's event catalogue, publisher Sales, subscribers
+ * Kitchen Ops and Analytics. P1E-6's Fire producer is the first (and, per the
+ * SRS event catalogue, only) place this is published: in ROS's domain
+ * vocabulary "opened" means the order's state MACHINE transition
+ * `draft -> open` (`order-state.ts`'s `TRANSITIONS`), which happens on the
+ * FIRST successful Fire — not order CREATION, which leaves a new order in
+ * `draft` (`OrdersService.create`). A subsequent Fire against an already-`open`
+ * order does not publish this again (there is no second `draft -> open`
+ * transition to report).
+ *
+ * Narrowest payload the SRS event catalogue supports: enough to identify and
+ * classify the order that just opened, nothing else. `tenantId`/`branchId`/
+ * `actorId`/`occurredAt` already live on the envelope and are not repeated.
+ * No money, customer, or line-level field is included — none is named by any
+ * source read for this event, and Kitchen's own correctness continues to
+ * rely entirely on the self-contained `order.line.fired` events (P1E-5 §F),
+ * not on this one. No subscriber is registered for this event in this
+ * slice — publishing it does not require one (§5.5.2's fire-and-forget
+ * in-process dispatch tolerates zero handlers).
+ */
+export const ORDER_OPENED_EVENT_TYPE = 'order.opened' as const;
+export const ORDER_OPENED_EVENT_VERSION = 1;
+
+export interface OrderOpenedPayload {
+  readonly orderId: string;
+  /** `YYYY-MM-DD` — see `OrderLineFiredPayload.businessDay`'s docblock note. */
+  readonly businessDay: string;
+  readonly orderNumber: string;
+  readonly orderType:
+    | 'dine_in'
+    | 'takeaway'
+    | 'delivery'
+    | 'drive_thru'
+    | 'pickup'
+    | 'aggregator';
+  readonly channel: 'pos' | 'kiosk' | 'qr' | 'aggregator' | 'phone' | 'api';
+  /** ISO-8601. The Fire command's own instant — the same `firedAt` the
+   *  batch's `order.line.fired` events carry, since first-Fire is what opens
+   *  the order. */
+  readonly openedAt: string;
+}
+
+export type OrderOpenedEvent = DomainEventEnvelope<
+  typeof ORDER_OPENED_EVENT_TYPE,
+  OrderOpenedPayload
+>;

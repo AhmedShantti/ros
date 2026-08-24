@@ -74,10 +74,13 @@ export class IdempotencyInterceptor implements NestInterceptor {
       );
     }
 
-    // Express types `route` as `any`; narrow it once so the endpoint identity
-    // used for the key is a real string.
-    const matched = (request as { route?: { path?: string } }).route;
-    const routePath: string = matched?.path ?? request.path;
+    // Use the resolved request path (real segment values, e.g.
+    // `/orders/2026-08-24/ord_123/fire`), not `request.route.path` (the
+    // registered Express pattern, e.g. `/orders/:businessDay/:id/fire`).
+    // The pattern is shared by every resource matching the route, so it
+    // collapses distinct resources into one idempotency identity; the
+    // resolved path is what actually varies per resource.
+    const routePath: string = request.path;
     const endpoint = `${request.method} ${routePath}`;
     const fingerprint = this.idempotency.fingerprint(
       request.method,

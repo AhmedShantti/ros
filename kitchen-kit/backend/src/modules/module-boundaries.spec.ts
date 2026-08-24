@@ -268,7 +268,7 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
    * Sales publishes `order.line.fired`'s typed contract; nothing under
    * `sales/orders/` (the private implementation) is exposed by it.
    */
-  it('Sales publishes a public contract directory (order.line.fired)', () => {
+  it('Sales publishes a public contract directory (order.line.fired, order.opened)', () => {
     const contract = readFileSync(
       join(MODULES_ROOT, 'sales/contract/index.ts'),
       'utf8',
@@ -279,7 +279,113 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
       'utf8',
     );
     expect(events).toContain("'order.line.fired'");
+    // P1E-6 — the real Fire producer's second published event.
+    expect(events).toContain("'order.opened'");
     expect(events).not.toMatch(/:\s*any\b|<any>|\bas any\b/);
+  });
+
+  /**
+   * P1E-6 — Catalogue Fire-facts (categoryIds, Kitchen/KDS display name).
+   * Mirrors the P1E-3A `RoutingConfigQuery` pattern: a narrow, PUBLIC,
+   * transaction-aware query contract, so the existing PRIVATE
+   * `sales->catalogue` deviation (`pricing/price-resolution.service`) is not
+   * reopened or expanded by Fire.
+   */
+  it('Catalogue publishes a public Fire-facts contract, and Sales consumes only that contract', () => {
+    const contract = readFileSync(
+      join(MODULES_ROOT, 'catalogue/contract/index.ts'),
+      'utf8',
+    );
+    expect(contract).toContain("export * from './fire-facts.query'");
+    const query = readFileSync(
+      join(MODULES_ROOT, 'catalogue/contract/fire-facts.query.ts'),
+      'utf8',
+    );
+    expect(query).toContain('CatalogueFireFactsQuery');
+    expect(query).not.toMatch(/:\s*any\b|<any>|\bas any\b/);
+
+    const fireService = readFileSync(
+      join(MODULES_ROOT, 'sales/orders/sales-fire.service.ts'),
+      'utf8',
+    );
+    expect(fireService).toContain("from '../../catalogue/contract'");
+    const importLines = fireService
+      .split('\n')
+      .filter((line) => /^\s*import\b/.test(line));
+    expect(
+      importLines.some(
+        (line) =>
+          line.includes('catalogue/menu-items') ||
+          line.includes('catalogue/fire-facts'),
+      ),
+    ).toBe(false);
+
+    // Existing pre-existing deviation is not expanded: still exactly one
+    // private inner path, unchanged.
+    expect(KNOWN_DEVIATIONS['sales->catalogue']).toEqual([
+      'pricing/price-resolution.service',
+    ]);
+  });
+
+  /**
+   * P1E-6 — Organisation Table display fact (FR-KDS-020 dine-in reference).
+   * Same P1E-3A pattern; `sales->organisation` did NOT previously appear in
+   * `KNOWN_DEVIATIONS` at all — this contract is Sales' first Organisation
+   * edge, and it is PUBLIC from the start (no deviation entry is added).
+   */
+  it('Organisation publishes a public Table-display contract, and Sales consumes only that contract', () => {
+    const contract = readFileSync(
+      join(MODULES_ROOT, 'organisation/contract/index.ts'),
+      'utf8',
+    );
+    expect(contract).toContain("export * from './table-display.query'");
+    const query = readFileSync(
+      join(MODULES_ROOT, 'organisation/contract/table-display.query.ts'),
+      'utf8',
+    );
+    expect(query).toContain('TableDisplayQuery');
+    expect(query).not.toMatch(/:\s*any\b|<any>|\bas any\b/);
+
+    const fireService = readFileSync(
+      join(MODULES_ROOT, 'sales/orders/sales-fire.service.ts'),
+      'utf8',
+    );
+    expect(fireService).toContain("from '../../organisation/contract'");
+    const importLines = fireService
+      .split('\n')
+      .filter((line) => /^\s*import\b/.test(line));
+    expect(
+      importLines.some(
+        (line) =>
+          line.includes('organisation/tables') ||
+          line.includes('organisation/station-routing') ||
+          line.includes('organisation/stations'),
+      ),
+    ).toBe(false);
+
+    expect(KNOWN_DEVIATIONS['sales->organisation']).toBeUndefined();
+    expect(
+      violations.filter(
+        (v) => v.importer === 'sales' && v.imported === 'organisation',
+      ),
+    ).toEqual([]);
+  });
+
+  /**
+   * P1E-6 §25 — zero new deviations for the two new Fire-facts contracts.
+   * The whole-tree "records every pre-existing deviation, and no more" test
+   * below already enforces this exactly (any unexpected import fails it),
+   * but this assertion names the specific expectation for Fire the way the
+   * P1E-5 Kitchen assertions above do for Kitchen.
+   */
+  it('Fire adds zero new module-boundary deviations', () => {
+    expect(KNOWN_DEVIATIONS['sales->catalogue']).toEqual([
+      'pricing/price-resolution.service',
+    ]);
+    expect(KNOWN_DEVIATIONS['sales->organisation']).toBeUndefined();
+    expect(KNOWN_DEVIATIONS['kitchen->sales']).toBeUndefined();
+    expect(KNOWN_DEVIATIONS['kitchen->catalogue']).toBeUndefined();
+    expect(KNOWN_DEVIATIONS['kitchen->organisation']).toBeUndefined();
   });
 
   /**
@@ -416,6 +522,51 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
       .filter((f) => containsPersistenceImplementation(readFileSync(f, 'utf8')))
       .map((f) => relative(MODULES_ROOT, f));
     expect(offending).toEqual([]);
+  });
+
+  /** P1E-6 — same contract-purity guarantee for Catalogue's new contract/. */
+  it('Catalogue contract/ contains interface/types only — no persistence implementation', () => {
+    const contractDir = join(MODULES_ROOT, 'catalogue/contract');
+    const offending = walk(contractDir)
+      .filter((f) => !f.endsWith('.spec.ts'))
+      .filter((f) => containsPersistenceImplementation(readFileSync(f, 'utf8')))
+      .map((f) => relative(MODULES_ROOT, f));
+    expect(offending).toEqual([]);
+  });
+
+  it('the concrete CatalogueFireFactsQuery implementation is private (outside contract/), and Sales never imports it', () => {
+    const implementationSource = readFileSync(
+      join(
+        MODULES_ROOT,
+        'catalogue/fire-facts/catalogue-fire-facts.query.service.ts',
+      ),
+      'utf8',
+    );
+    expect(containsPersistenceImplementation(implementationSource)).toBe(true);
+
+    const fireService = readFileSync(
+      join(MODULES_ROOT, 'sales/orders/sales-fire.service.ts'),
+      'utf8',
+    );
+    expect(fireService).not.toContain('catalogue/fire-facts');
+    expect(fireService).not.toContain('CatalogueFireFactsQueryService');
+  });
+
+  it('the concrete TableDisplayQuery implementation is private (outside contract/), and Sales never imports it', () => {
+    const implementationSource = readFileSync(
+      join(MODULES_ROOT, 'organisation/tables/table-display.query.service.ts'),
+      'utf8',
+    );
+    expect(containsPersistenceImplementation(implementationSource)).toBe(true);
+
+    const fireService = readFileSync(
+      join(MODULES_ROOT, 'sales/orders/sales-fire.service.ts'),
+      'utf8',
+    );
+    expect(fireService).not.toContain(
+      'organisation/tables/table-display.query.service',
+    );
+    expect(fireService).not.toContain('TableDisplayQueryService');
   });
 
   it('the concrete RoutingConfigQuery implementation is private (outside contract/), and Kitchen never imports it', () => {

@@ -195,6 +195,20 @@ describe('Kitchen Ticket persistence — real Postgres concurrency (P1E-5A)', ()
         countryCode: 'SA',
       },
     });
+    // P1E-6A Defect: a branch row with no matching `org.locations` registry
+    // row previously polluted `organisation.e2e-spec.ts`'s "leaves no org
+    // location entity without a registry row" invariant test when the full
+    // suite ran (see the P1E-6/P1E-6A reports). Mirrors the pattern already
+    // used by `sales-fire.e2e-spec.ts`'s `mkBranch` helper.
+    await admin.location.create({
+      data: {
+        id: newId(),
+        tenantId: tenantA,
+        locationType: 'branch',
+        refId: branchA,
+        branchId: branchA,
+      },
+    });
     await admin.station.create({
       data: { id: stationGrill, branchId: branchA, name: 'Grill' },
     });

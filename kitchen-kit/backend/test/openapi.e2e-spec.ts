@@ -247,15 +247,25 @@ describe('OpenAPI document (e2e)', () => {
     }
   });
 
-  it('does not document Fire, Payment, Completion, refund, or KDS bump/recall endpoints', () => {
+  /**
+   * P1E-6 — explicit Fire is now real and ratified ("Fire Authorization
+   * Ratification — 2026-08-24"), so it is EXPECTED to be documented — but
+   * only that ONE exact route. Automatic/configurable Fire (the other half
+   * of FR-POS-035), Payment, Completion, refund, and KDS bump/recall remain
+   * unimplemented and must still be absent.
+   */
+  it('documents explicit Fire (and only that route), and does not document Payment, Completion, refund, or KDS bump/recall endpoints', () => {
+    const paths = Object.keys(doc.paths);
+    const fireMatches = paths.filter((p) => /\/fire\b/i.test(p));
+    expect(fireMatches).toEqual(['/orders/{businessDay}/{id}/fire']);
+
     const forbidden = [
-      /\/fire\b/i,
       /\/payments?\b/i,
       /\/refunds?\b/i,
       /\bbump\b/i,
       /\brecall\b/i,
     ];
-    for (const p of Object.keys(doc.paths)) {
+    for (const p of paths) {
       for (const pattern of forbidden) {
         expect(p).not.toMatch(pattern);
       }

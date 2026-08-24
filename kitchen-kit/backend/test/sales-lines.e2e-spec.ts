@@ -1210,6 +1210,34 @@ describe('Sales P1C line capture (e2e)', () => {
       expect(lines).toHaveLength(1);
     });
 
+    it('P1E-6A Defect A: same key + identical body across two DIFFERENT orders 409-conflicts — never replays the first order onto the second', async () => {
+      // Two different orders, added with the SAME body: before the fix, the
+      // idempotency fingerprint hashed the registered route pattern
+      // (`/orders/:businessDay/:id/lines`), which does not vary per order,
+      // so this reused key would have silently replayed orderOne's line
+      // onto orderTwo instead of either adding a real second line or
+      // 409-conflicting.
+      const orderOne = await openOrder();
+      const orderTwo = await openOrder();
+      const key = `line-fp-${newId()}`;
+
+      const first = await addLine(orderOne, {}, { key });
+      expect(first.status).toBe(201);
+      const second = await addLine(orderTwo, {}, { key });
+      expect(second.status).toBe(409);
+
+      // orderTwo is completely untouched: no line added, no version bump,
+      // and orderOne's response never leaks onto orderTwo's response.
+      const linesTwo = await admin.orderLine.findMany({
+        where: { orderId: orderTwo.id },
+      });
+      expect(linesTwo).toHaveLength(0);
+      const afterTwo = await admin.order.findFirstOrThrow({
+        where: { id: orderTwo.id },
+      });
+      expect(afterTwo.version).toBe(orderTwo.version);
+    });
+
     it('rejects a stale If-Match with 409', async () => {
       const order = await openOrder();
       await addLine(order);

@@ -5461,6 +5461,85 @@ reopened **only** as P1D-A states. No approval schema is changed. No Payment
 behaviour is created.
 
 ---
+## Fire Authorization Ratification — 2026-08-24
+
+> **RECORDED 2026-08-24 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **P1A / P1C / P1D**
+> carried-item convention, because no existing subsection of this register
+> settles the authority to FIRE an order (as distinct from **CLARIFICATION C**
+> above, which settles authority to mutate an order's content AFTER it has
+> already been fired — a different question).
+
+### The question
+
+SRS UC-POS-01 step 6 and FR-POS-035 [M] require an explicit Fire action that
+sends an order's pending lines to production. No ratified permission
+authorised that action before this entry: `pos.order.create` ("Create and
+modify orders") already covers pre-fire capture and correction, and
+**CARRIED ITEM P1C-4** (this register, "`pos.order.create` operational read
+boundary") explicitly stopped short of Fire — it authorises the operational
+READ Fire needs, not the act of firing.
+
+### Ratified
+
+1. **A new permission is introduced: `pos.order.fire`.**
+2. **Manual / explicit Fire requires `pos.order.fire`.** No other permission
+   (in particular, not `pos.order.create` alone) authorises it.
+3. **A tenant's standard Waiter role, where one exists, receives
+   `pos.order.fire`.**
+4. **A tenant's standard Cashier role, where one exists, receives
+   `pos.order.fire`.**
+5. **`pos.order.create` remains separate and does NOT imply manual Fire.**
+   Creating and modifying a pre-fire order is authorised independently of
+   sending it to production.
+6. **Future automatic Fire (FR-POS-035's configurable auto-Fire, not built in
+   this slice) is a system CONSEQUENCE of an already-authorized initiating
+   POS operation** (e.g. the add-line action that triggers it) **and does NOT
+   require a second interactive `pos.order.fire` permission check** at the
+   moment it fires automatically. The initiating operation's own permission
+   check is what authorises the consequence.
+7. **No other permission is broadened.** `order.cancel_after_production`
+   (BR-POS-003) and every other existing permission keep their exact
+   pre-ratification scope; this entry authorises Fire alone.
+
+### Binding constraints on implementation (unchanged from CLARIFICATION C)
+
+- **Do NOT hardcode role-name strings.** Authorization is permission-based;
+  "Waiter" and "Cashier" name a tenant's own role assignment choice, not a
+  system-enforced role type — **ROS has no system-defined "standard role"
+  persistence mechanism** (verified: every `createTenantRole` call in this
+  repository is either the tenant-admin RBAC API or test/seed bootstrap —
+  there is no onboarding flow that provisions a fixed role set). Points 3–4
+  above are therefore a **POLICY for whoever creates or administers a
+  tenant's Waiter/Cashier-equivalent roles** (tenant admin, onboarding
+  tooling, or a dev seed script) to grant `pos.order.fire` on those roles —
+  not a migration, not a hardcoded seed of specific role rows.
+- The permission CODE itself is added the same way every other business
+  permission code in this repository is added: an entry in the owning
+  module's `<MODULE>_PERMISSIONS` / `<MODULE>_PERMISSION_DEFS` (here,
+  `sales.permissions.ts`). Persisting it into a tenant's `permission` catalog
+  uses the existing `PermissionsService.upsert`/`upsertMany` mechanism —
+  code-driven, not migration-driven (verified: no permission code from ANY
+  module, including Identity's own `ensureIdentityPermissions()`, is
+  currently invoked by any production bootstrap path; every existing
+  invocation is a test suite or a dev seed script calling
+  `PermissionsService` directly). This is a **pre-existing, repository-wide
+  gap** that predates and is broader than Fire — recording it here rather
+  than silently building a new production seeding mechanism for every module
+  as an unauthorised side effect of this ratification.
+
+### Preservation
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures, and the P1A / P1C / P1D carried
+items are unchanged.** **D-16 OPEN · D-12 BLOCKED · D-3 RATIFIED IN PART ·
+D-10 unchanged.** **CLARIFICATION C's post-fire mutation boundary is
+unchanged and unexpanded** — this entry authorises the act of firing, not
+any new post-fire correction authority. No approval schema is changed. No
+Payment or Completion behaviour is created.
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |
