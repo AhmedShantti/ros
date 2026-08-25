@@ -573,8 +573,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
   "inventory"."count_lines", "inventory"."waste_records", "inventory"."waste_lines",
   "inventory"."reason_codes"
   TO ros_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator IN SCHEMA "inventory"
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ros_app;
+-- NOTE: an `ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator ...` statement that
+-- previously followed here was removed for Render deployment compatibility
+-- (42501 permission denied — the connecting migration role there cannot SET
+-- ROLE to ros_migrator). Future inventory tables must grant ros_app explicitly.
 
 -- ---------------------------------------------------------------------------
 -- BR-INV-001 — the ledger is APPEND-ONLY, enforced at the database.

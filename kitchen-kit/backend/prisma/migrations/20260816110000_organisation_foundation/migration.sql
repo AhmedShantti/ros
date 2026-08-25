@@ -260,10 +260,11 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
   TO ros_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "kitchen"."station_routing_rules" TO ros_app;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator IN SCHEMA "org"
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ros_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator IN SCHEMA "kitchen"
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ros_app;
+-- NOTE: two `ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator ...` statements
+-- (schemas "org" and "kitchen") that previously followed here were removed for
+-- Render deployment compatibility (42501 permission denied — the connecting
+-- migration role there cannot SET ROLE to ros_migrator). Future org/kitchen
+-- tables must grant ros_app explicitly, as this migration already does above.
 
 -- ----------------------------------------------------------------------------
 -- RLS. Two anchors:

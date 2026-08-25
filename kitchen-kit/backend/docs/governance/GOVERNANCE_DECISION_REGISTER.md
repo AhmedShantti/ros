@@ -5540,6 +5540,325 @@ any new post-fire correction authority. No approval schema is changed. No
 Payment or Completion behaviour is created.
 
 ---
+## P1F-2 Completion Economics & Depletion Resolution — 2026-08-25
+
+> **RECORDED 2026-08-25 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **P1A / P1C / P1D**
+> carried-item and **Fire Authorization Ratification** convention.
+>
+> This entry **narrowly reopens two existing decisions** — **D-17-05** and
+> **D-17-07** — whose authoritative text lives in
+> `docs/production/PRODUCTION_SPEC_DESIGN_GATE.md` §4. **Their original text is
+> preserved verbatim there and is NOT deleted or rewritten.** The prior defers
+> genuinely existed and are part of the record; this entry amends them going
+> forward, it does not pretend they never applied.
+>
+> Occasioned by the P1F-2 design gate
+> (`docs/reports/claude/2026-08-25_P1F2_completion-architecture-gate.md`),
+> which returned **BLOCKED — DESIGN/GOVERNANCE REQUIRED** on exactly these two
+> defers plus one repository-design question (depletion identity).
+
+### The questions
+
+Order Completion cannot be implemented without settling three things the
+prior gate proved were not settled:
+
+1. **COGS at completion.** SRS §1.2 effect 4, **FR-CST-001 [M]** and §5.5.2
+   require COGS recognition atomically at completion, but the **D-17-05
+   §4.1 amendment** and its register index **CARRIED ITEM P1C-2** both list
+   *"the completion-time COGS posting workflow"* as still deferred and NOT
+   authorised.
+2. **Modifier-aware depletion.** **FR-POS-024 [M]** requires a "no cheese"
+   burger not to deplete cheese, and FR-CST-001 requires *"applying modifier
+   recipe deltas"* — but **D-17-07** keeps `modifiers.recipe_delta` opaque
+   with no component-resolution semantics and defers FR-MNU-013.
+3. **Depletion identity.** `inventory.stock_movements` is RANGE-partitioned
+   on `occurred_at`, so no unique constraint omitting the partition key is
+   expressible, and `(reference_type, reference_id)` is only a plain index —
+   leaving no natural key to prevent duplicate sale depletion.
+
+### Ratified — 1. D-17-05 narrowly reopened for completion-time COGS
+
+**The defer is lifted ONLY for the completion-time COGS workflow. Every other
+clause of D-17-05 and of the D-17-05 §4.1 amendment remains unchanged**, and
+in particular the following stay deferred exactly as before: theoretical-vs-
+actual analysis, menu-engineering and profitability analytics,
+contribution-margin reporting (FR-CST-005), cost-variance dashboards, and the
+wider FR-CST reporting surface. **This remains NOT permission to implement the
+Costing bounded context.**
+
+1. **`sales.order_lines.unit_cost_snapshot` remains immutable historical
+   sale-time evidence.** It **MUST NOT** be rewritten during Completion.
+   BR-POS-004 and **CARRIED ITEM P1C-5** are untouched.
+2. **Completion-time posted COGS is a DISTINCT concept** from the sale-time
+   estimate. The two facts coexist; neither overwrites the other.
+3. **Posted COGS is derived from the actual valued Inventory depletion
+   performed at Completion** — not recomputed from recipe master data.
+4. **Sales persists explicit immutable per-OrderLine posted COGS
+   projections** and rolls them up into `sales.orders.cogs_total`.
+5. **After Completion, `sales.orders.cogs_total` means POSTED completion
+   COGS**, not the running sale-time estimate it holds before Completion.
+6. **The existing quantity defect must not survive in posted COGS.** Summing
+   a per-unit cost without multiplying by `OrderLine.quantity` is a defect;
+   posted COGS is quantity-correct by construction.
+7. **Ownership.** *Inventory* owns current inventory valuation, the immutable
+   depletion ledger, and `stock_movements.unit_cost` / `total_cost`.
+   *Production* owns recipe semantics, recipe/sub-recipe expansion, unit
+   conversion, and modifier recipe effects. *Sales* owns Order, OrderLine,
+   completion state, and the immutable posted-COGS projections on the sale.
+8. **No fake Costing module** may be created solely to relocate code into a
+   named bounded context.
+
+**Relationship to FR-CST-002.** FR-CST-002 says COGS *"SHALL be recorded on
+the order line as `unit_cost_snapshot` and SHALL NOT be recomputed
+retroactively when ingredient costs change."* Keeping the sale-time snapshot
+immutable **and** recording posted COGS requires two fields rather than one.
+This is a **documented, deliberate deviation from FR-CST-002's literal
+single-field wording**, adopted because the requirement's own
+no-retroactive-recomputation clause cannot otherwise be honoured. Both facts
+are retained, which is strictly more information than the SRS requires, and
+neither is ever recomputed retroactively.
+
+### Ratified — 2. D-17-07 narrowly reopened for modifier-aware depletion
+
+**The defer is lifted ONLY as far as correct modifier-aware inventory
+depletion and COGS require. Every other clause of D-17-07 remains
+unchanged.**
+
+1. **Modifier recipe effects SHALL use a typed, relational,
+   Production-owned representation.** The opaque
+   `catalogue.modifiers.recipe_delta` JSON column is **NOT** the mechanism and
+   remains uninterpreted.
+2. **The canonical operations are exactly two: `ADD` and `REMOVE_ALL`.**
+3. **A substitution is represented as `REMOVE_ALL` of the old component plus
+   `ADD` of the replacement.** There is no distinct substitution operation.
+4. **No open-ended JSON or DSL operation language may be created.** No
+   generic expression evaluator, no operation-identifier vocabulary beyond
+   the two operations above.
+5. **FR-POS-024 must be satisfied**: a removal modifier reduces depletion, so
+   a "no cheese" burger does not deplete cheese.
+6. **Modifier consumption semantics used by a sale MUST be snapshotted** at
+   sale time, so later modifier or master-data edits cannot change historical
+   depletion.
+7. **Completion MUST consume the sale-time resolved modifier-depletion
+   facts**, never re-interpret today's modifier master data.
+
+**FR-MNU-013's wider surface stays deferred.** This entry authorises the two
+depletion operations only; it does not authorise nested modifier groups,
+substitution-selection algorithms, or any other recipe-delta semantics.
+
+### Ratified — 3. Line-scoped sale-depletion provenance
+
+Sale depletion provenance is **OrderLine-scoped**:
+
+```
+Order -> OrderLine -> StockItem depletion effect
+```
+
+- Duplicate appearances of the same StockItem reached through different
+  recipe / sub-recipe paths are **aggregated INSIDE one OrderLine**.
+- The same StockItem appearing on **different OrderLines is NOT aggregated
+  across them.** Each line remains separately attributable for traceability,
+  COGS, audit, future refunds/reversals, and reconciliation.
+
+### Ratified — 4. Non-partitioned Inventory sale-depletion effect registry
+
+- Inventory SHALL own a **NON-PARTITIONED** sale-depletion effect registry
+  which is the **business idempotency and provenance boundary**.
+- `inventory.stock_movements` remains the high-volume immutable partitioned
+  ledger and its `reference_type` / `reference_id` semantics are unchanged.
+- **`stock_movements.occurred_at` MUST NOT be made part of a business
+  identity merely because that table is partitioned.**
+- The registry's precise schema and key are an engineering design matter,
+  settled in the P1F-2A design gate, not pre-decided here.
+
+### Ratified — 5. Inventory concurrency hardening is a precondition
+
+- **Completion MUST NOT ship while `inventory.stock_levels` can suffer lost
+  updates under concurrent sales.** The existing
+  read-in-JS-then-upsert pattern is **not accepted** for the Completion path.
+- Quantity projection updates SHALL use true atomic additive SQL semantics.
+- FIFO batch consumption SHALL use deterministic locking and ordering.
+- **No sleeps.** **No application-wide retry framework.** **No `SKIP LOCKED`
+  where skipping a locked older layer would change which FIFO layers are
+  consumed.**
+- Ledger and projection SHALL remain reconcilable (BR-INV-003) under
+  concurrent completions.
+
+### Ratified — 6. Completion entry point and authorization
+
+- The interactive API remains **`POST /orders/{businessDay}/{id}/payments`**.
+- **No `/complete` route** is created. **No `pos.order.complete` permission**
+  is created — the zero-invented-codes discipline (D-17-06 precedent) stands,
+  and **CARRIED ITEM P1D-F**'s `pos.payment.capture` remains the only
+  recorded exception.
+- The authorised operator action is **`pos.payment.capture`**.
+- When a Payment financially satisfies the Order, **Completion is an atomic
+  SYSTEM CONSEQUENCE of that already-authorised Payment**, not a separately
+  authorised operator action. This is the same consequence-of-an-authorised-
+  operation principle already ratified as point 6 of the **Fire Authorization
+  Ratification — 2026-08-24**.
+- Option A of the P1F-2 design gate is **RATIFIED**.
+
+### Ratified — 7. Valuation and negative stock
+
+- **Negative inventory SHALL NOT block Completion.** Quantity depletion
+  records physical reality even when stock goes negative (UC-POS-01 13a,
+  FR-INV-014).
+- If complete valuation were ever unavailable, historical sale records
+  **SHALL NOT** be rewritten later; any correction would have to be
+  append-only.
+
+> **Design-gate finding on this point (P1F-2A, non-authoritative but
+> load-bearing):** no valuation gap is in fact reachable at Completion.
+> Inventory's `valuationUnitCost` is a total function — `standard` is
+> guaranteed by the `ck_standard_cost_present` CHECK, `weighted_average`
+> reads the maintained `stock_levels.average_cost`, and `fifo` values the
+> consumed layers (including any unbacked remainder) at the FIFO-derived
+> weighted mean — and `stock_movements.unit_cost` is NOT NULL. Because
+> posted COGS is defined as the sum of actually-valued movement totals, a
+> COMPLETED Order can never carry an unresolved valuation gap, so **no
+> provisional-COGS or post-completion adjustment mechanism is created**, and
+> **BR-POS-001's completed-order immutability is preserved intact.**
+
+### What is NOT reopened
+
+**No broader Costing, Fiscal, or CRM governance is reopened.** Specifically
+unchanged: the Costing bounded context stays unimplemented; **P1C-1**'s
+Fiscal exclusion (no tax documents, invoice templates, fiscal submissions or
+`fiscal.tax_rules`) stands; no CRM/Loyalty scope is created; **D-2**'s
+branch-scoped RBAC defer stands; **D-17-01 … D-17-04**, **D-17-06**,
+**D-17-08**, **GAP-1** and **GAP-2** are untouched.
+
+### Preservation
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures, and the P1A / P1C / P1D carried
+items are unchanged except exactly as stated above.** **D-16 OPEN · D-12
+BLOCKED · D-3 RATIFIED IN PART · D-10 unchanged · SB-1 / SB-2 / SB-3
+unresolved portions unchanged.** The **C-04** and **C-11** amendments are
+unchanged. The **Fire Authorization Ratification** is unchanged. **P1D-B …
+P1D-G are unchanged** and continue to govern Payment attribution, rounding
+and accountability. No approval schema is changed. **No new permission code
+is created.** No numbered decision is added, amended, or renumbered.
+
+---
+## FIFO Exhaustion Carry-Forward Ratification — 2026-08-25
+
+> **RECORDED 2026-08-25 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **P1A / P1C / P1D**,
+> **Fire Authorization** and **P1F-2 Completion Economics** convention.
+>
+> This entry **narrowly amends CARRIED ITEM P1C-2's no-fallback clause** for
+> one specific case. **P1C-2's original text is preserved verbatim above and is
+> NOT rewritten**, and neither is the original D-17-05 text in
+> `docs/production/PRODUCTION_SPEC_DESIGN_GATE.md` §4.
+>
+> Occasioned by the P1F-2B correction gate
+> (`docs/reports/claude/2026-08-25_P1F2B_completion-correction-gate.md`), which
+> returned **BLOCKED — FIFO ZERO-LAYER VALUATION NOT SOURCE-DECIDABLE** as the
+> single remaining obstacle to implementing Order Completion.
+
+### The question
+
+`inventory.stock_movements.unit_cost` is `NOT NULL`, so **every** sale
+depletion must carry a cost. **FR-INV-012** defines FIFO only as *"Consumption
+valued at the cost of the oldest **remaining** batch"*; **FR-INV-013**
+presupposes batch-tracked draw-down; and SRS §24.5.2's reference
+`FifoCostingStrategy` delegates to a `drawDown(batches, qty)` whose
+empty-input behaviour is never specified. When the FIFO queue is empty the
+SRS therefore defines no value — while **FR-INV-014** and **UC-POS-01 13a**
+require the depleting transaction to proceed regardless.
+
+The pre-existing implementation fell back to `stock_levels.average_cost`.
+That fallback was **never ratified** — it does not appear in
+`docs/inventory/INVENTORY_DESIGN_GATE.md` §29's list of unresolved
+ambiguities — and it is precisely the cross-method fallback **P1C-2** forbids.
+
+### Ratified — FIFO EXHAUSTION CARRY-FORWARD
+
+**Scope: Inventory movement valuation at Completion only.**
+
+1. **Available layers are always consumed first.** Normal FIFO is unchanged:
+   layers are drawn down oldest-first (or by the item's configured
+   `batch_strategy`), and each backed quantity is valued at **its own actual
+   layer cost**. Carry-forward never replaces an available layer.
+2. **Partial coverage.** Where the requested depletion exceeds the total
+   quantity remaining in the queue: consume every available layer normally and
+   value each backed quantity at its actual layer cost; then value **only the
+   remaining unbacked quantity** at the unit cost of the layer most recently
+   exhausted. A single blended mean **SHALL NOT** be applied to the whole
+   depletion where doing so would erase the layer-level FIFO valuation of the
+   backed portion.
+3. **Zero coverage.** Where no positive-quantity layer exists at all, the whole
+   depletion is valued at the unit cost of the FIFO layer most recently
+   exhausted for the same **tenant · stock item · location**.
+4. **"Most recently exhausted" means exhausted, not purchased.** It is the
+   historical layer the consumption strategy drew down last, resolved from
+   real persisted batch history. It coincides with the most recently
+   *received* layer only where those are genuinely the same historical row.
+5. **The exhausted layer must already exist.** No fake, synthetic or
+   sentinel batch row may be created to satisfy this rule.
+6. **No other fallback is authorised.** Weighted-average cost, standard cost
+   and any generic "latest purchase cost" lookup **SHALL NOT** be used to
+   value a FIFO item.
+7. **Production's sale-time valuation is unchanged.**
+   `StockValuationService` continues to return `null` for a FIFO item with no
+   positive layer, and a **complete** recipe with an unpriceable component
+   continues to be **refused at line capture** (CARRIED ITEM P1C-5). This
+   ratification does not lower that bar.
+8. **Negative stock never blocks Completion** (FR-INV-014, UC-POS-01 13a).
+9. **No retroactive rewrite.** Posted COGS and completed-Order facts are
+   written once and never recomputed (BR-POS-001, FR-CST-002's
+   no-retroactive-recomputation clause).
+10. **Terminal case fails closed.** If no historical exhausted layer exists
+    either, the depletion **SHALL** fail and roll the Completion back rather
+    than silently adopting another costing method. This is defence in depth:
+    the case is unreachable through the sale path, because a FIFO item with no
+    value-bearing layer cannot be sold with a complete recipe in the first
+    place (point 7).
+
+### Narrow amendment to CARRIED ITEM P1C-2
+
+P1C-2 states: *"Every component is valued by **its own** configured costing
+method … No global default, no fallback between methods."*
+
+**That clause is narrowed for this case only.** It is to be read as forbidding
+the substitution of a *different costing method*, or a *purchase-price
+lookup*, for an **available** FIFO layer. It does **not** forbid continuing an
+item's own FIFO cost lineage at its last actual layer cost when the queue is
+empty and the SRS defines no value. Carry-forward is **FIFO-native**: the cost
+originates from a real FIFO layer of that same item and location, selected by
+the same strategy that consumed it.
+
+**Everything else in P1C-2 is unchanged**, including the requirement that each
+component be valued by its own configured method, the prohibition on a global
+default, and BR-MNU-012's preservation.
+
+### What is NOT authorised
+
+**No weighted-average fallback for FIFO. No standard-cost fallback for FIFO.
+No generic latest-purchase-cost fallback. No change to Production's
+line-capture `StockValuationService`. No change to any other costing method.
+No broader Costing work** — the Costing bounded context remains unimplemented,
+and D-17-05's residual defers stand except as the **P1F-2 Completion Economics
+& Depletion Resolution** entry already narrowed them.
+
+### Preservation
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures and the P1A / P1C / P1D carried
+items are unchanged except exactly as stated above.** **D-16 OPEN · D-12
+BLOCKED · D-3 RATIFIED IN PART · D-10 unchanged.** The **C-04** and **C-11**
+amendments, the **Fire Authorization Ratification**, **P1C-1**, **P1C-5**,
+**P1D-B … P1D-G** and the **P1F-2 Completion Economics & Depletion
+Resolution** entry are all unchanged. No approval schema is changed. **No new
+permission code is created.** No numbered decision is added, amended or
+renumbered.
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |

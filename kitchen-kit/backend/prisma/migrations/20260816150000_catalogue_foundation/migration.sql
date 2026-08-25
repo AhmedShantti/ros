@@ -349,11 +349,14 @@ ALTER TABLE "catalogue"."availability_rules"
 
 -- ----------------------------------------------------------------------------
 -- Runtime role privileges (same pattern as Phases 8/9/12/15).
+--
+-- NOTE: an `ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator ...` statement that
+-- previously followed here was removed for Render deployment compatibility
+-- (42501 permission denied — the connecting migration role there cannot SET
+-- ROLE to ros_migrator). Future catalogue tables must grant ros_app explicitly.
 -- ----------------------------------------------------------------------------
 GRANT USAGE ON SCHEMA "catalogue" TO ros_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "catalogue" TO ros_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator IN SCHEMA "catalogue"
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ros_app;
 
 -- ----------------------------------------------------------------------------
 -- RLS. Direct tenant_id anchor for 11 tables; the two pure children

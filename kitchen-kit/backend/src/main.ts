@@ -43,6 +43,14 @@ async function bootstrap(): Promise<void> {
   // enable a tailored CSP when a fixed front-end origin is known.
   app.use(helmet({ contentSecurityPolicy: false }));
 
+  // Allow the front-end dev origin(s) to call this API from the browser.
+  // CORS_ORIGIN can be a single URL or a comma-separated list.
+  const corsOrigin = config.get<string>('CORS_ORIGIN', '');
+  app.enableCors({
+    origin: corsOrigin ? corsOrigin.split(',').map((o) => o.trim()) : true, // fallback: allow all origins if not set (fine for local dev)
+    credentials: true,
+  });
+
   // Reject unknown/invalid input at the edge; strip properties not in the DTO.
   app.useGlobalPipes(
     new ValidationPipe({
@@ -62,7 +70,7 @@ async function bootstrap(): Promise<void> {
   );
 
   const port = config.get<number>('PORT', 3000);
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   Logger.log(`ROS Backend API listening on port ${port}`, 'Bootstrap');
 }
 

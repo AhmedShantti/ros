@@ -45,6 +45,9 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Local dev seed data output (plaintext dev credentials — never commit)
+credentials.md
+
 # temp directory
 .temp
 .tmp

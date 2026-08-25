@@ -49,10 +49,11 @@ CREATE UNIQUE INDEX "uq_audit_sequence" ON "governance"."audit_entries"("tenant_
 GRANT USAGE ON SCHEMA "governance" TO ros_app;
 GRANT SELECT, INSERT ON "governance"."audit_entries" TO ros_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON "governance"."audit_entries" FROM ros_app;
--- Future governance tables created by the migration role default to SELECT/INSERT
--- for ros_app (append-only-friendly); grant DML explicitly where a table needs it.
-ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator IN SCHEMA "governance"
-  GRANT SELECT, INSERT ON TABLES TO ros_app;
+-- NOTE: an `ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator ...` statement that
+-- previously followed here was removed for Render deployment compatibility
+-- (42501 permission denied — the connecting migration role there cannot SET
+-- ROLE to ros_migrator). Future governance tables must grant ros_app explicitly,
+-- as this migration already does above for audit_entries.
 
 ALTER TABLE "governance"."audit_entries" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "governance"."audit_entries" FORCE ROW LEVEL SECURITY;

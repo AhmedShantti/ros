@@ -15,13 +15,20 @@
 
 -- ----------------------------------------------------------------------------
 -- Runtime role privileges. ros_app has no table privileges yet (the app ran as
--- ros_migrator until now). Grant DML on existing identity tables and default
--- privileges for future ros_migrator-created tables. No DDL/owner rights.
+-- ros_migrator until now). Grant DML on existing identity tables. No DDL/owner
+-- rights.
+--
+-- NOTE: the `ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator ...` statement that
+-- previously followed here was removed for Render deployment compatibility:
+-- the connecting migration role there is not, and cannot SET ROLE to,
+-- ros_migrator, so the statement fails with 42501 (permission denied to
+-- change default privileges). Default privileges only govern objects created
+-- by ros_migrator AFTER this migration runs; existing tables already have the
+-- explicit GRANT above. See docs/reports/claude/ for the deployment-unblock
+-- report covering this change.
 -- ----------------------------------------------------------------------------
 GRANT USAGE ON SCHEMA identity TO ros_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA identity TO ros_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE ros_migrator IN SCHEMA identity
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ros_app;
 
 -- ----------------------------------------------------------------------------
 -- memberships — tenant-scoped, with a user-scoped SELECT exception so a user can
