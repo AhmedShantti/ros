@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -170,4 +170,82 @@ export class OrderPathParamsDto {
    * about the order's content.
    */
   @Matches(/^\d{4}-\d{2}-\d{2}$/) businessDay!: string;
+}
+
+/** `sales.OrderPaymentTender` — P1F-1 MVP scope only. */
+const PAYMENT_TENDERS = ['cash', 'manual_external_card'] as const;
+
+/**
+ * Capture a Payment (P1F-1).
+ *
+ * Note what is ABSENT and why: no `tenantId`, `branchId`, `employeeId`,
+ * `terminalId`, `currency`, `processedAt`, `roundingAdjustment`,
+ * `changeGiven`, order `paidTotal`, or Order state — every one of those is
+ * derived server-side (the employee and terminal from the trusted PIN
+ * session, the rest computed), and leaving them off the DTO means a client
+ * cannot even express the attempt: `forbidNonWhitelisted` rejects the
+ * request before a handler runs. No PAN/CVV/track field exists on this DTO
+ * at all — not merely unvalidated, structurally unrepresentable
+ * (FR-POS-066).
+ *
+ * `tenderedAmountMinor` (CASH) and `terminalReference`
+ * (MANUAL_EXTERNAL_CARD) are cross-field REQUIRED depending on `tender` —
+ * enforced in `SalesPaymentService`, the same layering `VoidOrderLineDto`'s
+ * reason code and `AddOrderLineDto`'s modifier rules already use, rather
+ * than a `@ValidateIf` DTO rule.
+ */
+export class CapturePaymentDto {
+  /** FR-OFF-015 — the ULID the device assigned to this Payment. */
+  @IsOptional() @Matches(UUID_PATTERN) id?: string;
+
+  @IsIn(PAYMENT_TENDERS) tender!: (typeof PAYMENT_TENDERS)[number];
+
+  /**
+   * The amount this Payment applies toward the order, in MINOR units, as an
+   * exact integer string (ADR-008 — never a JSON number). For CASH, the
+   * EXACT amount being settled — never the cash-rounded figure, which the
+   * server derives from `tenderedAmountMinor` and the order's pinned
+   * country pack.
+   */
+  @Matches(/^\d{1,18}$/, {
+    message:
+      'amountMinor must be a whole number of minor units expressed as a string',
+  })
+  @Transform(({ obj }: { obj: Record<string, unknown> }) =>
+    typeof obj.amountMinor === 'string' ? obj.amountMinor : '\u0000',
+  )
+  amountMinor!: string;
+
+  @Matches(UUID_PATTERN) cashSessionId!: string;
+
+  /** REQUIRED for CASH; refused for MANUAL_EXTERNAL_CARD. */
+  @IsOptional()
+  @Matches(/^\d{1,18}$/, {
+    message:
+      'tenderedAmountMinor must be a whole number of minor units expressed as a string',
+  })
+  @Transform(({ obj }: { obj: Record<string, unknown> }) =>
+    obj.tenderedAmountMinor === undefined
+      ? undefined
+      : typeof obj.tenderedAmountMinor === 'string'
+        ? obj.tenderedAmountMinor
+        : '\u0000',
+  )
+  tenderedAmountMinor?: string;
+
+  /**
+   * REQUIRED for MANUAL_EXTERNAL_CARD; refused for CASH. The cashier's own
+   * record of the already-completed EXTERNAL terminal transaction — never a
+   * ROS-side integrated-terminal session id (FR-POS-064 is not implemented).
+   */
+  @IsOptional() @IsString() @MaxLength(64) terminalReference?: string;
+
+  /** Optional, only when the cashier supplies it (FR-POS-066 permitted metadata). */
+  @IsOptional() @IsString() @MaxLength(32) cardScheme?: string;
+
+  /** Optional. Exactly 4 digits when present — never more (FR-POS-066). */
+  @IsOptional() @Matches(/^\d{4}$/) last4?: string;
+
+  /** Optional. */
+  @IsOptional() @IsString() @MaxLength(32) authorizationCode?: string;
 }

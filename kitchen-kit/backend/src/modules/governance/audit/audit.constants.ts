@@ -21,6 +21,10 @@ export const AUDIT_ACTION = {
   // P1E-6 Fire. Same convention; one verb for the one material operational
   // action Fire performs (first Fire and every amendment Fire alike).
   ORDER_FIRED: 'ORDER_FIRED',
+  // P1F-1 Payment MVP. Same convention; one verb covers both CASH and
+  // MANUAL_EXTERNAL_CARD capture (the tender itself is metadata, not a
+  // different action).
+  PAYMENT_CAPTURED: 'PAYMENT_CAPTURED',
   // P1D-1 Workforce / Treasury. Same <ENTITY>_<PAST_TENSE> convention; the
   // audit taxonomy is not governance-controlled, so these follow the existing
   // shape rather than inventing one. Opening a shift and taking custody of a
@@ -122,6 +126,7 @@ export const AUDIT_ACTION = {
 export const AUDIT_ENTITY = {
   ORDER: 'order',
   ORDER_LINE: 'order_line',
+  ORDER_PAYMENT: 'order_payment',
   SHIFT: 'shift',
   CASH_SESSION: 'cash_session',
   DRAWER: 'drawer',

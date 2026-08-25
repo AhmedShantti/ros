@@ -1,4 +1,4 @@
-import { Order, OrderLine } from '../../generated/prisma/client';
+import { Order, OrderLine, OrderPayment } from '../../generated/prisma/client';
 
 /**
  * Sales read models.
@@ -92,4 +92,49 @@ export function toOrderLineView(line: OrderLine) {
  */
 export function orderETag(order: Pick<Order, 'id' | 'version'>): string {
   return `W/"${order.id}.${order.version}"`;
+}
+
+/**
+ * P1F-1 §22 — FR-POS-061's running balance, DERIVED, never stored. No
+ * `remaining_balance` column exists; this is the only place the
+ * subtraction happens, and the result carries no independent state to
+ * drift out of sync with `paid_total`/`grand_total`.
+ */
+export function orderRemainingBalance(
+  order: Pick<Order, 'grandTotal' | 'paidTotal'>,
+): bigint {
+  return order.grandTotal - order.paidTotal;
+}
+
+/**
+ * P1F-1 — a captured Payment. BigInt money as a STRING of minor units, same
+ * discipline as `toOrderView`/`toOrderLineView` (ADR-008, BR-FIN-005).
+ * FR-POS-066: only the permitted card metadata is present here because it
+ * is the only card metadata the row can hold at all.
+ */
+export function toPaymentView(payment: OrderPayment) {
+  return {
+    id: payment.id,
+    orderId: payment.orderId,
+    businessDay: payment.businessDay.toISOString().slice(0, 10),
+    tender: payment.tender,
+    currency: payment.currency,
+    amount: payment.amount.toString(),
+    roundingAdjustment: payment.roundingAdjustment.toString(),
+    cashSessionId: payment.cashSessionId,
+    employeeId: payment.employeeId,
+    terminalId: payment.terminalId,
+    tenderedAmount:
+      payment.tenderedAmount === null
+        ? null
+        : payment.tenderedAmount.toString(),
+    changeGiven:
+      payment.changeGiven === null ? null : payment.changeGiven.toString(),
+    paymentTerminalTxnRef: payment.paymentTerminalTxnRef,
+    cardScheme: payment.cardScheme,
+    cardLast4: payment.cardLast4,
+    authorizationCode: payment.authorizationCode,
+    processedAt: payment.processedAt,
+    createdAt: payment.createdAt,
+  };
 }

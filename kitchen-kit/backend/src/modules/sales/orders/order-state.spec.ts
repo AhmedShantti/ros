@@ -2,6 +2,7 @@ import {
   OrderStateError,
   assertCashierMayMutateLine,
   assertMayAddLine,
+  assertMayCapturePayment,
   assertMayFire,
   assertOrderMutable,
   assertTransition,
@@ -139,6 +140,37 @@ describe('FR-POS-003 — dine-in needs a table before FIRE, not before creation'
     // Creation-time is governed by assertMayAddLine/assertOrderMutable, neither
     // of which consults the table — the SRS says "before firing".
     expect(() => assertMayAddLine('draft')).not.toThrow();
+  });
+});
+
+describe('P1F-1 — BR-POS-002 payment source states', () => {
+  it('allows the new open -> partially_paid transition', () => {
+    expect(canTransition('open', 'partially_paid')).toBe(true);
+    expect(() => assertTransition('open', 'partially_paid')).not.toThrow();
+  });
+
+  it('accepts a payment against an open order', () => {
+    expect(() => assertMayCapturePayment('open')).not.toThrow();
+  });
+
+  it('accepts a further payment against an already partially_paid order', () => {
+    expect(() => assertMayCapturePayment('partially_paid')).not.toThrow();
+  });
+
+  it('refuses a payment against draft, held or parked', () => {
+    for (const s of ['draft', 'held', 'parked'] as const) {
+      expect(() => assertMayCapturePayment(s)).toThrow(OrderStateError);
+    }
+  });
+
+  it('refuses a payment against a finalised order with the existing BR-POS-001 message', () => {
+    expect(() => assertMayCapturePayment('completed')).toThrow(
+      /no longer be modified/,
+    );
+  });
+
+  it('partially_paid still has no outgoing transition — a further payment changes only projections', () => {
+    expect(canTransition('partially_paid', 'partially_paid')).toBe(false);
   });
 });
 

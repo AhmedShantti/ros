@@ -3,16 +3,19 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { WorkforceModule } from '../workforce/workforce.module';
+import { CashSessionFactsQueryService } from './cash-sessions/cash-session-facts.query.service';
 import { CashSessionsService } from './cash-sessions/cash-sessions.service';
+import { CASH_SESSION_FACTS_QUERY } from './contract';
 import { DrawersService } from './drawers/drawers.service';
 import { TreasuryController } from './treasury.controller';
 
 /**
  * Treasury bounded context — Drawer + CashSession OPEN.
  *
- * PUBLIC SURFACE: ONE route — open a cashier shift with its cash session.
- * Nothing else. There is no read route: `cash.session.open` is §15.2's WRITE
- * authority ("Open a shift") and no CashSession read code exists to use instead,
+ * PUBLIC HTTP SURFACE: ONE route — open a cashier shift with its cash
+ * session. Nothing else. There is no read ROUTE: `cash.session.open` is
+ * §15.2's WRITE authority ("Open a shift") and no CashSession read code
+ * exists to use instead,
  * because §15.2's authoritative Appendix C is absent from the SRS (the same
  * absence ratified decision D-20 records). Close, counted cash, denominations,
  * variance, pay-in/out, safe drop, X report, day close and expenses are all
@@ -30,11 +33,24 @@ import { TreasuryController } from './treasury.controller';
  * endpoint and §15.2 no drawer-admin permission, so none is invented and
  * `cash.session.open` is not repurposed as one. `DrawersService` is exported for
  * internal/bootstrap use and the missing operator surface is reported.
+ *
+ * P1F-1 adds the FIRST published `contract/` QUERY: `CASH_SESSION_FACTS_QUERY`
+ * (`modules/treasury/contract`), consumed by Sales' Payment capture to
+ * validate P1D-G attribution. Still no public read ROUTE — the contract is
+ * an in-process module boundary, not HTTP.
  */
 @Module({
   imports: [PrismaModule, IdentityModule, AuditModule, WorkforceModule],
   controllers: [TreasuryController],
-  providers: [DrawersService, CashSessionsService],
-  exports: [DrawersService, CashSessionsService],
+  providers: [
+    DrawersService,
+    CashSessionsService,
+    CashSessionFactsQueryService,
+    {
+      provide: CASH_SESSION_FACTS_QUERY,
+      useExisting: CashSessionFactsQueryService,
+    },
+  ],
+  exports: [DrawersService, CashSessionsService, CASH_SESSION_FACTS_QUERY],
 })
 export class TreasuryModule {}

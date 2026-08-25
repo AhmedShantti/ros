@@ -50,6 +50,7 @@ import type { TenantContext } from '../../identity/context/tenant-context';
 import { TenantContextGuard } from '../../identity/context/tenant-context.guard';
 import {
   AddOrderLineDto,
+  CapturePaymentDto,
   CreateOrderDto,
   ListOrdersQueryDto,
   OrderLinePathParamsDto,
@@ -57,10 +58,17 @@ import {
   VoidOrderLineDto,
 } from '../sales.dto';
 import { SALES_PERMISSIONS } from '../sales.permissions';
-import { orderETag, toOrderLineView, toOrderView } from '../sales.views';
+import {
+  orderETag,
+  orderRemainingBalance,
+  toOrderLineView,
+  toOrderView,
+  toPaymentView,
+} from '../sales.views';
 import { OrderLinesService } from './order-lines.service';
 import { OrdersService } from './orders.service';
 import { SalesFireService } from './sales-fire.service';
+import { SalesPaymentService } from './sales-payment.service';
 
 /**
  * Order capture + Fire API.
@@ -75,12 +83,21 @@ import { SalesFireService } from './sales-fire.service';
  *   POST   /orders/:businessDay/:id/lines           capture a line
  *   DELETE /orders/:businessDay/:id/lines/:lineId   void a PRE-FIRE line
  *   POST   /orders/:businessDay/:id/fire            fire eligible pending lines (P1E-6)
+ *   POST   /orders/:businessDay/:id/payments        capture a partial CASH or
+ *                                                    manual/external-card
+ *                                                    payment (P1F-1)
  *
  * ── DELIBERATELY ABSENT ─────────────────────────────────────────────────────
  *   POST   /orders/:id/complete   · BR-POS-002 gates COMPLETED on payment, and
  *                                   completion must also drive fiscal documents,
  *                                   inventory depletion, COGS and drawer
- *                                   attribution. None of those exist.
+ *                                   attribution. None of those exist. P1F-1's
+ *                                   own Payment route refuses any payment that
+ *                                   would fully settle the order, for exactly
+ *                                   this reason (§14 of its report).
+ *   POST   /orders/:id/payments/:paymentId/... (integrated terminal, refund) ·
+ *                                   FR-POS-064 (integrated card lifecycle) and
+ *                                   refunds are explicit non-goals of P1F-1.
  *
  * Guard chain: JwtAuthGuard (401) -> TenantContextGuard (403) ->
  * PermissionGuard (403). A cross-tenant id is invisible under RLS and yields
@@ -223,6 +240,35 @@ const orderSchema = {
   },
 };
 
+// Shapes verified against `toPaymentView` in `sales.views.ts`.
+const paymentSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    orderId: uuidSchema(),
+    businessDay: businessDaySchema(),
+    tender: { type: 'string', enum: ['cash', 'manual_external_card'] },
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+    amount: moneyStringSchema(),
+    roundingAdjustment: moneyStringSchema(),
+    cashSessionId: uuidSchema(),
+    employeeId: uuidSchema(),
+    terminalId: uuidSchema(),
+    tenderedAmount: nullable(moneyStringSchema()),
+    changeGiven: nullable(moneyStringSchema()),
+    paymentTerminalTxnRef: nullable({ type: 'string' }),
+    cardScheme: nullable({ type: 'string' }),
+    cardLast4: nullable({ type: 'string' }),
+    authorizationCode: nullable({ type: 'string' }),
+    processedAt: isoDateTimeSchema(),
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
 const etagHeader = {
   ETag: {
     description:
@@ -247,6 +293,7 @@ export class OrdersController {
     private readonly orders: OrdersService,
     private readonly lines: OrderLinesService,
     private readonly fireService: SalesFireService,
+    private readonly paymentService: SalesPaymentService,
   ) {}
 
   /**
@@ -546,6 +593,111 @@ export class OrdersController {
   }
 
   /**
+   * Capture a partial CASH or MANUAL_EXTERNAL_CARD payment — P1F-1,
+   * FR-POS-060/061/063/065/066, the ratified P1D-B..G carried items.
+   *
+   * `Idempotency-Key` AND `If-Match` are both mandatory, the identical
+   * convention `addLine`/`fire` already use. `pos.payment.capture`
+   * (P1D-F) is required — deliberately separate from `pos.order.create`
+   * and `pos.order.fire`. Both the terminal AND the employee come from the
+   * trusted PIN session (P1D-E financial actor), never the body.
+   *
+   * A payment that would fully or over-settle the order is refused with
+   * 422 (`FULL_PAYMENT_REQUIRES_COMPLETION`) — Completion does not exist
+   * yet, so a full settlement here would create an invalid
+   * "paid in full + PARTIALLY_PAID" state.
+   */
+  @Post(':businessDay/:id/payments')
+  @HttpCode(HttpStatus.CREATED)
+  @Idempotent()
+  @RequirePermission(SALES_PERMISSIONS.PAYMENT_CAPTURE)
+  @ApiOperation({
+    summary:
+      'Capture a partial CASH or manual/external-card payment (full settlement is refused — Completion does not exist yet).',
+  })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true) — no second Payment, no second paid_total increment.',
+  })
+  @ApiHeader({
+    name: 'if-match',
+    required: true,
+    description:
+      'The order\'s current ETag (W/"<orderId>.<version>") or a bare version integer. Not "*".',
+  })
+  @ApiCreatedResponse({
+    description:
+      'The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated).',
+    schema: {
+      type: 'object',
+      properties: {
+        payment: paymentSchema,
+        order: orderSchema,
+        remainingBalance: moneyStringSchema(),
+      },
+    },
+    headers: etagHeader,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/malformed If-Match, missing/over-long Idempotency-Key, a missing tender-specific field (tenderedAmountMinor for cash, terminalReference for card), or an otherwise invalid request body.',
+  })
+  @ApiConflictResponse({
+    description:
+      'The If-Match version is stale, the Idempotency-Key was already used with a different request body / is still in flight, or the same permanent Payment id was already used with different content.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The order is not in a state that accepts a payment, the cash session is invalid for this order (wrong branch/employee/terminal/currency, or not open), the tendered cash is insufficient, or this payment would fully or over-settle the order (Completion is not implemented).',
+  })
+  async capturePayment(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param() params: OrderPathParamsDto,
+    @Body() dto: CapturePaymentDto,
+    @Headers('if-match') ifMatch: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+
+    const { order, payment } = await this.paymentService.capture(
+      context.tenantId,
+      context.userId,
+      {
+        ...(dto.id ? { id: dto.id } : {}),
+        orderId: params.id,
+        businessDay: parseBusinessDay(params.businessDay),
+        expectedVersion: parseIfMatch(ifMatch, params.id),
+        tender: dto.tender,
+        amountMinor: BigInt(dto.amountMinor),
+        cashSessionId: dto.cashSessionId,
+        employeeId,
+        terminalId,
+        ...(dto.tenderedAmountMinor
+          ? { tenderedAmountMinor: BigInt(dto.tenderedAmountMinor) }
+          : {}),
+        ...(dto.terminalReference
+          ? { terminalReference: dto.terminalReference }
+          : {}),
+        ...(dto.cardScheme ? { cardScheme: dto.cardScheme } : {}),
+        ...(dto.last4 ? { last4: dto.last4 } : {}),
+        ...(dto.authorizationCode
+          ? { authorizationCode: dto.authorizationCode }
+          : {}),
+      },
+    );
+
+    response.setHeader('ETag', orderETag(order));
+    return {
+      payment: toPaymentView(payment),
+      order: toOrderView(order),
+      remainingBalance: orderRemainingBalance(order).toString(),
+    };
+  }
+
+  /**
    * Void a PRE-FIRE line — the cashier's ordinary correction (Clarification C).
    *
    * DELETE is the HTTP verb; the domain operation is a VOID. The row is retained
@@ -620,6 +772,34 @@ export class OrdersController {
       );
     }
     return principal.terminalId;
+  }
+
+  /**
+   * The terminal AND the employee come from the SESSION, never from the
+   * body — the exact same requirement `TreasuryController.
+   * requirePosIdentity` already enforces for opening a cash session. P1D-E
+   * makes the Employee the Payment's financial actor, so a session that
+   * cannot identify one cannot capture a payment.
+   */
+  private requirePosIdentity(principal: AuthenticatedPrincipal): {
+    terminalId: string;
+    employeeId: string;
+  } {
+    if (!principal.terminalId) {
+      throw new ForbiddenException(
+        'Capturing a payment requires a terminal-bound session.',
+      );
+    }
+    if (!principal.employeeId) {
+      throw new ForbiddenException(
+        'Capturing a payment requires a session that identifies the ' +
+          'employee taking the payment.',
+      );
+    }
+    return {
+      terminalId: principal.terminalId,
+      employeeId: principal.employeeId,
+    };
   }
 
   /**

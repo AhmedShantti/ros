@@ -967,7 +967,7 @@ describe('Sales P1A (e2e)', () => {
 
   // ------------------------------------------------------ exposed surface ---
   describe('the public surface matches what can be produced truthfully', () => {
-    it('exposes order capture + explicit Fire (P1E-6), and NOTHING with an unmet prerequisite', () => {
+    it('exposes order capture + explicit Fire (P1E-6) + Payment capture (P1F-1), and NOTHING with an unmet prerequisite', () => {
       const paths = registeredRoutePaths(app);
       // Guard the guard: an introspection that silently returned nothing would
       // make every "route absent" assertion below pass vacuously.
@@ -982,6 +982,7 @@ describe('Sales P1A (e2e)', () => {
         '/orders/:businessDay/:id/fire',
         '/orders/:businessDay/:id/lines',
         '/orders/:businessDay/:id/lines/:lineId',
+        '/orders/:businessDay/:id/payments',
       ]);
 
       // P1E-6: explicit Fire is now real (ratified "Fire Authorization
@@ -992,7 +993,9 @@ describe('Sales P1A (e2e)', () => {
       // `/catalogue/completeness` is a Catalogue reporting route and is not an
       // order-completion route; scope the check to Sales.
       expect(sales.filter((p) => p.includes('complete'))).toHaveLength(0);
-      expect(paths.filter((p) => p.includes('payment'))).toHaveLength(0);
+      // P1F-1: explicit partial CASH / manual-external-card Payment capture
+      // is now real — exactly the one route above, never a second.
+      expect(paths.filter((p) => p.includes('payment'))).toHaveLength(1);
       expect(paths.filter((p) => p.includes('refund'))).toHaveLength(0);
       // Country packs and tax stay internal: no administrative surface exists.
       expect(paths.filter((p) => p.includes('country-pack'))).toHaveLength(0);

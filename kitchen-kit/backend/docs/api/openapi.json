@@ -143,6 +143,60 @@
         ],
         "type": "object"
       },
+      "CapturePaymentDto": {
+        "properties": {
+          "amountMinor": {
+            "description": "The amount this Payment applies toward the order, in MINOR units, as an\nexact integer string (ADR-008 — never a JSON number). For CASH, the\nEXACT amount being settled — never the cash-rounded figure, which the\nserver derives from `tenderedAmountMinor` and the order's pinned\ncountry pack.",
+            "pattern": "^\\d{1,18}$",
+            "type": "string"
+          },
+          "authorizationCode": {
+            "description": "Optional.",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "cardScheme": {
+            "description": "Optional, only when the cashier supplies it (FR-POS-066 permitted metadata).",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "cashSessionId": {
+            "type": "string"
+          },
+          "id": {
+            "description": "FR-OFF-015 — the ULID the device assigned to this Payment.",
+            "type": "string"
+          },
+          "last4": {
+            "description": "Optional. Exactly 4 digits when present — never more (FR-POS-066).",
+            "pattern": "^\\d{4}$",
+            "type": "string"
+          },
+          "tender": {
+            "enum": [
+              "cash",
+              "manual_external_card"
+            ],
+            "type": "string"
+          },
+          "tenderedAmountMinor": {
+            "description": "REQUIRED for CASH; refused for MANUAL_EXTERNAL_CARD.",
+            "pattern": "^\\d{1,18}$",
+            "type": "string"
+          },
+          "terminalReference": {
+            "description": "REQUIRED for MANUAL_EXTERNAL_CARD; refused for CASH. The cashier's own\nrecord of the already-completed EXTERNAL terminal transaction — never a\nROS-side integrated-terminal session id (FR-POS-064 is not implemented).",
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "tender",
+          "amountMinor",
+          "cashSessionId"
+        ],
+        "type": "object"
+      },
       "ChangeBaseUnitDto": {
         "properties": {
           "baseUnitId": {
@@ -13927,6 +13981,649 @@
           }
         ],
         "summary": "Void a pre-fire line (the ordinary cashier correction).",
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/orders/{businessDay}/{id}/payments": {
+      "post": {
+        "operationId": "OrdersController_capturePayment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`sales.orders` is partitioned by `business_day` and its primary key is\n(id, business_day), so a read needs both. It is a locator, not a claim\nabout the order's content.",
+            "in": "path",
+            "name": "businessDay",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order's current ETag (W/\"<orderId>.<version>\") or a bare version integer. Not \"*\".",
+            "in": "header",
+            "name": "if-match",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true) — no second Payment, no second paid_total increment.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapturePaymentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "order": {
+                      "properties": {
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "channel": {
+                          "enum": [
+                            "pos",
+                            "kiosk",
+                            "qr",
+                            "aggregator",
+                            "phone",
+                            "api"
+                          ],
+                          "type": "string"
+                        },
+                        "closedBy": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "completedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "countryPackVersion": {
+                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned.",
+                          "type": "integer"
+                        },
+                        "createdAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "currency": {
+                          "description": "ISO 4217 currency code.",
+                          "example": "AED",
+                          "type": "string"
+                        },
+                        "discountTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "firstFiredAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "grandTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "guestCount": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "lines": {
+                          "description": "Present only where the endpoint populates line snapshots.",
+                          "items": {
+                            "properties": {
+                              "course": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              "firedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "id": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "isComp": {
+                                "type": "boolean"
+                              },
+                              "itemNameSnapshot": {
+                                "description": "Opaque localized-name snapshot (locale -> name), persisted at capture time.",
+                                "type": "object"
+                              },
+                              "lineDiscount": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "lineSubtotal": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "lineTotal": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "menuItemId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "modifierTotal": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "notes": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "priceEntryId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "priceListId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "priceRule": {
+                                "description": "Opaque pricing-rule provenance snapshot.",
+                                "type": "object"
+                              },
+                              "quantity": {
+                                "description": "Decimal quantity as a string (preserves exact precision).",
+                                "example": "2.5",
+                                "pattern": "^-?\\d+(\\.\\d+)?$",
+                                "type": "string"
+                              },
+                              "readyAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "recipeVersionId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "seatNumber": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "sequence": {
+                                "type": "integer"
+                              },
+                              "state": {
+                                "enum": [
+                                  "pending",
+                                  "fired",
+                                  "preparing",
+                                  "ready",
+                                  "served",
+                                  "voided",
+                                  "comped"
+                                ],
+                                "type": "string"
+                              },
+                              "taxAmount": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "taxClassId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "unitCostSnapshot": {
+                                "description": "Decimal quantity as a string (preserves exact precision).",
+                                "example": "2.5",
+                                "pattern": "^-?\\d+(\\.\\d+)?$",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "unitPrice": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "variantId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "notes": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "openedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "openedBy": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "orderNumber": {
+                          "type": "string"
+                        },
+                        "orderType": {
+                          "enum": [
+                            "dine_in",
+                            "takeaway",
+                            "delivery",
+                            "drive_thru",
+                            "pickup",
+                            "aggregator"
+                          ],
+                          "type": "string"
+                        },
+                        "originDeviceTime": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "paidTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "roundingAdjustment": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "servedBy": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "serviceChargeTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "state": {
+                          "enum": [
+                            "draft",
+                            "open",
+                            "held",
+                            "parked",
+                            "partially_paid",
+                            "completed",
+                            "cancelled",
+                            "partially_refunded",
+                            "refunded"
+                          ],
+                          "type": "string"
+                        },
+                        "subtotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "tableId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "taxTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "terminalId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "tipTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "updatedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "version": {
+                          "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4).",
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "payment": {
+                      "properties": {
+                        "amount": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "authorizationCode": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "cardLast4": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cardScheme": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cashSessionId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "changeGiven": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "createdAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "currency": {
+                          "description": "ISO 4217 currency code.",
+                          "example": "AED",
+                          "type": "string"
+                        },
+                        "employeeId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "orderId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "paymentTerminalTxnRef": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "processedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "roundingAdjustment": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "tender": {
+                          "enum": [
+                            "cash",
+                            "manual_external_card"
+                          ],
+                          "type": "string"
+                        },
+                        "tenderedAmount": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "terminalId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "remainingBalance": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated).",
+            "headers": {
+              "ETag": {
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "schema": {
+                  "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\"",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/malformed If-Match, missing/over-long Idempotency-Key, a missing tender-specific field (tenderedAmountMinor for cash, terminalReference for card), or an otherwise invalid request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown or cross-tenant resource."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The If-Match version is stale, the Idempotency-Key was already used with a different request body / is still in flight, or the same permanent Payment id was already used with different content."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The order is not in a state that accepts a payment, the cash session is invalid for this order (wrong branch/employee/terminal/currency, or not open), the tendered cash is insufficient, or this payment would fully or over-settle the order (Completion is not implemented)."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Capture a partial CASH or manual/external-card payment (full settlement is refused — Completion does not exist yet).",
         "tags": [
           "sales"
         ]

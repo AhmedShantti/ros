@@ -71,7 +71,12 @@ const SENT_TO_PRODUCTION: ReadonlySet<OrderLineState> = new Set<OrderLineState>(
 const TRANSITIONS: Readonly<Record<OrderState, readonly OrderState[]>> =
   Object.freeze({
     draft: ['open', 'cancelled'],
-    open: ['held', 'parked', 'cancelled'],
+    // P1F-1: a partial Payment moves an OPEN order to PARTIALLY_PAID
+    // (BR-POS-002). PARTIALLY_PAID -> PARTIALLY_PAID is deliberately NOT a
+    // transition: a further partial payment on an already-partially-paid
+    // order changes only projections (paid_total, version), never state, so
+    // it never calls `assertTransition` at all.
+    open: ['held', 'parked', 'cancelled', 'partially_paid'],
     held: ['open', 'cancelled'],
     parked: ['open', 'cancelled'],
     partially_paid: [],
@@ -199,6 +204,27 @@ export function assertMayFire(
   if (orderType === 'dine_in' && tableId === null) {
     throw new OrderStateError(
       'A dine-in order requires a table assignment before it can be fired (FR-POS-003).',
+    );
+  }
+}
+
+/**
+ * P1F-1 — may a Payment be captured against this order?
+ *
+ * Only DRAFT->OPEN's destination and OPEN's own PARTIALLY_PAID successor
+ * accept a payment in this MVP: `open` (first payment) and `partially_paid`
+ * (a further split-tender payment). `held`/`parked` are legal operational
+ * states elsewhere in the system but a payment against a held or parked
+ * order is not source-supported here, so it is refused rather than
+ * silently accepted. A finalised order still falls through to
+ * `assertOrderMutable`'s own BR-POS-001 message, unchanged.
+ */
+export function assertMayCapturePayment(orderState: OrderState): void {
+  assertOrderMutable(orderState);
+  if (orderState !== 'open' && orderState !== 'partially_paid') {
+    throw new OrderStateError(
+      `Payment cannot be captured while the order is ${orderState}. ` +
+        'Only open or partially_paid orders accept a payment in this release.',
     );
   }
 }

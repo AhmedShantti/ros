@@ -1091,18 +1091,36 @@ describe('Cash session open (e2e)', () => {
       ]) {
         expect(treasury.filter((p) => p.includes(forbidden))).toHaveLength(0);
       }
-      // These must not exist ANYWHERE — no payment or refund route was added.
-      expect(paths.filter((p) => p.includes('payment'))).toHaveLength(0);
+      // P1F-1: Payment capture is now real, but it is a SALES route
+      // (`/orders/{businessDay}/{id}/payments`) — Treasury itself grew no
+      // route at all. Re-scoped to `treasury` (already asserted `===
+      // ['/cash-sessions']` above) rather than the whole app, since a
+      // global "no payment route anywhere" check is no longer a true
+      // statement about the application and was never really a statement
+      // about Treasury's own boundary, which is what this test guards.
+      expect(treasury.filter((p) => p.includes('payment'))).toHaveLength(0);
       expect(paths.filter((p) => p.includes('refund'))).toHaveLength(0);
       expect(paths.filter((p) => p.includes('day-close'))).toHaveLength(0);
     });
 
-    it('creates no payment table', async () => {
-      const rows = await admin.$queryRawUnsafe<{ tablename: string }[]>(
+    it('creates no payment table in the treasury schema, and no PaymentAttempt table anywhere', async () => {
+      // P1F-1: `sales.order_payments` is now real (P1D-B/C/D/E/F/G — a
+      // Sales-owned table), so this is re-scoped to what it actually
+      // guards: Treasury itself grew no payment table, and PaymentAttempt
+      // — ratified as explicitly NOT built for CASH/manual-external-card
+      // in this MVP (P1D-C) — does not exist in ANY schema.
+      const treasuryRows = await admin.$queryRawUnsafe<{ tablename: string }[]>(
         `SELECT tablename FROM pg_tables
-          WHERE tablename IN ('order_payments','payment_attempts','payments')`,
+          WHERE schemaname = 'treasury'
+            AND tablename IN ('order_payments','payment_attempts','payments')`,
       );
-      expect(rows).toHaveLength(0);
+      expect(treasuryRows).toHaveLength(0);
+
+      const attemptRows = await admin.$queryRawUnsafe<{ tablename: string }[]>(
+        `SELECT tablename FROM pg_tables
+          WHERE tablename IN ('payment_attempts','payments')`,
+      );
+      expect(attemptRows).toHaveLength(0);
     });
 
     it('creates only the three authorised tables in workforce and treasury', async () => {

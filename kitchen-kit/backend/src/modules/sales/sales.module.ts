@@ -6,10 +6,12 @@ import { IdentityModule } from '../identity/identity.module';
 import { LocalisationModule } from '../localisation/localisation.module';
 import { OrganisationModule } from '../organisation/organisation.module';
 import { ProductionModule } from '../production/production.module';
+import { TreasuryModule } from '../treasury/treasury.module';
 import { OrderLinesService } from './orders/order-lines.service';
 import { OrdersController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
 import { SalesFireService } from './orders/sales-fire.service';
+import { SalesPaymentService } from './orders/sales-payment.service';
 import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
 
 /**
@@ -34,10 +36,18 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
  * does not re-derive.
  *
  * PUBLIC SURFACE, P1E-6 addition: explicit Fire
- * (`POST /orders/{businessDay}/{id}/fire`). STILL UNEXPOSED: complete,
- * payment and refund — completion must drive fiscal documents, inventory
- * depletion, COGS posting and drawer attribution; none of those exist, and a
- * state flip would misrepresent all of them.
+ * (`POST /orders/{businessDay}/{id}/fire`).
+ *
+ * PUBLIC SURFACE, P1F-1 addition: partial CASH / manual-external-card
+ * Payment capture (`POST /orders/{businessDay}/{id}/payments`), refusing
+ * any payment that would fully or over-settle the order. `TreasuryModule`
+ * is imported for ONE published contract query —
+ * `CASH_SESSION_FACTS_QUERY` from `modules/treasury/contract` (P1D-G
+ * attribution) — the first `sales -> treasury` edge.
+ *
+ * STILL UNEXPOSED: complete, and refund — completion must drive fiscal
+ * documents, inventory depletion, COGS posting and drawer attribution; none
+ * of those exist, and a state flip would misrepresent all of them.
  */
 @Module({
   imports: [
@@ -47,12 +57,16 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
     CatalogueModule,
     OrganisationModule,
     ProductionModule,
+    // P1F-1 — the FIRST sales->treasury edge, consumed only through
+    // `treasury/contract`'s `CASH_SESSION_FACTS_QUERY`.
+    TreasuryModule,
   ],
   controllers: [OrdersController],
   providers: [
     OrdersService,
     OrderLinesService,
     SalesFireService,
+    SalesPaymentService,
     // Domain errors are plain Errors so the pure layers stay free of HTTP; this
     // maps them onto the Problem Details statuses SRS 26 specifies.
     { provide: APP_FILTER, useClass: SalesDomainExceptionFilter },

@@ -46,6 +46,18 @@ export const SALES_PERMISSIONS = {
    * its own, separate from `pos.order.create`.
    */
   ORDER_FIRE: 'pos.order.fire',
+  /**
+   * P1F-1 — CARRIED ITEM P1D-F
+   * (`docs/governance/GOVERNANCE_DECISION_REGISTER.md`). SRS §15.2's Sales
+   * list contains no payment verb at all, so — unlike every other code in
+   * this file — this one is a NEW code created by explicit user
+   * authorisation, the one recorded exception to the zero-invented-codes
+   * discipline. Deliberately separate from `pos.order.create` so a tenant
+   * may grant order entry without granting payment capture. Does NOT
+   * authorise refunds, different-tender refunds, voids, price overrides,
+   * CashSession management, or approvals.
+   */
+  PAYMENT_CAPTURE: 'pos.payment.capture',
 } as const;
 
 export const SALES_PERMISSION_DEFS: PermissionDef[] = [
@@ -63,5 +75,10 @@ export const SALES_PERMISSION_DEFS: PermissionDef[] = [
     code: SALES_PERMISSIONS.ORDER_FIRE,
     module: 'pos',
     description: 'Fire pending order lines to production',
+  },
+  {
+    code: SALES_PERMISSIONS.PAYMENT_CAPTURE,
+    module: 'pos',
+    description: 'Capture an ordinary POS customer payment',
   },
 ];

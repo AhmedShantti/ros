@@ -372,6 +372,197 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
   });
 
   /**
+   * P1F-1 — Treasury CashSession facts (P1D-G attribution: branch, employee,
+   * shift, drawer, terminal, currency, open status). The FIRST `sales ->
+   * treasury` edge, and — same pattern as `sales->organisation` — public
+   * from the start, so no deviation entry is added.
+   */
+  it('Treasury publishes a public CashSession-facts contract, and Sales consumes only that contract', () => {
+    const contract = readFileSync(
+      join(MODULES_ROOT, 'treasury/contract/index.ts'),
+      'utf8',
+    );
+    expect(contract).toContain("export * from './cash-session-facts.query'");
+    const query = readFileSync(
+      join(MODULES_ROOT, 'treasury/contract/cash-session-facts.query.ts'),
+      'utf8',
+    );
+    expect(query).toContain('CashSessionFactsQuery');
+    expect(query).not.toMatch(/:\s*any\b|<any>|\bas any\b/);
+
+    const paymentService = readFileSync(
+      join(MODULES_ROOT, 'sales/orders/sales-payment.service.ts'),
+      'utf8',
+    );
+    expect(paymentService).toContain("from '../../treasury/contract'");
+    const importLines = paymentService
+      .split('\n')
+      .filter((line) => /^\s*import\b/.test(line));
+    expect(
+      importLines.some(
+        (line) =>
+          line.includes('treasury/cash-sessions') ||
+          line.includes('treasury/drawers'),
+      ),
+    ).toBe(false);
+
+    expect(KNOWN_DEVIATIONS['sales->treasury']).toBeUndefined();
+    expect(
+      violations.filter(
+        (v) => v.importer === 'sales' && v.imported === 'treasury',
+      ),
+    ).toEqual([]);
+  });
+
+  /** P1F-1 — same contract-purity guarantee for Treasury's new contract/. */
+  it('Treasury contract/ contains interface/types only — no persistence implementation', () => {
+    const contractDir = join(MODULES_ROOT, 'treasury/contract');
+    const offending = walk(contractDir)
+      .filter((f) => !f.endsWith('.spec.ts'))
+      .filter((f) => containsPersistenceImplementation(readFileSync(f, 'utf8')))
+      .map((f) => relative(MODULES_ROOT, f));
+    expect(offending).toEqual([]);
+  });
+
+  it('the concrete CashSessionFactsQuery implementation is private (outside contract/), and Sales never imports it', () => {
+    const implementationSource = readFileSync(
+      join(
+        MODULES_ROOT,
+        'treasury/cash-sessions/cash-session-facts.query.service.ts',
+      ),
+      'utf8',
+    );
+    expect(containsPersistenceImplementation(implementationSource)).toBe(true);
+
+    const paymentService = readFileSync(
+      join(MODULES_ROOT, 'sales/orders/sales-payment.service.ts'),
+      'utf8',
+    );
+    expect(paymentService).not.toContain(
+      'treasury/cash-sessions/cash-session-facts.query.service',
+    );
+    expect(paymentService).not.toContain('CashSessionFactsQueryService');
+  });
+
+  /** P1F-1 §25 — zero new deviations for the new CashSession-facts contract. */
+  it('Payment adds zero new module-boundary deviations', () => {
+    expect(KNOWN_DEVIATIONS['sales->treasury']).toBeUndefined();
+    expect(KNOWN_DEVIATIONS['sales->catalogue']).toEqual([
+      'pricing/price-resolution.service',
+    ]);
+    expect(KNOWN_DEVIATIONS['sales->organisation']).toBeUndefined();
+  });
+
+  /**
+   * P1F-1A — Localisation's FIRST published `contract/`. P1F-1's own
+   * reasoning that reusing the pre-existing `sales->localisation` private
+   * deviation was "zero new deviation" is REJECTED: an existing
+   * private-import deviation is debt, not a public API, and a NEW consumer
+   * relying on it expands the violation even when the allow-list key does
+   * not change. `SalesPaymentService` now consumes Localisation ONLY
+   * through `PINNED_PAYMENT_POLICY_QUERY`.
+   */
+  it('Localisation publishes a public pinned-payment-policy contract, and SalesPaymentService consumes only that contract', () => {
+    const contract = readFileSync(
+      join(MODULES_ROOT, 'localisation/contract/index.ts'),
+      'utf8',
+    );
+    expect(contract).toContain("export * from './pinned-payment-policy.query'");
+    const query = readFileSync(
+      join(
+        MODULES_ROOT,
+        'localisation/contract/pinned-payment-policy.query.ts',
+      ),
+      'utf8',
+    );
+    expect(query).toContain('PinnedPaymentPolicyQuery');
+    expect(query).not.toMatch(/:\s*any\b|<any>|\bas any\b/);
+
+    const paymentService = readFileSync(
+      join(MODULES_ROOT, 'sales/orders/sales-payment.service.ts'),
+      'utf8',
+    );
+    expect(paymentService).toContain("from '../../localisation/contract'");
+    const importLines = paymentService
+      .split('\n')
+      .filter((line) => /^\s*import\b/.test(line));
+    // SalesPaymentService may not import ANY Localisation internal path —
+    // not `country-pack/country-pack.service` (what P1F-1 used), not any
+    // other `country-pack/`/`tax/` private path either.
+    expect(
+      importLines.some(
+        (line) =>
+          line.includes('localisation/country-pack') ||
+          line.includes('localisation/payment-policy') ||
+          line.includes('localisation/tax'),
+      ),
+    ).toBe(false);
+    expect(paymentService).not.toContain('CountryPackService');
+  });
+
+  /** P1F-1A — same contract-purity guarantee for Localisation's new contract/. */
+  it('Localisation contract/ contains interface/types only — no persistence implementation', () => {
+    const contractDir = join(MODULES_ROOT, 'localisation/contract');
+    const offending = walk(contractDir)
+      .filter((f) => !f.endsWith('.spec.ts'))
+      .filter((f) => containsPersistenceImplementation(readFileSync(f, 'utf8')))
+      .map((f) => relative(MODULES_ROOT, f));
+    expect(offending).toEqual([]);
+  });
+
+  it('the concrete PinnedPaymentPolicyQuery implementation is private (outside contract/), and Sales never imports it', () => {
+    const implementationSource = readFileSync(
+      join(
+        MODULES_ROOT,
+        'localisation/payment-policy/pinned-payment-policy.query.service.ts',
+      ),
+      'utf8',
+    );
+    // Same as every other private query implementation in this suite: the
+    // detector's `@Injectable`/`class` checks are a broad "this is a
+    // concrete implementation, not a pure interface file" proxy — true
+    // here regardless of this adapter delegating to `CountryPackService`
+    // rather than querying Prisma directly.
+    expect(containsPersistenceImplementation(implementationSource)).toBe(true);
+
+    const paymentService = readFileSync(
+      join(MODULES_ROOT, 'sales/orders/sales-payment.service.ts'),
+      'utf8',
+    );
+    expect(paymentService).not.toContain(
+      'localisation/payment-policy/pinned-payment-policy.query.service',
+    );
+    expect(paymentService).not.toContain('PinnedPaymentPolicyQueryService');
+  });
+
+  /**
+   * P1F-1A — the historical `sales->localisation` deviation
+   * (`OrderLinesService`'s own pre-existing, unrepaired use of
+   * `CountryPackService`/tax internals) must NOT grow because of Payment,
+   * and must NOT be read as blanket permission for a new Sales consumer to
+   * reach any Localisation internal path.
+   */
+  it('Payment does not expand the historical sales->localisation deviation', () => {
+    expect(KNOWN_DEVIATIONS['sales->localisation']).toEqual([
+      'country-pack/country-pack.registry',
+      'country-pack/country-pack.service',
+      'tax/tax-class.service',
+      'tax/tax-engine.registry',
+      'tax/tax.calculator',
+      'tax/tax.model',
+    ]);
+    // None of `sales-payment.service.ts`'s own violations (there should be
+    // none) contribute a NEW inner path to that list.
+    const paymentViolations = violations.filter(
+      (v) =>
+        v.importer === 'sales' &&
+        v.imported === 'localisation' &&
+        v.file.includes('sales-payment.service.ts'),
+    );
+    expect(paymentViolations).toEqual([]);
+  });
+
+  /**
    * P1E-6 §25 — zero new deviations for the two new Fire-facts contracts.
    * The whole-tree "records every pre-existing deviation, and no more" test
    * below already enforces this exactly (any unexpected import fails it),

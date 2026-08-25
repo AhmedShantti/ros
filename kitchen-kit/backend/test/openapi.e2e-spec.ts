@@ -251,19 +251,33 @@ describe('OpenAPI document (e2e)', () => {
    * P1E-6 — explicit Fire is now real and ratified ("Fire Authorization
    * Ratification — 2026-08-24"), so it is EXPECTED to be documented — but
    * only that ONE exact route. Automatic/configurable Fire (the other half
-   * of FR-POS-035), Payment, Completion, refund, and KDS bump/recall remain
+   * of FR-POS-035), Completion, refund, and KDS bump/recall remain
    * unimplemented and must still be absent.
+   *
+   * P1F-1 — explicit partial CASH / manual-external-card Payment capture is
+   * now real too, so it joins Fire as an EXPECTED, single, exact route.
+   * Completion, refund, KDS bump/recall, and any integrated-terminal or
+   * PaymentAttempt route remain unimplemented non-goals and must still be
+   * absent — the forbidden-pattern check below no longer includes
+   * `/payments?\b/`, since that would now also match the real, accepted
+   * Payment route; it is replaced with precise integrated-terminal/
+   * PaymentAttempt patterns instead.
    */
-  it('documents explicit Fire (and only that route), and does not document Payment, Completion, refund, or KDS bump/recall endpoints', () => {
+  it('documents explicit Fire and Payment (and only those routes), and does not document Completion, refund, integrated-terminal, PaymentAttempt, or KDS bump/recall endpoints', () => {
     const paths = Object.keys(doc.paths);
     const fireMatches = paths.filter((p) => /\/fire\b/i.test(p));
     expect(fireMatches).toEqual(['/orders/{businessDay}/{id}/fire']);
 
+    const paymentMatches = paths.filter((p) => /\/payments?\b/i.test(p));
+    expect(paymentMatches).toEqual(['/orders/{businessDay}/{id}/payments']);
+
     const forbidden = [
-      /\/payments?\b/i,
+      /\/complete\b/i,
       /\/refunds?\b/i,
       /\bbump\b/i,
       /\brecall\b/i,
+      /payment[-_]?attempts?/i,
+      /terminals?\/(session|authoriz|capture)/i,
     ];
     for (const p of paths) {
       for (const pattern of forbidden) {

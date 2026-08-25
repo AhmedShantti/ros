@@ -9,6 +9,8 @@ import {
 } from './country-pack/country-pack.signature';
 import type { CountryPackTrustStore } from './country-pack/country-pack.signature';
 import { ConfiguredCountryPackTrustStore } from './country-pack/country-pack.trust.provider';
+import { PINNED_PAYMENT_POLICY_QUERY } from './contract';
+import { PinnedPaymentPolicyQueryService } from './payment-policy/pinned-payment-policy.query.service';
 import { TAX_CLASS_PROVISIONER } from './tax/tax-class.port';
 import { TaxClassProvisioningService } from './tax/tax-class.provisioner';
 import { TaxClassService } from './tax/tax-class.service';
@@ -21,7 +23,14 @@ import { TaxEngineRegistry } from './tax/tax-engine.registry';
  * module has NO controller. The SRS defines no `/country-packs` or `/tax`
  * endpoint; FR-LOC-030's authoring tool is [S] and out of scope, and exposing
  * an activation route would invent an administrative workflow no source
- * specifies. Sales consumes the services directly.
+ * specifies. `OrderLinesService` (pre-existing) consumes `CountryPackService`
+ * directly, an unchanged, documented `sales->localisation` deviation.
+ *
+ * P1F-1A adds the FIRST published `contract/` QUERY —
+ * `PINNED_PAYMENT_POLICY_QUERY` (`modules/localisation/contract`) — the
+ * pinned cash-rounding facts Sales' Payment capture needs. New Localisation
+ * consumers must go through `contract/`; the pre-existing `OrderLinesService`
+ * debt above is deliberately not repaired by this narrow correction.
  *
  * The signature verifier is the concrete Ed25519 / RFC-8785 implementation
  * ratified as carried item P1C-3. It verifies against trusted release PUBLIC
@@ -51,12 +60,22 @@ import { TaxEngineRegistry } from './tax/tax-engine.registry';
       provide: TAX_CLASS_PROVISIONER,
       useExisting: TaxClassProvisioningService,
     },
+    // P1F-1A — the FIRST published `contract/` query. Payment consumes
+    // ONLY this token; `CountryPackService` itself remains exported below
+    // for the pre-existing `OrderLinesService` private-import debt, which
+    // this narrow correction does not repair.
+    PinnedPaymentPolicyQueryService,
+    {
+      provide: PINNED_PAYMENT_POLICY_QUERY,
+      useExisting: PinnedPaymentPolicyQueryService,
+    },
   ],
   exports: [
     CountryPackService,
     TaxEngineRegistry,
     TaxClassService,
     TAX_CLASS_PROVISIONER,
+    PINNED_PAYMENT_POLICY_QUERY,
   ],
 })
 export class LocalisationModule {}

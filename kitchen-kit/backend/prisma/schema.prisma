@@ -384,6 +384,8 @@ model Terminal {
   displayStations Station[]
   // P1D-1: drawers optionally bound to this terminal. Back-relation only.
   drawers         Drawer[]
+  // P1F-1: back-relation only — no column, no behaviour change on `terminals`.
+  orderPayments   OrderPayment[]
 
   // Prevent duplicate terminal registration within a branch (409 on conflict).
   @@unique([tenantId, branchId, name])
@@ -1587,8 +1589,9 @@ model Employee {
   branches   EmployeeBranch[]
 
   // P1D-1: the employee is the business financial actor (carried item P1D-E).
-  shifts       Shift[]
-  cashSessions CashSession[]
+  shifts        Shift[]
+  cashSessions  CashSession[]
+  orderPayments OrderPayment[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_employee_code")
@@ -1718,6 +1721,16 @@ enum OrderLineState {
   @@schema("sales")
 }
 
+/// P1F-1 — FR-POS-060 MVP scope: only the two tenders this slice implements.
+/// The SRS names eleven; adding the other nine here would be appearance
+/// without capability (no capture path would ever produce them).
+enum OrderPaymentTender {
+  cash
+  manual_external_card
+
+  @@schema("sales")
+}
+
 model Order {
   id                 String       @db.Uuid
   tenantId           String       @map("tenant_id") @db.Uuid
@@ -1762,6 +1775,7 @@ model Order {
   lines                OrderLine[]
   lineStationOverrides OrderLineStationOverride[]
   tickets              Ticket[]
+  payments             OrderPayment[]
 
   @@id([id, businessDay])
   @@unique([tenantId, id, businessDay])
@@ -1894,6 +1908,135 @@ model OrderLineStationOverride {
   @@unique([tenantId, orderLineId, businessDay, stationId], map: "uq_order_line_station_overrides_line_station")
   @@index([tenantId, orderLineId, businessDay])
   @@map("order_line_station_overrides")
+  @@schema("sales")
+}
+
+/// P1F-1 — Payment MVP: partial CASH + manual/external card capture.
+///
+/// APPEND-ONLY (ADR-010, P1D-C): `ros_app` holds SELECT + INSERT only, no
+/// UPDATE, no DELETE — enforced at the database, the same pattern
+/// `governance.audit_entries` already uses. There is no mutable `status`
+/// column: P1D-C draws the successful-Payment / PaymentAttempt line exactly
+/// here, and CASH and MANUAL_EXTERNAL_CARD in this MVP have no
+/// PaymentAttempt at all (the cashier already completed the card
+/// transaction independently; ROS records the successful result).
+///
+/// `amount` is what this Payment contributes to `orders.paid_total` — the
+/// EXACT amount settled, never the cash-rounded figure. `roundingAdjustment`
+/// is a SEPARATE, purely cash-drawer-reconciliation figure (FR-FIN-004's "±
+/// Cash Rounding Adjustments" term); it is never added to `paid_total` and
+/// never absorbed into revenue or tax (BR-FIN-004). This matches the SRS's
+/// own `Order.complete()` reference pseudocode (§24.2.4), which compares
+/// `paid` against `grandTotal` with no rounding term at all.
+///
+/// P1D-B: this row — not `orders.cash_session_id`, which does not exist —
+/// is the sole source of truth for session attribution; an Order may carry
+/// many Payments across many sessions. P1D-D: cash rounding is persisted
+/// PER PAYMENT, here. P1D-E: `employeeId` is the financial actor. P1D-G:
+/// both CASH and MANUAL_EXTERNAL_CARD are attributed to a CashSession for
+/// FR-FIN-010 tender-total accountability, but only CASH ever touches
+/// physical expected cash (enforced below: MANUAL_EXTERNAL_CARD's
+/// `roundingAdjustment` is CHECK-constrained to zero and it carries no
+/// tendered/change fields).
+///
+/// FR-POS-066: no PAN, CVV, track/magstripe data — there is no field that
+/// could hold one. Only last 4, scheme, authorisation code and terminal
+/// reference are retained, exactly SRS FR-POS-066's permitted list.
+model OrderPayment {
+  id          String   @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  branchId    String   @map("branch_id") @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  /// Copied from the order so this row can carry a tenant-safe composite FK
+  /// to the partitioned `orders` table (the same pattern `order_lines` and
+  /// `order_line_station_overrides` already use).
+  businessDay DateTime @map("business_day") @db.Date
+
+  tender OrderPaymentTender
+
+  /// Snapshot of the order's currency at capture time. Never client-supplied.
+  currency           String @db.Char(3)
+  /// The EXACT amount this Payment contributes to `orders.paid_total`.
+  /// Minor units. NEVER the cash-rounded figure — see the model doc comment.
+  amount             BigInt
+  /// FR-POS-063 / BR-FIN-004 — CASH only. Zero for MANUAL_EXTERNAL_CARD
+  /// (CHECK-enforced). The gap between the cash actually due (rounded to
+  /// the pinned country pack's step) and `amount`; never part of
+  /// `paid_total`.
+  roundingAdjustment BigInt @default(0) @map("rounding_adjustment")
+
+  /// P1D-B/D/E/G attribution. Tenant-safe FK below; branch/employee/
+  /// terminal/currency/open-status are validated at capture time through
+  /// Treasury's public `CashSessionFactsQuery` contract (SRS §5.4) — see
+  /// `sales-payment.service.ts`.
+  cashSessionId String @map("cash_session_id") @db.Uuid
+  /// P1D-E — the business financial actor. The trusted PIN-session
+  /// employee, never client-supplied.
+  employeeId    String @map("employee_id") @db.Uuid
+  /// The trusted terminal the capture happened at. Never client-supplied.
+  terminalId    String @map("terminal_id") @db.Uuid
+
+  // ── CASH-specific (FR-POS-063) ──────────────────────────────────────────
+  /// What the customer physically handed over. NULL for MANUAL_EXTERNAL_CARD.
+  tenderedAmount BigInt? @map("tendered_amount")
+  /// `tenderedAmount - (amount + roundingAdjustment)`. NULL for MANUAL_EXTERNAL_CARD.
+  changeGiven    BigInt? @map("change_given")
+
+  // ── MANUAL_EXTERNAL_CARD-specific (FR-POS-066 permitted metadata only) ──
+  /// Required for MANUAL_EXTERNAL_CARD. The cashier's own record of the
+  /// already-completed external-terminal transaction — never a ROS-side
+  /// terminal session identifier (no integrated terminal exists — FR-POS-064
+  /// NOT IMPLEMENTED).
+  paymentTerminalTxnRef String? @map("payment_terminal_txn_ref") @db.VarChar(64)
+  /// Optional, only when the cashier supplies it.
+  cardScheme            String? @map("card_scheme") @db.VarChar(32)
+  /// Optional. Exactly 4 digits when present (CHECK-enforced) — never more.
+  cardLast4             String? @map("card_last4") @db.VarChar(4)
+  /// Optional.
+  authorizationCode     String? @map("authorization_code") @db.VarChar(32)
+
+  /// Server clock at capture. Never client-supplied.
+  processedAt DateTime @map("processed_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  /// RESTRICT, not CASCADE: a Payment is a separate append-only financial
+  /// ledger, not part of the order's own mutable content (unlike
+  /// `OrderLine`, which cascades with its order). No order-deletion path
+  /// exists anywhere in this system (ADR-010), so this is a structural
+  /// guarantee rather than a live concern.
+  ///
+  /// P1F-1A — BRANCH-INCLUSIVE, not just tenant-safe: uses the existing
+  /// P1E-3 `uq_orders_tenant_id_business_day_branch` target
+  /// `(tenant_id, id, business_day, branch_id)` (no new Sales index — the
+  /// target already exists), so `Payment.branchId` disagreeing with the
+  /// referenced Order's own `branchId` is structurally unrepresentable, not
+  /// merely service-validated (ADR 0008 D-09).
+  order       Order       @relation(fields: [tenantId, orderId, businessDay, branchId], references: [tenantId, id, businessDay, branchId], onDelete: Restrict)
+  /// Tenant-safe FK using CashSession's existing `(tenantId, id)` unique
+  /// target — the ONLY tenant-safe target `treasury.cash_sessions`
+  /// currently exposes (no `(tenantId, branchId, id)` composite exists).
+  /// Adding one would be a Treasury-owned migration this Sales-owned
+  /// correction does not make (P1F-1A §7/H). Branch/employee/terminal/
+  /// currency/open-status are validated at the service layer instead (see
+  /// the model doc comment).
+  cashSession CashSession @relation(fields: [tenantId, cashSessionId], references: [tenantId, id], onDelete: Restrict)
+  /// Tenant-safe composite FK, mirroring `orders.opened_by`.
+  employee    Employee    @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  /// P1F-1A — BRANCH-SAFE, not the older single-column `orders.terminal_id`
+  /// precedent: uses the ADR 0008 D-16 target `identity.terminals(branch_id,
+  /// id)` (the same one `Drawer.terminal` already uses), so a Payment
+  /// carrying branch A but a Terminal actually registered to branch B is
+  /// structurally unrepresentable, not merely service-validated. This new
+  /// table deliberately does not repeat the older, acknowledged
+  /// `orders.terminal_id -> identity.terminals(id)` weakness merely because
+  /// that precedent exists.
+  terminal    Terminal    @relation(fields: [branchId, terminalId], references: [branchId, id], onDelete: Restrict)
+
+  @@id([id])
+  @@unique([tenantId, id])
+  @@index([tenantId, orderId, businessDay])
+  @@index([tenantId, cashSessionId])
+  @@map("order_payments")
   @@schema("sales")
 }
 
@@ -2063,14 +2206,15 @@ model CashSession {
   closedAt     DateTime?         @map("closed_at") @db.Timestamptz(6)
   createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch   Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch   Branch         @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
   /// Same tenant AND same branch as the session.
-  drawer   Drawer   @relation(fields: [tenantId, branchId, drawerId], references: [tenantId, branchId, id], onDelete: Restrict)
+  drawer   Drawer         @relation(fields: [tenantId, branchId, drawerId], references: [tenantId, branchId, id], onDelete: Restrict)
   /// Same tenant, branch AND employee as the session - four columns, so a
   /// mismatch is a foreign-key violation rather than a missed service check.
-  shift    Shift    @relation(fields: [tenantId, branchId, employeeId, shiftId], references: [tenantId, branchId, employeeId, id], onDelete: Restrict)
-  employee Employee @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  shift    Shift          @relation(fields: [tenantId, branchId, employeeId, shiftId], references: [tenantId, branchId, employeeId, id], onDelete: Restrict)
+  employee Employee       @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  payments OrderPayment[]
 
   @@unique([tenantId, id])
   @@index([tenantId, branchId, status])
