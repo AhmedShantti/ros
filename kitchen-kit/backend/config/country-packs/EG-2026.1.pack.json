@@ -1,0 +1,48 @@
+{
+  "code": "EG",
+  "version": "2026.1",
+  "effectiveFrom": "2026-01-01",
+  "currency": {
+    "code": "EGP",
+    "exponent": 2,
+    "symbolPosition": "suffix",
+    "cashRounding": {
+      "enabled": false
+    }
+  },
+  "tax": {
+    "engine": "vat_standard",
+    "pricingMode": "tax_inclusive",
+    "computationLevel": "line",
+    "roundingMode": "HALF_UP",
+    "roundingPrecision": 2,
+    "classes": [
+      {
+        "code": "standard",
+        "rate": "14.0",
+        "label": {
+          "en": "Standard"
+        }
+      },
+      {
+        "code": "reduced",
+        "rate": "5.0"
+      },
+      {
+        "code": "zero",
+        "rate": "0.0"
+      },
+      {
+        "code": "exempt",
+        "rate": null
+      }
+    ],
+    "serviceChargeTaxable": true,
+    "orderTypeOverrides": []
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "keyId": "ros-demo-2026",
+    "signature": "hwQ1-ZWZex1kX6293ozsd7L-NIAbsBFiUl05WGEzByqz7gR2uCt1VMIZEtFKjwBlw6SwnrJkSCpsgGroCG_bCQ"
+  }
+}

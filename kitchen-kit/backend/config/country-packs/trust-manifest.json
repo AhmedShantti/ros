@@ -1,0 +1,10 @@
+{
+  "keys": [
+    {
+      "keyId": "ros-demo-2026",
+      "algorithm": "Ed25519",
+      "publicKey": "9KhzvF7r0XIG7iCoxNxl_0UcV5l9-tyJ0i86qmYNKAU",
+      "status": "active"
+    }
+  ]
+}

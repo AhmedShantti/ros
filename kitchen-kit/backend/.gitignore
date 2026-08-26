@@ -60,3 +60,8 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Country Pack signing key material — NEVER committed. Signing happens outside
+# the application runtime (P1C-3); only the signed pack + public key artefacts
+# under config/country-packs/ are deployable.
+/secrets/
