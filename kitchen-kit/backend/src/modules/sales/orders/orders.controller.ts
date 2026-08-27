@@ -602,10 +602,10 @@ export class OrdersController {
    * and `pos.order.fire`. Both the terminal AND the employee come from the
    * trusted PIN session (P1D-E financial actor), never the body.
    *
-   * A payment that would fully or over-settle the order is refused with
-   * 422 (`FULL_PAYMENT_REQUIRES_COMPLETION`) — Completion does not exist
-   * yet, so a full settlement here would create an invalid
-   * "paid in full + PARTIALLY_PAID" state.
+   * P1F-2: a payment that brings `paid_total` to `grand_total` (a SETTLING
+   * payment) atomically COMPLETES the order in the same transaction —
+   * recipe expansion, dual-axis Inventory depletion, COGS posting, and the
+   * Order CAS to `completed`, all before this call returns.
    */
   @Post(':businessDay/:id/payments')
   @HttpCode(HttpStatus.CREATED)
@@ -613,7 +613,7 @@ export class OrdersController {
   @RequirePermission(SALES_PERMISSIONS.PAYMENT_CAPTURE)
   @ApiOperation({
     summary:
-      'Capture a partial CASH or manual/external-card payment (full settlement is refused — Completion does not exist yet).',
+      'Capture a partial, or final settling, CASH or manual/external-card payment. A settling payment completes the order atomically.',
   })
   @ApiHeader({
     name: 'idempotency-key',
@@ -650,7 +650,7 @@ export class OrdersController {
   })
   @ApiUnprocessableEntityResponse({
     description:
-      'The order is not in a state that accepts a payment, the cash session is invalid for this order (wrong branch/employee/terminal/currency, or not open), the tendered cash is insufficient, or this payment would fully or over-settle the order (Completion is not implemented).',
+      'The order is not in a state that accepts a payment, the cash session is invalid for this order (wrong branch/employee/terminal/currency, or not open), the tendered cash is insufficient, or (for a settling payment) a component has no pinned unit conversion and Completion cannot depute an exact quantity.',
   })
   async capturePayment(
     @CurrentTenantContext() context: TenantContext,

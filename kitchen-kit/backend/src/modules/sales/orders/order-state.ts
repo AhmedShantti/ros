@@ -76,10 +76,14 @@ const TRANSITIONS: Readonly<Record<OrderState, readonly OrderState[]>> =
     // transition: a further partial payment on an already-partially-paid
     // order changes only projections (paid_total, version), never state, so
     // it never calls `assertTransition` at all.
-    open: ['held', 'parked', 'cancelled', 'partially_paid'],
+    // P1F-2: a SETTLING Payment (one that brings paid_total to grandTotal)
+    // completes the order from EITHER open (a single full-settlement
+    // Payment) or partially_paid (the settling split-tender Payment) — never
+    // an intermediate state.
+    open: ['held', 'parked', 'cancelled', 'partially_paid', 'completed'],
     held: ['open', 'cancelled'],
     parked: ['open', 'cancelled'],
-    partially_paid: [],
+    partially_paid: ['completed'],
     completed: [],
     cancelled: [],
     partially_refunded: [],

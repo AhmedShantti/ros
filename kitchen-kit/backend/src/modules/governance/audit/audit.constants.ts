@@ -25,6 +25,9 @@ export const AUDIT_ACTION = {
   // MANUAL_EXTERNAL_CARD capture (the tender itself is metadata, not a
   // different action).
   PAYMENT_CAPTURED: 'PAYMENT_CAPTURED',
+  // P1F-2 Order Completion. The final-Payment settling transaction: depletion,
+  // COGS posting and the Order's completed CAS, all in the same UnitOfWork.
+  ORDER_COMPLETED: 'ORDER_COMPLETED',
   // P1D-1 Workforce / Treasury. Same <ENTITY>_<PAST_TENSE> convention; the
   // audit taxonomy is not governance-controlled, so these follow the existing
   // shape rather than inventing one. Opening a shift and taking custody of a
@@ -121,6 +124,8 @@ export const AUDIT_ACTION = {
   RECIPE_VERSION_PUBLISHED: 'RECIPE_VERSION_PUBLISHED',
   SUBSTITUTE_GROUP_CREATED: 'SUBSTITUTE_GROUP_CREATED',
   SUBSTITUTE_GROUP_UPDATED: 'SUBSTITUTE_GROUP_UPDATED',
+  // P1F-2 — D-17-07 resolution: the modifier -> recipe-effect replacement API.
+  MODIFIER_RECIPE_EFFECTS_REPLACED: 'MODIFIER_RECIPE_EFFECTS_REPLACED',
 } as const;
 
 export const AUDIT_ENTITY = {

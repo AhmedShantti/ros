@@ -3,6 +3,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { CatalogueModule } from '../catalogue/catalogue.module';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
+import { InventoryModule } from '../inventory/inventory.module';
 import { LocalisationModule } from '../localisation/localisation.module';
 import { OrganisationModule } from '../organisation/organisation.module';
 import { ProductionModule } from '../production/production.module';
@@ -38,16 +39,20 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
  * PUBLIC SURFACE, P1E-6 addition: explicit Fire
  * (`POST /orders/{businessDay}/{id}/fire`).
  *
- * PUBLIC SURFACE, P1F-1 addition: partial CASH / manual-external-card
- * Payment capture (`POST /orders/{businessDay}/{id}/payments`), refusing
- * any payment that would fully or over-settle the order. `TreasuryModule`
- * is imported for ONE published contract query —
- * `CASH_SESSION_FACTS_QUERY` from `modules/treasury/contract` (P1D-G
- * attribution) — the first `sales -> treasury` edge.
+ * PUBLIC SURFACE, P1F-1/P1F-2 addition: CASH / manual-external-card Payment
+ * capture (`POST /orders/{businessDay}/{id}/payments`). A SETTLING payment
+ * (one that brings paid_total to grand_total) atomically COMPLETES the
+ * order in the same transaction — recipe expansion, dual-axis Inventory
+ * depletion, COGS posting, and the `completed` CAS — via `UnitOfWork`, the
+ * `SalesFireService` precedent. `TreasuryModule` is imported for ONE
+ * published contract query — `CASH_SESSION_FACTS_QUERY` from
+ * `modules/treasury/contract` (P1D-G attribution). `InventoryModule` is
+ * imported for ONE published contract command —
+ * `SALE_DEPLETION_COMMAND` from `modules/inventory/contract` — the first
+ * `sales -> inventory` edge.
  *
- * STILL UNEXPOSED: complete, and refund — completion must drive fiscal
- * documents, inventory depletion, COGS posting and drawer attribution; none
- * of those exist, and a state flip would misrepresent all of them.
+ * STILL UNEXPOSED: refund — it must drive fiscal documents and drawer
+ * attribution; neither exists, and a state flip would misrepresent both.
  */
 @Module({
   imports: [
@@ -60,6 +65,9 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
     // P1F-1 — the FIRST sales->treasury edge, consumed only through
     // `treasury/contract`'s `CASH_SESSION_FACTS_QUERY`.
     TreasuryModule,
+    // P1F-2 — the FIRST sales->inventory edge, consumed only through
+    // `inventory/contract`'s `SALE_DEPLETION_COMMAND`.
+    InventoryModule,
   ],
   controllers: [OrdersController],
   providers: [

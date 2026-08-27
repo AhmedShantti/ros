@@ -1481,6 +1481,8 @@ model Modifier {
   orderLineModifiers  OrderLineModifier[]
   stationRoutingRules StationRoutingRule[]
   ticketLineModifiers TicketLineModifier[]
+  // P1F-2 back-relation only (virtual; no DDL impact on this model).
+  recipeEffects       ModifierRecipeEffect[]
 
   @@unique([tenantId, id])
   @@index([tenantId, modifierGroupId])
@@ -1811,6 +1813,10 @@ model OrderLine {
   lineTotal        BigInt         @map("line_total")
   unitCostSnapshot BigInt?        @map("unit_cost_snapshot")
   recipeVersionId  String?        @map("recipe_version_id") @db.Uuid
+  /// P1F-2 — exact bigint SUM of this line's Inventory ALLOCATION total_cost
+  /// values, written ONLY by Order Completion. Absent recipe posts 0 (never
+  /// NULL). NULL = not yet completed. No rounding at this level (FR-CST-002).
+  postedCogsTotal  BigInt?        @map("posted_cogs_total")
   /// FR-POS-042 price provenance.
   priceListId      String?        @map("price_list_id") @db.Uuid
   priceEntryId     String?        @map("price_entry_id") @db.Uuid
@@ -1830,6 +1836,13 @@ model OrderLine {
   modifiers        OrderLineModifier[]
   stationOverrides OrderLineStationOverride[]
   ticketLines      TicketLine[]
+
+  // P1F-2 line-capture snapshots (virtual; no DDL impact on this model).
+  recipeVersionPins    OrderLineRecipeVersion[]
+  modifierEffectPins   OrderLineModifierEffect[]
+  componentConversions OrderLineComponentConversion[]
+  // P1F-2 Inventory back-relation (virtual; no DDL impact on this model).
+  depletionEffects     SaleDepletionEffect[]
 
   @@id([id, businessDay])
   @@unique([tenantId, id, businessDay])
@@ -1861,16 +1874,18 @@ model OrderLineModifier {
   quantity        Int           @default(1) @db.SmallInt
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  line                        OrderLine            @relation(fields: [tenantId, orderLineId, businessDay], references: [tenantId, id, businessDay], onDelete: Cascade)
+  line                        OrderLine                 @relation(fields: [tenantId, orderLineId, businessDay], references: [tenantId, id, businessDay], onDelete: Cascade)
   /// P1E-3: was FK-less (Catalogue `modifiers` had no `tenant_id` to compose
   /// with). D-09 composite FK — a captured selection can never point at
   /// another tenant's modifier. `ON DELETE RESTRICT`: a modifier referenced by
   /// sale history must not disappear out from under it (unlike the line's own
   /// cascade, which follows the ORDER's lifecycle, not the catalogue's).
-  modifier                    Modifier             @relation(fields: [tenantId, modifierId], references: [tenantId, id], onDelete: Restrict)
+  modifier                    Modifier                  @relation(fields: [tenantId, modifierId], references: [tenantId, id], onDelete: Restrict)
   /// P1E-5 back-relation only — Kitchen's FK to this row is integrity-only
   /// (idempotency key), never a live read path from this side either.
   ticketLineModifierSnapshots TicketLineModifier[]
+  // P1F-2 back-relation only (virtual; no DDL impact on this model).
+  recipeEffectPins            OrderLineModifierEffect[]
 
   @@unique([tenantId, id])
   @@index([tenantId, orderLineId])
@@ -2279,6 +2294,8 @@ model Location {
   reorderConfigs        StockItemReorderConfig[]
   warehouse             Warehouse?                  @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Cascade)
   centralKitchen        CentralKitchen?             @relation(fields: [tenantId, centralKitchenId], references: [tenantId, id], onDelete: Cascade)
+  // P1F-2 back-relation only (virtual; no DDL impact).
+  saleDepletionEffects  SaleDepletionEffect[]
 
   /// Composite-FK target for Inventory: (tenant_id, location_id).
   @@unique([tenantId, id])
@@ -2378,6 +2395,14 @@ model Uom {
   // Production Spec back-relations (virtual; no DDL impact).
   recipeVersionYields RecipeVersion[] @relation("RecipeVersionYieldUnit")
   recipeLineUnits     RecipeLine[]    @relation("RecipeLineUnit")
+
+  // P1F-2 back-relations (virtual; no DDL impact).
+  modifierRecipeEffectUnits             ModifierRecipeEffect[]         @relation("ModifierRecipeEffectUnit")
+  orderLineModifierEffectUnits          OrderLineModifierEffect[]      @relation("OrderLineModifierEffectUnit")
+  orderLineComponentConversionFromUnits OrderLineComponentConversion[] @relation("OrderLineComponentConversionFromUnit")
+  orderLineComponentConversionBaseUnits OrderLineComponentConversion[] @relation("OrderLineComponentConversionBaseUnit")
+  saleDepletionEffectUnits              SaleDepletionEffect[]          @relation("SaleDepletionEffectUnit")
+  saleDepletionAllocationUnits          SaleDepletionAllocation[]      @relation("SaleDepletionAllocationUnit")
 
   @@map("uom")
   @@schema("inventory")
@@ -2486,6 +2511,12 @@ model StockItem {
   recipeLines            RecipeLine[]            @relation("RecipeLineStockItem")
   substituteGroupMembers SubstituteGroupMember[] @relation("SubstituteGroupMemberStockItem")
 
+  // P1F-2 back-relations (virtual; no DDL impact).
+  modifierRecipeEffects         ModifierRecipeEffect[]         @relation("ModifierRecipeEffectStockItem")
+  orderLineModifierEffectPins   OrderLineModifierEffect[]      @relation("OrderLineModifierEffectStockItem")
+  orderLineComponentConversions OrderLineComponentConversion[] @relation("OrderLineComponentConversionStockItem")
+  saleDepletionEffects          SaleDepletionEffect[]          @relation("SaleDepletionEffectStockItem")
+
   @@unique([tenantId, id])
   @@unique([tenantId, sku], map: "uq_stock_item_sku")
   @@index([tenantId])
@@ -2516,30 +2547,45 @@ model StockItemReorderConfig {
 /// Batch — SRS §7.3 #14. Expiry >= production date; quantity >= 0 (DB CHECKs).
 /// `supplierId` / `goodsReceiptId` are recorded UUIDs — Procurement is out of scope.
 model StockBatch {
-  id                String    @id @db.Uuid
-  tenantId          String    @map("tenant_id") @db.Uuid
-  stockItemId       String    @map("stock_item_id") @db.Uuid
-  locationId        String    @map("location_id") @db.Uuid
-  batchNumber       String?   @map("batch_number") @db.VarChar(64)
-  productionDate    DateTime? @map("production_date") @db.Date
-  expiryDate        DateTime? @map("expiry_date") @db.Date
-  quantityReceived  Decimal   @map("quantity_received") @db.Decimal(18, 6)
-  quantityRemaining Decimal   @map("quantity_remaining") @db.Decimal(18, 6)
-  unitCost          BigInt    @map("unit_cost")
-  supplierId        String?   @map("supplier_id") @db.Uuid
-  goodsReceiptId    String?   @map("goods_receipt_id") @db.Uuid
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                       String    @id @db.Uuid
+  tenantId                 String    @map("tenant_id") @db.Uuid
+  stockItemId              String    @map("stock_item_id") @db.Uuid
+  locationId               String    @map("location_id") @db.Uuid
+  batchNumber              String?   @map("batch_number") @db.VarChar(64)
+  productionDate           DateTime? @map("production_date") @db.Date
+  expiryDate               DateTime? @map("expiry_date") @db.Date
+  quantityReceived         Decimal   @map("quantity_received") @db.Decimal(18, 6)
+  quantityRemaining        Decimal   @map("quantity_remaining") @db.Decimal(18, 6)
+  unitCost                 BigInt    @map("unit_cost")
+  supplierId               String?   @map("supplier_id") @db.Uuid
+  goodsReceiptId           String?   @map("goods_receipt_id") @db.Uuid
+  /// P1F-2 — the RECEIPT-ORDER FIFO ACCOUNTING axis, independent of the
+  /// physical `quantityRemaining` axis (P1F2E-A CONTROLLING). "consumed" not
+  /// "remaining" so DEFAULT 0 gives new batches full cost quantity with no
+  /// batch-creation writer changed. Cost-remaining is DERIVED:
+  /// `quantityReceived - fifoCostQuantityConsumed`. Maintained ONLY by the
+  /// private `inventory/costing/fifo-cost-ledger.ts` kernel, for
+  /// costing_method=fifo batch-tracked items; stays 0 for every other item.
+  fifoCostQuantityConsumed Decimal   @default(0) @map("fifo_cost_quantity_consumed") @db.Decimal(18, 6)
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant    Tenant    @relation(fields: [tenantId], references: [id])
   stockItem StockItem @relation(fields: [tenantId, stockItemId], references: [tenantId, id])
   location  Location  @relation(fields: [tenantId, locationId], references: [tenantId, id])
 
-  movements   StockMovement[]
-  levelAllocs StockLevelBatchAllocation[]
-  countLines  CountLine[]
-  wasteLines  WasteLine[]
+  movements                           StockMovement[]
+  levelAllocs                         StockLevelBatchAllocation[]
+  countLines                          CountLine[]
+  wasteLines                          WasteLine[]
+  // P1F-2 back-relations (virtual; no DDL impact).
+  saleDepletionAllocationsAsPhysical  SaleDepletionAllocation[]   @relation("SaleDepletionAllocationPhysicalBatch")
+  saleDepletionAllocationsAsCostBasis SaleDepletionAllocation[]   @relation("SaleDepletionAllocationCostBasisBatch")
 
   @@unique([tenantId, id])
+  /// P1F-2 (P1F2E-A §G) — additive, proves an allocation's physical/cost-basis
+  /// batch belongs to the SAME stock item and location as its parent effect.
+  /// No column added, no semantics changed (D-16 precedent).
+  @@unique([tenantId, id, stockItemId, locationId], map: "stock_batches_tenant_id_id_item_location_key")
   @@index([tenantId, stockItemId, locationId])
   @@index([tenantId, expiryDate])
   @@map("stock_batches")
@@ -2587,9 +2633,11 @@ model StockMovement {
   unit            Uom         @relation(fields: [unitId], references: [id])
   performedByUser User        @relation(fields: [performedBy], references: [id])
 
-  counterpart   StockMovement?  @relation("MovementCounterpart", fields: [tenantId, counterpartMovementId, counterpartOccurredAt], references: [tenantId, id, occurredAt])
-  counterpartOf StockMovement[] @relation("MovementCounterpart")
-  lastOfLevels  StockLevel[]    @relation("StockLevelLastMovement")
+  counterpart              StockMovement?            @relation("MovementCounterpart", fields: [tenantId, counterpartMovementId, counterpartOccurredAt], references: [tenantId, id, occurredAt])
+  counterpartOf            StockMovement[]           @relation("MovementCounterpart")
+  lastOfLevels             StockLevel[]              @relation("StockLevelLastMovement")
+  // P1F-2 back-relation only (virtual; no DDL impact).
+  saleDepletionAllocations SaleDepletionAllocation[]
 
   @@id([id, occurredAt])
   @@unique([tenantId, id, occurredAt])
@@ -2860,8 +2908,10 @@ model Recipe {
   menuItemVariant MenuItemVariant? @relation(fields: [tenantId, menuItemVariantId], references: [tenantId, id])
   stockItem       StockItem?       @relation("RecipeTargetStockItem", fields: [tenantId, stockItemId], references: [tenantId, id])
 
-  versions        RecipeVersion[]
-  usedAsComponent RecipeLine[]    @relation("RecipeLineSubRecipe")
+  versions                      RecipeVersion[]
+  usedAsComponent               RecipeLine[]           @relation("RecipeLineSubRecipe")
+  // P1F-2 back-relation only (virtual; no DDL impact on this model).
+  usedAsModifierEffectSubRecipe ModifierRecipeEffect[] @relation("ModifierRecipeEffectSubRecipe")
 
   // D-09 composite-FK target for recipe_versions and recipe_lines.sub_recipe_id.
   @@unique([tenantId, id])
@@ -2904,7 +2954,10 @@ model RecipeVersion {
   yieldUnit Uom    @relation("RecipeVersionYieldUnit", fields: [yieldUnitId], references: [id])
   publisher User?  @relation("RecipeVersionPublisher", fields: [publishedBy], references: [id])
 
-  lines RecipeLine[]
+  lines                       RecipeLine[]
+  // P1F-2 back-relations only (virtual; no DDL impact on this model).
+  orderLineRecipeVersionPins  OrderLineRecipeVersion[]  @relation("OrderLineRecipeVersionPin")
+  orderLineModifierEffectPins OrderLineModifierEffect[] @relation("OrderLineModifierEffectSubRecipeVersion")
 
   @@unique([tenantId, id])
   @@unique([recipeId, version], map: "uq_recipe_version")
@@ -2974,4 +3027,235 @@ model SubstituteGroupMember {
   @@index([tenantId])
   @@map("substitute_group_members")
   @@schema("production")
+}
+
+// ---------------------------------------------------------------------------
+// P1F-2 — Final Payment + Order Completion atomic orchestration.
+// Migration 28 (Sales) / 29 (Production) / 30 (Inventory). Authority:
+// docs/reports/claude/2026-08-25_P1F2E-A_inventory-acceptance-correction.md
+// (CONTROLLING) §L. See that report for the full rationale; this schema is a
+// literal transcription of its exact DDL.
+// ---------------------------------------------------------------------------
+
+enum ModifierEffectOperationSnapshot {
+  add
+  remove_all
+
+  @@schema("sales")
+}
+
+enum RecipeComponentTypeSnapshot {
+  stock_item
+  sub_recipe
+
+  @@schema("sales")
+}
+
+/// LINE-CAPTURE snapshot — the pinned recipe-version CLOSURE (base version +
+/// every sub-recipe version reachable from it) for one order line, at the
+/// business day it was captured. NEVER updated after insert (append-only,
+/// SELECT+INSERT only). Read only by `planConsumption` at Completion, which
+/// resolves sub-recipes ONLY to the versions pinned here — never to whatever
+/// is currently published.
+model OrderLineRecipeVersion {
+  id              String   @id @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  businessDay     DateTime @map("business_day") @db.Date
+  orderLineId     String   @map("order_line_id") @db.Uuid
+  recipeVersionId String   @map("recipe_version_id") @db.Uuid
+  /// 0 = the line's own base recipe version; >0 = a sub-recipe reached at
+  /// that depth in the closure.
+  depth           Int      @db.SmallInt
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  orderLine     OrderLine     @relation(fields: [tenantId, orderLineId, businessDay], references: [tenantId, id, businessDay], onDelete: Cascade)
+  recipeVersion RecipeVersion @relation("OrderLineRecipeVersionPin", fields: [tenantId, recipeVersionId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, orderLineId, businessDay, recipeVersionId])
+  @@map("order_line_recipe_versions")
+  @@schema("sales")
+}
+
+/// LINE-CAPTURE snapshot — the PINNED modifier effects selected on the line,
+/// copied verbatim from `production.modifier_recipe_effects` at capture time.
+/// A later edit to the source Modifier's recipe effects (via `PUT
+/// /modifiers/{id}/recipe-effects`) never changes an already-captured line —
+/// this row is what Completion reads instead. XOR shape and operation rules
+/// mirror `production.modifier_recipe_effects` exactly (ck_ol_mod_effect_xor
+/// / ck_ol_mod_effect_operation, migration 28).
+model OrderLineModifierEffect {
+  id                  String                          @id @db.Uuid
+  tenantId            String                          @map("tenant_id") @db.Uuid
+  businessDay         DateTime                        @map("business_day") @db.Date
+  orderLineId         String                          @map("order_line_id") @db.Uuid
+  orderLineModifierId String                          @map("order_line_modifier_id") @db.Uuid
+  operation           ModifierEffectOperationSnapshot
+  componentType       RecipeComponentTypeSnapshot     @map("component_type")
+  stockItemId         String?                         @map("stock_item_id") @db.Uuid
+  subRecipeVersionId  String?                         @map("sub_recipe_version_id") @db.Uuid
+  /// DECIMAL(18,6); NULL for `remove_all`.
+  quantity            Decimal?                        @db.Decimal(18, 6)
+  unitId              String?                         @map("unit_id") @db.Uuid
+  sequence            Int                             @db.SmallInt
+  createdAt           DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  orderLineModifier OrderLineModifier @relation(fields: [tenantId, orderLineModifierId], references: [tenantId, id], onDelete: Cascade)
+  orderLine         OrderLine         @relation(fields: [tenantId, orderLineId, businessDay], references: [tenantId, id, businessDay], onDelete: Cascade)
+  stockItem         StockItem?        @relation("OrderLineModifierEffectStockItem", fields: [tenantId, stockItemId], references: [tenantId, id], onDelete: Restrict)
+  /// PINNED VERSION — never the logical recipe id (unlike
+  /// `production.modifier_recipe_effects.sub_recipe_id`, which is logical).
+  subRecipeVersion  RecipeVersion?    @relation("OrderLineModifierEffectSubRecipeVersion", fields: [tenantId, subRecipeVersionId], references: [tenantId, id], onDelete: Restrict)
+  unit              Uom?              @relation("OrderLineModifierEffectUnit", fields: [unitId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, orderLineId, businessDay])
+  @@map("order_line_modifier_effects")
+  @@schema("sales")
+}
+
+/// LINE-CAPTURE snapshot — the pinned unit-conversion FACTOR from a
+/// recipe/modifier component's line unit to the stock item's base unit, at
+/// capture time. `planConsumption` at Completion takes conversion factors
+/// ONLY from here — it must never read `inventory.uom_conversions` or
+/// `stock_items.base_unit_id` directly, so a later change to either can never
+/// alter an already-completed depletion.
+model OrderLineComponentConversion {
+  id          String   @id @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  businessDay DateTime @map("business_day") @db.Date
+  orderLineId String   @map("order_line_id") @db.Uuid
+  stockItemId String   @map("stock_item_id") @db.Uuid
+  fromUnitId  String   @map("from_unit_id") @db.Uuid
+  baseUnitId  String   @map("base_unit_id") @db.Uuid
+  factor      Decimal  @db.Decimal(20, 10)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  orderLine OrderLine @relation(fields: [tenantId, orderLineId, businessDay], references: [tenantId, id, businessDay], onDelete: Cascade)
+  stockItem StockItem @relation("OrderLineComponentConversionStockItem", fields: [tenantId, stockItemId], references: [tenantId, id], onDelete: Restrict)
+  fromUnit  Uom       @relation("OrderLineComponentConversionFromUnit", fields: [fromUnitId], references: [id], onDelete: Restrict)
+  baseUnit  Uom       @relation("OrderLineComponentConversionBaseUnit", fields: [baseUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, orderLineId, stockItemId, fromUnitId])
+  @@map("order_line_component_conversions")
+  @@schema("sales")
+}
+
+enum ModifierEffectOperation {
+  add
+  remove_all
+
+  @@schema("production")
+}
+
+/// D-17-07 resolution — a Modifier's effect on recipe consumption, replacing
+/// the permanently-opaque `catalogue.modifiers.recipe_delta` (never read).
+/// Full-replace via `PUT /modifiers/{modifierId}/recipe-effects`. Read by
+/// Sales' `resolveConsumptionBasis` at LINE CAPTURE only — an edit here never
+/// changes an already-captured line (see `sales.order_line_modifier_effects`).
+model ModifierRecipeEffect {
+  id            String                  @id @db.Uuid
+  tenantId      String                  @map("tenant_id") @db.Uuid
+  modifierId    String                  @map("modifier_id") @db.Uuid
+  operation     ModifierEffectOperation
+  /// Reuses the EXISTING `production.RecipeComponentType` enum.
+  componentType RecipeComponentType     @map("component_type")
+  stockItemId   String?                 @map("stock_item_id") @db.Uuid
+  /// LOGICAL recipe identity (never a pinned version) — resolved to the
+  /// published version at capture time, same as `recipe_lines.sub_recipe_id`.
+  subRecipeId   String?                 @map("sub_recipe_id") @db.Uuid
+  /// DECIMAL(18,6); NULL for `remove_all`.
+  quantity      Decimal?                @db.Decimal(18, 6)
+  unitId        String?                 @map("unit_id") @db.Uuid
+  sequence      Int                     @db.SmallInt
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  modifier  Modifier   @relation(fields: [tenantId, modifierId], references: [tenantId, id], onDelete: Cascade)
+  stockItem StockItem? @relation("ModifierRecipeEffectStockItem", fields: [tenantId, stockItemId], references: [tenantId, id], onDelete: Restrict)
+  subRecipe Recipe?    @relation("ModifierRecipeEffectSubRecipe", fields: [tenantId, subRecipeId], references: [tenantId, id], onDelete: Restrict)
+  unit      Uom?       @relation("ModifierRecipeEffectUnit", fields: [unitId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, modifierId])
+  @@map("modifier_recipe_effects")
+  @@schema("production")
+}
+
+/// Dual-axis depletion — PARENT / business identity. One row per (OrderLine,
+/// StockItem, Location) touched by a completed sale. Reserved FIRST, before
+/// any Inventory mutation (P1F2E-A §E) via `INSERT ... ON CONFLICT (tenant_id,
+/// order_line_id, stock_item_id, location_id) DO NOTHING` — the row winning
+/// that race is the ONLY writer allowed to touch batches/counters/levels/
+/// movements for this (line, item, location). NO cost columns, NO movement
+/// columns here — those live on the child `sale_depletion_allocations`.
+model SaleDepletionEffect {
+  id                 String   @id @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  orderId            String   @map("order_id") @db.Uuid
+  businessDay        DateTime @map("business_day") @db.Date
+  orderLineId        String   @map("order_line_id") @db.Uuid
+  stockItemId        String   @map("stock_item_id") @db.Uuid
+  locationId         String   @map("location_id") @db.Uuid
+  quantityInBaseUnit Decimal  @map("quantity_in_base_unit") @db.Decimal(18, 6)
+  unitId             String   @map("unit_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  orderLine   OrderLine                 @relation(fields: [tenantId, orderId, orderLineId, businessDay], references: [tenantId, orderId, id, businessDay], onDelete: Restrict)
+  stockItem   StockItem                 @relation("SaleDepletionEffectStockItem", fields: [tenantId, stockItemId], references: [tenantId, id], onDelete: Restrict)
+  location    Location                  @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Restrict)
+  unit        Uom                       @relation("SaleDepletionEffectUnit", fields: [unitId], references: [id], onDelete: Restrict)
+  allocations SaleDepletionAllocation[]
+
+  /// Business identity — the reservation key (P1F2E-A §E).
+  @@unique([tenantId, orderLineId, stockItemId, locationId])
+  /// FK target for the child, proving the child's item/location ARE this
+  /// effect's (P1F2E-A §G structural correction).
+  @@unique([tenantId, id, stockItemId, locationId])
+  @@map("sale_depletion_effects")
+  @@schema("inventory")
+}
+
+/// Dual-axis depletion — CHILD. One row per (physical batch, cost layer)
+/// slice the zipper (P1F2E-A §E step 3d) emitted for one effect. Carries a
+/// deliberately-redundant `stockItemId`/`locationId` (copied from the parent)
+/// solely so the composite structural FKs below can be expressed — P1F2E-A
+/// §G. `physicalBatchId` NULL = unbacked (negative stock, FR-INV-014).
+/// `costBasisBatchId` NULL only for weighted_average/standard; for
+/// costing_method=fifo it is NEVER null, including for a carry-forward slice
+/// (P1F2E-A §F) — the exhausted layer's id is retained even though
+/// `physicalBatchId` is null there too.
+model SaleDepletionAllocation {
+  id                 String   @id @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  effectId           String   @map("effect_id") @db.Uuid
+  sequence           Int      @db.SmallInt
+  stockItemId        String   @map("stock_item_id") @db.Uuid
+  locationId         String   @map("location_id") @db.Uuid
+  physicalBatchId    String?  @map("physical_batch_id") @db.Uuid
+  costBasisBatchId   String?  @map("cost_basis_batch_id") @db.Uuid
+  quantityInBaseUnit Decimal  @map("quantity_in_base_unit") @db.Decimal(18, 6)
+  unitId             String   @map("unit_id") @db.Uuid
+  /// Minor units. The ACTUAL cost-basis unit cost — never a blended figure.
+  unitCost           BigInt   @map("unit_cost")
+  /// Minor units, POSITIVE magnitude (repo convention, costing.spec.ts:184-186
+  /// deliberate §7.4.3 deviation) = round_half_up(quantity x unitCost).
+  totalCost          BigInt   @map("total_cost")
+  movementId         String   @map("movement_id") @db.Uuid
+  movementOccurredAt DateTime @map("movement_occurred_at") @db.Timestamptz(6)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  effect         SaleDepletionEffect @relation(fields: [tenantId, effectId, stockItemId, locationId], references: [tenantId, id, stockItemId, locationId], onDelete: Restrict)
+  physicalBatch  StockBatch?         @relation("SaleDepletionAllocationPhysicalBatch", fields: [tenantId, physicalBatchId, stockItemId, locationId], references: [tenantId, id, stockItemId, locationId], onDelete: Restrict)
+  costBasisBatch StockBatch?         @relation("SaleDepletionAllocationCostBasisBatch", fields: [tenantId, costBasisBatchId, stockItemId, locationId], references: [tenantId, id, stockItemId, locationId], onDelete: Restrict)
+  /// The movement THIS allocation produced (P1F2E-A §E step 3e-2). NOT
+  /// structurally proven to bind the same item/location — that binding is
+  /// service-enforced only (P1F2E-A §G; a 4th unique index on the
+  /// RANGE-partitioned `stock_movements` was deliberately rejected).
+  movement       StockMovement       @relation(fields: [tenantId, movementId, movementOccurredAt], references: [tenantId, id, occurredAt], onDelete: Restrict)
+  unit           Uom                 @relation("SaleDepletionAllocationUnit", fields: [unitId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, effectId, sequence])
+  @@index([tenantId, effectId])
+  @@index([tenantId, physicalBatchId])
+  @@index([tenantId, costBasisBatchId])
+  @@map("sale_depletion_allocations")
+  @@schema("inventory")
 }

@@ -25,4 +25,14 @@ export interface RecipeCostRecomputer {
     tx: Prisma.TransactionClient,
     stockItemId: string,
   ): Promise<string[]>;
+
+  /**
+   * P1F-2 — the SAME cascade, batched across several stock items in one call.
+   * Order Completion calls this ONCE, after all movements, with the DISTINCT
+   * FIFO stock items the depletion touched — not once per movement/allocation.
+   */
+  recomputeForStockItems(
+    tx: Prisma.TransactionClient,
+    stockItemIds: readonly string[],
+  ): Promise<string[]>;
 }

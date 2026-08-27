@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
+import { PRODUCTION_CONSUMPTION_QUERY } from './contract/consumption.contract';
+import { ConsumptionResolutionService } from './costing/consumption-resolution.service';
+import { ModifierRecipeEffectsService } from './costing/modifier-recipe-effects.service';
 import { RecipeCompletenessService } from './costing/recipe-completeness.service';
 import { RECIPE_COST_RECOMPUTER } from './costing/recipe-cost.port';
 import { RecipeCostService } from './costing/recipe-cost.service';
@@ -36,6 +39,14 @@ import { RecipeVersionsService } from './versions/recipe-versions.service';
     // BR-MNU-012's third clause: the "recipes requiring completion" report.
     RecipeCompletenessService,
     { provide: RECIPE_COST_RECOMPUTER, useExisting: RecipeCostService },
+    // P1F-2 — D-17-07 resolution (modifier -> recipe effects) and the
+    // resolveConsumptionBasis/planConsumption public contract.
+    ModifierRecipeEffectsService,
+    ConsumptionResolutionService,
+    {
+      provide: PRODUCTION_CONSUMPTION_QUERY,
+      useExisting: ConsumptionResolutionService,
+    },
   ],
   exports: [
     RecipesService,
@@ -45,6 +56,7 @@ import { RecipeVersionsService } from './versions/recipe-versions.service';
     RecipeCostService,
     RecipeCompletenessService,
     RECIPE_COST_RECOMPUTER,
+    PRODUCTION_CONSUMPTION_QUERY,
   ],
 })
 export class ProductionModule {}

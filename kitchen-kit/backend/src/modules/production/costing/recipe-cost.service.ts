@@ -267,8 +267,24 @@ export class RecipeCostService {
     tx: Prisma.TransactionClient,
     stockItemId: string,
   ): Promise<string[]> {
+    return this.recomputeForStockItems(tx, [stockItemId]);
+  }
+
+  /**
+   * P1F-2 — the SAME cascade, batched across several stock items in one
+   * call. Order Completion calls this ONCE, after all movements, with the
+   * DISTINCT FIFO stock items the depletion touched.
+   */
+  async recomputeForStockItems(
+    tx: Prisma.TransactionClient,
+    stockItemIds: readonly string[],
+  ): Promise<string[]> {
+    if (stockItemIds.length === 0) return [];
     const seed = await tx.recipeLine.findMany({
-      where: { componentType: 'stock_item', stockItemId },
+      where: {
+        componentType: 'stock_item',
+        stockItemId: { in: [...stockItemIds] },
+      },
       select: { recipeVersionId: true },
     });
     return this.cascade(

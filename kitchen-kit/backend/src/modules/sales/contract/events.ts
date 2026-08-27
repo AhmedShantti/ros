@@ -197,3 +197,106 @@ export type OrderOpenedEvent = DomainEventEnvelope<
   typeof ORDER_OPENED_EVENT_TYPE,
   OrderOpenedPayload
 >;
+
+/**
+ * `order.completed` — SRS §5.5.4 event catalogue: publisher Sales,
+ * principal subscribers "Inventory, Costing, Treasury, Fiscal, Customer,
+ * Analytics". P1F-2 is the FIRST producer. ZERO subscribers are registered
+ * in this slice (SRS §5.5.2's fire-and-forget in-process dispatch tolerates
+ * zero handlers, same as `order.opened`) — publishing this does not
+ * literally satisfy §5.5.2 subscriber compliance, and the P1F-2 report
+ * states that honestly rather than claiming it.
+ *
+ * ── PAYLOAD SHAPE — TRANSCRIBED FROM SRS §24.2.4 ────────────────────────
+ * The SRS's own `Order.complete()` reference pseudocode (§24.2.4) records:
+ *
+ *   this.record(new OrderCompleted({
+ *     orderId: this.id, branchId: this.branchId, businessDay: this.businessDay,
+ *     lines: this.lines.map(l => l.toConsumptionSpec()),
+ *     totals: this.totals(), payments: payments.map(p => p.toSummary()),
+ *     completedAt: at, customerId: this.customerId,
+ *   }));
+ *
+ * These six top-level fields are used VERBATIM — "Invent no fields". The
+ * SRS pseudocode's helper methods (`toConsumptionSpec`/`totals`/`toSummary`)
+ * are not spelled out field-by-field anywhere in the source, so their SUB-
+ * shapes below are derived from the concrete P1F-1/P1F-2 schema this
+ * repository actually has (`sales.orders`, `sales.order_lines`,
+ * `sales.order_payments`, and Production's `planConsumption` output) —
+ * documented here as an implementation decision, not asserted as literal
+ * SRS text.
+ *
+ * `customerId` is ALWAYS `null`: no customer/CRM/loyalty concept exists
+ * anywhere in this codebase (an explicit NON-GOAL), so the SRS-named field
+ * is carried, honestly unpopulated, rather than omitted or fabricated.
+ */
+export const ORDER_COMPLETED_EVENT_TYPE = 'order.completed' as const;
+export const ORDER_COMPLETED_EVENT_VERSION = 1;
+
+export interface OrderCompletedComponent {
+  readonly stockItemId: string;
+  /** DECIMAL(18,6) exact string. */
+  readonly quantityInBaseUnit: string;
+  readonly unitId: string;
+}
+
+/** `l.toConsumptionSpec()` — one order line's identity, quantity and Production's expanded consumption. */
+export interface OrderCompletedLine {
+  readonly orderLineId: string;
+  readonly menuItemId: string;
+  readonly variantId: string;
+  /** `DECIMAL(12,3)` as a string. */
+  readonly quantity: string;
+  /** Exact bigint minor units, as a string. */
+  readonly postedCogsTotal: string;
+  readonly components: readonly OrderCompletedComponent[];
+}
+
+/** `this.totals()` — `sales.orders`' own financial columns, minor units as strings. */
+export interface OrderCompletedTotals {
+  readonly currency: string;
+  readonly subtotal: string;
+  readonly discountTotal: string;
+  readonly serviceChargeTotal: string;
+  readonly taxTotal: string;
+  readonly roundingAdjustment: string;
+  readonly grandTotal: string;
+  readonly paidTotal: string;
+  readonly tipTotal: string;
+  readonly cogsTotal: string;
+}
+
+/** `p.toSummary()` — one `sales.order_payments` row, minor units as strings. */
+export interface OrderCompletedPaymentSummary {
+  readonly id: string;
+  readonly tender: 'cash' | 'manual_external_card';
+  readonly amount: string;
+  readonly roundingAdjustment: string;
+  readonly tenderedAmount: string | null;
+  readonly changeGiven: string | null;
+  readonly cashSessionId: string;
+  readonly employeeId: string;
+  readonly terminalId: string;
+  /** ISO-8601. */
+  readonly processedAt: string;
+}
+
+export interface OrderCompletedPayload {
+  readonly orderId: string;
+  readonly branchId: string;
+  /** `YYYY-MM-DD` — see `OrderLineFiredPayload.businessDay`'s docblock note. */
+  readonly businessDay: string;
+  readonly lines: readonly OrderCompletedLine[];
+  readonly totals: OrderCompletedTotals;
+  /** EVERY payment on the order (not only the settling one). */
+  readonly payments: readonly OrderCompletedPaymentSummary[];
+  /** ISO-8601. */
+  readonly completedAt: string;
+  /** Always `null` — see file docblock. */
+  readonly customerId: null;
+}
+
+export type OrderCompletedEvent = DomainEventEnvelope<
+  typeof ORDER_COMPLETED_EVENT_TYPE,
+  OrderCompletedPayload
+>;

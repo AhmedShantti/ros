@@ -21,6 +21,14 @@ import {
   valuationUnitCost,
   weightedAverageCost,
 } from '../costing';
+import {
+  LockedBatchLayer,
+  applyCostConsumption,
+  lockLayers,
+  planFifoCostConsumption,
+} from '../costing/fifo-cost-ledger';
+import { fromExactDecimal } from '../../../common/money/rational';
+import { parseExactDecimal } from '../../../common/money/rounding';
 
 export interface PostMovementInput {
   locationId: string;
@@ -121,23 +129,31 @@ export class MovementsService {
     const outbound = input.quantity < 0;
 
     // ---- batch selection (outbound only) --------------------------------
+    // P1F-2: batch access is routed through the SAME private fifo-cost-ledger
+    // kernel `SaleDepletionService` uses, so this path and Completion take
+    // compatible FOR UPDATE locks in the SAME deterministic order and can
+    // never double-consume or skip a layer on either axis. This is COUNTER
+    // MAINTENANCE AND LOCKING ONLY — `valuationUnitCost` below is UNCHANGED,
+    // and how transfers/waste/counts are VALUED is UNCHANGED.
     let consumed: { batchId: string; quantity: number; unitCost: bigint }[] =
       [];
+    let lockedLayers: LockedBatchLayer[] = [];
     if (outbound && item.isBatchTracked) {
-      const batches = await tx.stockBatch.findMany({
-        where: {
-          stockItemId: input.stockItemId,
-          locationId: input.locationId,
-          quantityRemaining: { gt: 0 },
-        },
-      });
-      const lots: BatchLot[] = batches.map((b) => ({
-        batchId: b.id,
-        quantityRemaining: Number(b.quantityRemaining),
-        unitCost: b.unitCost,
-        receivedAt: b.createdAt,
-        expiryDate: b.expiryDate,
-      }));
+      lockedLayers = await lockLayers(
+        tx,
+        tenantId,
+        input.stockItemId,
+        input.locationId,
+      );
+      const lots: BatchLot[] = lockedLayers
+        .filter((b) => Number(b.quantityRemaining) > 0)
+        .map((b) => ({
+          batchId: b.id,
+          quantityRemaining: Number(b.quantityRemaining),
+          unitCost: b.unitCost,
+          receivedAt: b.createdAt,
+          expiryDate: b.expiryDate,
+        }));
       // FR-INV-014: a shortfall is recorded, never blocked.
       consumed = selectBatches(
         lots,
@@ -213,12 +229,30 @@ export class MovementsService {
       },
     });
 
-    // ---- batch depletion --------------------------------------------------
+    // ---- batch depletion (physical axis) -----------------------------------
     for (const c of consumed) {
       await tx.stockBatch.update({
         where: { id: c.batchId },
         data: { quantityRemaining: { decrement: c.quantity } },
       });
+    }
+
+    // ---- P1F-2 FIFO accounting counter maintenance (independent axis) -----
+    // For costing_method=fifo batch-tracked items, an outbound consumption
+    // here ALSO advances `fifo_cost_quantity_consumed` in RECEIPT order by
+    // the SAME total quantity, under the locks already taken above. This is
+    // locking/counter-maintenance ONLY — it does not change `unitCost`
+    // (computed above, unchanged) or how this movement is valued. No
+    // carry-forward is applied here: an uncovered remainder simply leaves
+    // the counter short, which is harmless for this path (its own valuation
+    // never reads the counter) and is a documented residual — only Sale
+    // Completion requires full valued coverage and fails closed on it.
+    if (outbound && item.isBatchTracked && item.costingMethod === 'fifo') {
+      const requiredQty = fromExactDecimal(
+        parseExactDecimal(Math.abs(input.quantity).toFixed(6)),
+      );
+      const plan = planFifoCostConsumption(lockedLayers, requiredQty);
+      await applyCostConsumption(tx, plan.slices);
     }
 
     await this.audit.record(tx, {

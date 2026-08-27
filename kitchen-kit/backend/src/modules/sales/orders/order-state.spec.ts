@@ -20,13 +20,17 @@ describe('state machine (SRS §7.3 #22)', () => {
     expect(canTransition('open', 'cancelled')).toBe(true);
   });
 
-  it('refuses to invent a route to completed — payment/completion do not exist', () => {
-    expect(canTransition('open', 'completed')).toBe(false);
+  it('P1F-2: a settling Payment completes an order from open or partially_paid, never draft', () => {
+    expect(canTransition('open', 'completed')).toBe(true);
+    expect(canTransition('partially_paid', 'completed')).toBe(true);
     expect(canTransition('draft', 'completed')).toBe(false);
-    expect(canTransition('partially_paid', 'completed')).toBe(false);
-    expect(() => assertTransition('open', 'completed')).toThrow(
+    expect(() => assertTransition('draft', 'completed')).toThrow(
       OrderStateError,
     );
+  });
+
+  it('never allows partially_paid -> partially_paid as a transition (a further split payment changes only projections)', () => {
+    expect(canTransition('partially_paid', 'partially_paid')).toBe(false);
   });
 
   it('treats finalised states as terminal', () => {

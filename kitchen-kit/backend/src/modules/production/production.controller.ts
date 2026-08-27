@@ -39,9 +39,11 @@ import {
   CreateRecipeVersionDto,
   CreateSubstituteGroupDto,
   RecipeCompletenessQueryDto,
+  ReplaceModifierRecipeEffectsDto,
   ReplaceRecipeLinesDto,
 } from './production.dto';
 import { PRODUCTION_PERMISSIONS } from './production.permissions';
+import { ModifierRecipeEffectsService } from './costing/modifier-recipe-effects.service';
 import { RecipeCompletenessService } from './costing/recipe-completeness.service';
 import { RecipesService } from './recipes/recipes.service';
 import { SubstituteGroupsService } from './substitute-groups/substitute-groups.service';
@@ -218,6 +220,26 @@ const completenessReportSchema = {
   },
 };
 
+const modifierRecipeEffectSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    modifierId: uuidSchema(),
+    sequence: { type: 'integer' },
+    operation: { type: 'string', enum: ['add', 'remove_all'] },
+    componentType: { type: 'string', enum: ['stock_item', 'sub_recipe'] },
+    stockItemId: nullable(uuidSchema()),
+    subRecipeId: nullable(
+      uuidSchema(
+        'LOGICAL recipe identity — resolved to its published version at capture time.',
+      ),
+    ),
+    quantity: nullable(decimalStringSchema()),
+    unitId: nullable(uuidSchema()),
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
 @ApiTags('production')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token.' })
@@ -231,6 +253,7 @@ export class ProductionController {
     private readonly versions: RecipeVersionsService,
     private readonly groups: SubstituteGroupsService,
     private readonly completeness: RecipeCompletenessService,
+    private readonly modifierRecipeEffects: ModifierRecipeEffectsService,
   ) {}
 
   // ------------------------------------------- recipes requiring completion --
@@ -464,6 +487,48 @@ export class ProductionController {
       c.userId,
       groupId,
       dto.stockItemId,
+    );
+  }
+
+  // ------------------------------------------- modifier recipe effects --
+
+  /** D-17-07 resolution — the pinned-at-capture-time recipe effects for a Modifier. */
+  @Get('modifiers/:modifierId/recipe-effects')
+  @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
+  @ApiOkResponse({
+    description: "The modifier's recipe effects, in sequence order.",
+    schema: { type: 'array', items: modifierRecipeEffectSchema },
+  })
+  listModifierRecipeEffects(
+    @CurrentTenantContext() c: TenantContext,
+    @Param('modifierId') modifierId: string,
+  ) {
+    return this.modifierRecipeEffects.list(c.tenantId, modifierId);
+  }
+
+  /** Full replace, shaped like `PUT /recipes/:id/versions/:v/lines`. */
+  @Put('modifiers/:modifierId/recipe-effects')
+  @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
+  @ApiOkResponse({
+    description: 'The replaced set of recipe effects.',
+    schema: {
+      type: 'object',
+      properties: {
+        modifierId: uuidSchema(),
+        effects: { type: 'array', items: modifierRecipeEffectSchema },
+      },
+    },
+  })
+  replaceModifierRecipeEffects(
+    @CurrentTenantContext() c: TenantContext,
+    @Param('modifierId') modifierId: string,
+    @Body() dto: ReplaceModifierRecipeEffectsDto,
+  ) {
+    return this.modifierRecipeEffects.replace(
+      c.tenantId,
+      c.userId,
+      modifierId,
+      dto.effects,
     );
   }
 }

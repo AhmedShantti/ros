@@ -35,13 +35,21 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { UUID_PATTERN, newId } from '../../../common/ids';
 import { Money } from '../../../common/money/money';
-import { Rational, toMinorUnits } from '../../../common/money/rational';
+import {
+  Rational,
+  add,
+  fromExactDecimal,
+  multiply,
+  rational,
+  toMinorUnits,
+} from '../../../common/money/rational';
 import {
   RoundingMode,
   parseExactDecimal,
@@ -61,6 +69,8 @@ import { TaxEngineRegistry } from '../../localisation/tax/tax-engine.registry';
 import { computeLineTax } from '../../localisation/tax/tax.calculator';
 import type { LineTaxResult } from '../../localisation/tax/tax.model';
 import { RecipeCostService } from '../../production/costing/recipe-cost.service';
+import { PRODUCTION_CONSUMPTION_QUERY } from '../../production/contract';
+import type { ProductionConsumptionQuery } from '../../production/contract';
 import {
   resolveRecipeByScope,
   selectPublishedVersion,
@@ -149,6 +159,11 @@ export class OrderLinesService {
     private readonly taxClasses: TaxClassService,
     private readonly taxEngines: TaxEngineRegistry,
     private readonly recipeCost: RecipeCostService,
+    // P1F-2 — Production's PUBLIC contract only (KNOWN_DEVIATIONS must not
+    // grow); the pre-existing direct `RecipeCostService` import above is
+    // documented debt, not a precedent to extend.
+    @Inject(PRODUCTION_CONSUMPTION_QUERY)
+    private readonly consumption: ProductionConsumptionQuery,
   ) {}
 
   async addLine(
@@ -328,10 +343,16 @@ export class OrderLinesService {
           },
         });
 
+        // orderLineModifierId is the FK target `order_line_modifier_effects`
+        // needs — captured as each row is created so the P1F-2 snapshot
+        // below can reference the right one.
+        const orderLineModifierIdByModifierId = new Map<string, string>();
         for (const modifier of modifiers) {
+          const orderLineModifierId = newId();
+          orderLineModifierIdByModifierId.set(modifier.id, orderLineModifierId);
           await tx.orderLineModifier.create({
             data: {
-              id: newId(),
+              id: orderLineModifierId,
               tenantId,
               orderLineId: line.id,
               businessDay,
@@ -345,6 +366,81 @@ export class OrderLinesService {
               priceDelta: modifier.priceDelta,
               quantity: modifier.quantity,
             },
+          });
+        }
+
+        // ---------------------------------------- P1F-2 LINE-CAPTURE PINS
+        // Production's PUBLIC contract only (KNOWN_DEVIATIONS does not
+        // grow) — resolves the recipe-version closure, the pinned modifier
+        // effects, and the pinned unit-conversion factors, and NOTHING
+        // resolved/net and NO money. Persisted verbatim, same transaction.
+        const modifierIds = modifiers.map((m) => m.id);
+        const basis = await this.consumption.resolveConsumptionBasis(tx, {
+          tenantId,
+          recipeVersionId: cost.recipeVersionId,
+          modifierIds,
+        });
+
+        if (basis.versionClosure.length) {
+          await tx.orderLineRecipeVersion.createMany({
+            data: basis.versionClosure.map((entry) => ({
+              id: newId(),
+              tenantId,
+              businessDay,
+              orderLineId: line.id,
+              recipeVersionId: entry.recipeVersionId,
+              depth: entry.depth,
+            })),
+          });
+        }
+
+        const removeAllStockItemIds: string[] = [];
+        const modifierEffectRows: Prisma.OrderLineModifierEffectCreateManyInput[] =
+          [];
+        for (const modifierId of modifierIds) {
+          const orderLineModifierId =
+            orderLineModifierIdByModifierId.get(modifierId);
+          if (!orderLineModifierId) continue;
+          for (const effect of basis.modifierEffects.get(modifierId) ?? []) {
+            if (effect.operation === 'remove_all' && effect.stockItemId) {
+              removeAllStockItemIds.push(effect.stockItemId);
+            }
+            modifierEffectRows.push({
+              id: newId(),
+              tenantId,
+              businessDay,
+              orderLineId: line.id,
+              orderLineModifierId,
+              operation: effect.operation,
+              componentType: effect.componentType,
+              stockItemId: effect.stockItemId,
+              subRecipeVersionId: effect.subRecipeVersionId,
+              quantity: effect.quantity
+                ? new Prisma.Decimal(effect.quantity)
+                : null,
+              unitId: effect.unitId,
+              sequence: effect.sequence,
+            });
+          }
+        }
+        if (modifierEffectRows.length) {
+          await tx.orderLineModifierEffect.createMany({
+            data: modifierEffectRows,
+          });
+        }
+
+        if (basis.conversions.length) {
+          await tx.orderLineComponentConversion.createMany({
+            data: basis.conversions.map((c) => ({
+              id: newId(),
+              tenantId,
+              businessDay,
+              orderLineId: line.id,
+              stockItemId: c.stockItemId,
+              fromUnitId: c.fromUnitId,
+              baseUnitId: c.baseUnitId,
+              factor: new Prisma.Decimal(c.factor),
+            })),
           });
         }
 
@@ -394,6 +490,18 @@ export class OrderLinesService {
             priceListId: priced.priceListId,
             priceEntryId: priced.priceEntryId,
             orderVersion: nextVersion,
+            // P1F-2 — applied REMOVE_ALL operations, recorded here (not a
+            // column): an audit trail records what the system KNEW at
+            // capture time.
+            removeAllStockItemIds,
+            // P1F-2 acceptance closure §5 — a modifier ADD effect targeting a
+            // sub-recipe with no published version at capture time cannot be
+            // persisted into `order_line_modifier_effects` (its XOR CHECK
+            // requires a non-null pin) and is dropped from the snapshot. That
+            // drop is recorded here so it is not silently forgotten with zero
+            // evidence anywhere in the system — a STRUCTURAL gap, not a
+            // valuation failure; the sale still proceeds.
+            droppedModifierEffects: basis.droppedModifierEffects,
           },
         });
 
@@ -827,21 +935,32 @@ export class OrderLinesService {
         taxAmount: true,
         lineTotal: true,
         unitCostSnapshot: true,
+        quantity: true,
       },
     });
 
     let subtotal = 0n;
     let taxTotal = 0n;
     let grandTotal = 0n;
-    let cogs: bigint | null = null;
+    // P1F-2 in-scope micro-fix: COGS is unitCostSnapshot x quantity, not the
+    // bare per-unit snapshot — a qty=3 line must contribute 3x, not 1x. Exact
+    // rational arithmetic, ONE HALF_UP rounding per line (BR-FIN-001).
+    let cogsExact: Rational | null = null;
     for (const line of lines) {
       subtotal += line.lineSubtotal;
       taxTotal += line.taxAmount;
       grandTotal += line.lineTotal;
       if (line.unitCostSnapshot !== null) {
-        cogs = (cogs ?? 0n) + line.unitCostSnapshot;
+        const lineCogs = multiply(
+          rational(line.unitCostSnapshot),
+          fromExactDecimal(parseExactDecimal(line.quantity.toFixed(3))),
+        );
+        cogsExact = cogsExact ? add(cogsExact, lineCogs) : lineCogs;
       }
     }
+    const cogs = cogsExact
+      ? toMinorUnits(cogsExact, RoundingMode.HALF_UP)
+      : null;
     // Named only to make the currency explicit at the boundary; the arithmetic
     // above is already exact bigint minor units.
     void Money.of(grandTotal, currency);

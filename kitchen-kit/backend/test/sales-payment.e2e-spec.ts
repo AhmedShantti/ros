@@ -1214,7 +1214,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
       );
     });
 
-    it('a full-settlement attempt is rejected atomically — no Payment, no projection change, no audit', async () => {
+    it('P1F-2: a full-settlement payment COMPLETES the order atomically (absent-recipe item: 0 depletion, posted_cogs_total 0)', async () => {
       const order = await mkOpenOrder();
       const item = await mkSellable(
         tenantA,
@@ -1222,7 +1222,12 @@ describe('Sales Payment (P1F-1 e2e)', () => {
         priceListA,
         `Full-${newId()}`,
       );
-      await mkLine(order.id, order.businessDay, item.itemId, item.variantId);
+      const line = await mkLine(
+        order.id,
+        order.businessDay,
+        item.itemId,
+        item.variantId,
+      );
       const fresh = await admin.order.findFirstOrThrow({
         where: { id: order.id },
       });
@@ -1230,7 +1235,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
       const grandTotal = fresh.grandTotal;
 
       const auditBefore = await admin.auditEntry.count({
-        where: { tenantId: tenantA, action: 'PAYMENT_CAPTURED' },
+        where: { tenantId: tenantA, action: 'ORDER_COMPLETED' },
       });
 
       const res = await payNow(token, order, {
@@ -1239,25 +1244,29 @@ describe('Sales Payment (P1F-1 e2e)', () => {
         tenderedAmountMinor: grandTotal.toString(),
         cashSessionId: cashSessionA,
       });
-      expect(res.status).toBe(422);
-      expect((res.body as { error?: string; message: string }).message).toMatch(
-        /full or over settlement|FULL_PAYMENT_REQUIRES_COMPLETION/i,
-      );
+      expect(res.status).toBe(201);
+      const body = res.body as { order: { state: string; version: number } };
+      expect(body.order.state).toBe('completed');
+      expect(body.order.version).toBe(versionBefore + 1);
 
       const afterOrder = await admin.order.findFirstOrThrow({
         where: { id: order.id },
       });
-      expect(afterOrder.state).toBe('open');
-      expect(afterOrder.version).toBe(versionBefore);
-      expect(afterOrder.paidTotal).toBe(0n);
-      const payments = await admin.orderPayment.findMany({
-        where: { orderId: order.id },
+      expect(afterOrder.state).toBe('completed');
+      expect(afterOrder.paidTotal).toBe(grandTotal);
+      expect(afterOrder.completedAt).not.toBeNull();
+      expect(afterOrder.closedBy).toBe(employeeA);
+      // Absent recipe (BR-MNU-012): 0 depletion, posted COGS 0 — not NULL.
+      expect(afterOrder.cogsTotal).toBe(0n);
+      const afterLine = await admin.orderLine.findFirstOrThrow({
+        where: { id: line.line.id },
       });
-      expect(payments).toHaveLength(0);
+      expect(afterLine.postedCogsTotal).toBe(0n);
+
       const auditAfter = await admin.auditEntry.count({
-        where: { tenantId: tenantA, action: 'PAYMENT_CAPTURED' },
+        where: { tenantId: tenantA, action: 'ORDER_COMPLETED' },
       });
-      expect(auditAfter).toBe(auditBefore);
+      expect(auditAfter).toBe(auditBefore + 1);
     });
   });
 

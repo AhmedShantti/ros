@@ -25,6 +25,7 @@ const UUID_PATTERN =
 const RECIPE_SCOPES = ['tenant', 'brand', 'branch'] as const;
 const RECIPE_TYPES = ['menu_item', 'sub_recipe', 'production_item'] as const;
 const COMPONENT_TYPES = ['stock_item', 'sub_recipe'] as const;
+const MODIFIER_EFFECT_OPERATIONS = ['add', 'remove_all'] as const;
 
 export class CreateRecipeDto {
   @IsIn(RECIPE_SCOPES)
@@ -119,4 +120,38 @@ export class AddSubstituteMemberDto {
  */
 export class RecipeCompletenessQueryDto {
   @IsOptional() @Matches(UUID_PATTERN) branchId?: string;
+}
+
+/**
+ * P1F-2 — D-17-07 resolution. Shape mirrors `RecipeLineDto`; XOR-by-operation
+ * and XOR-by-componentType rules, and kind<->effect consistency against the
+ * source Modifier's `kind`, are service-level (same discipline `RecipeLineDto`
+ * already uses for its own componentType XOR).
+ */
+export class ModifierRecipeEffectDto {
+  @IsInt() @Min(0) @Max(32767) sequence!: number;
+
+  @IsIn(MODIFIER_EFFECT_OPERATIONS)
+  operation!: (typeof MODIFIER_EFFECT_OPERATIONS)[number];
+
+  @IsIn(COMPONENT_TYPES)
+  componentType!: (typeof COMPONENT_TYPES)[number];
+
+  @IsOptional() @Matches(UUID_PATTERN) stockItemId?: string;
+
+  /** LOGICAL recipe identity — resolved to its published version at capture time. */
+  @IsOptional() @Matches(UUID_PATTERN) subRecipeId?: string;
+
+  /** 6-dp decimal string. Required for `add`; forbidden for `remove_all`. */
+  @IsOptional() @IsNumberString() quantity?: string;
+
+  /** Required for `add`; forbidden for `remove_all`. */
+  @IsOptional() @Matches(UUID_PATTERN) unitId?: string;
+}
+
+export class ReplaceModifierRecipeEffectsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ModifierRecipeEffectDto)
+  effects!: ModifierRecipeEffectDto[];
 }

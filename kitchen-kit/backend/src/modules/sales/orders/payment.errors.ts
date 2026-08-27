@@ -8,24 +8,6 @@ import { OrderStateError } from './order-state';
  */
 
 /**
- * §14 HARD ACCEPTANCE CONDITION — Completion does not exist yet, so a
- * Payment that would fully or over-settle the order (`newPaidTotal >=
- * grandTotal`, following the SRS's own `Order.complete()` reference
- * pseudocode in §24.2.4 — `paid` compared directly to `grandTotal`, with no
- * rounding term) is refused atomically, before any mutation. Rejecting
- * here — rather than silently completing, or silently leaving a fully-paid
- * order stuck PARTIALLY_PAID — is exactly what prevents the invalid state
- * "paid in full + PARTIALLY_PAID + no inventory/COGS/fiscal consequence".
- */
-export class FullPaymentRequiresCompletionError extends OrderStateError {
-  readonly code = 'FULL_PAYMENT_REQUIRES_COMPLETION';
-  constructor(message: string) {
-    super(message);
-    this.name = 'FullPaymentRequiresCompletionError';
-  }
-}
-
-/**
  * The named CashSession does not satisfy the P1D-G attribution facts this
  * capture requires (wrong branch, wrong employee, wrong terminal, wrong
  * currency, or not OPEN). A missing/cross-tenant id is a separate 404, not

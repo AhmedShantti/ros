@@ -853,6 +853,38 @@ components:
         - email
         - password
       type: object
+    ModifierRecipeEffectDto:
+      properties:
+        componentType:
+          enum:
+            - stock_item
+            - sub_recipe
+          type: string
+        operation:
+          enum:
+            - add
+            - remove_all
+          type: string
+        quantity:
+          description: 6-dp decimal string. Required for `add`; forbidden for `remove_all`.
+          type: string
+        sequence:
+          maximum: 32767
+          minimum: 0
+          type: number
+        stockItemId:
+          type: string
+        subRecipeId:
+          description: LOGICAL recipe identity — resolved to its published version at capture time.
+          type: string
+        unitId:
+          description: Required for `add`; forbidden for `remove_all`.
+          type: string
+      required:
+        - sequence
+        - operation
+        - componentType
+      type: object
     OpenCashSessionDto:
       properties:
         cashSessionId:
@@ -1103,6 +1135,15 @@ components:
         - name
         - terminalType
         - branchId
+      type: object
+    ReplaceModifierRecipeEffectsDto:
+      properties:
+        effects:
+          items:
+            $ref: '#/components/schemas/ModifierRecipeEffectDto'
+          type: array
+      required:
+        - effects
       type: object
     ReplaceRecipeLinesDto:
       properties:
@@ -7065,6 +7106,201 @@ paths:
       summary: Record waste (writes waste movements for each line; FR-INV-055…059).
       tags:
         - inventory
+  /modifiers/{modifierId}/recipe-effects:
+    get:
+      operationId: ProductionController_listModifierRecipeEffects
+      parameters:
+        - in: path
+          name: modifierId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  properties:
+                    componentType:
+                      enum:
+                        - stock_item
+                        - sub_recipe
+                      type: string
+                    createdAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    id:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    modifierId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    operation:
+                      enum:
+                        - add
+                        - remove_all
+                      type: string
+                    quantity:
+                      description: Decimal quantity as a string (preserves exact precision).
+                      example: '2.5'
+                      pattern: ^-?\d+(\.\d+)?$
+                      type:
+                        - string
+                        - 'null'
+                    sequence:
+                      type: integer
+                    stockItemId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type:
+                        - string
+                        - 'null'
+                    subRecipeId:
+                      description: LOGICAL recipe identity — resolved to its published version at capture time.
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type:
+                        - string
+                        - 'null'
+                    unitId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type:
+                        - string
+                        - 'null'
+                  type: object
+                type: array
+          description: The modifier's recipe effects, in sequence order.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing the required permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unknown or cross-tenant resource.
+      security:
+        - bearer: []
+      tags:
+        - production
+    put:
+      operationId: ProductionController_replaceModifierRecipeEffects
+      parameters:
+        - in: path
+          name: modifierId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceModifierRecipeEffectsDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  effects:
+                    items:
+                      properties:
+                        componentType:
+                          enum:
+                            - stock_item
+                            - sub_recipe
+                          type: string
+                        createdAt:
+                          example: '2026-08-23T14:30:00.000Z'
+                          format: date-time
+                          type: string
+                        id:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        modifierId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        operation:
+                          enum:
+                            - add
+                            - remove_all
+                          type: string
+                        quantity:
+                          description: Decimal quantity as a string (preserves exact precision).
+                          example: '2.5'
+                          pattern: ^-?\d+(\.\d+)?$
+                          type:
+                            - string
+                            - 'null'
+                        sequence:
+                          type: integer
+                        stockItemId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type:
+                            - string
+                            - 'null'
+                        subRecipeId:
+                          description: LOGICAL recipe identity — resolved to its published version at capture time.
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type:
+                            - string
+                            - 'null'
+                        unitId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type:
+                            - string
+                            - 'null'
+                      type: object
+                    type: array
+                  modifierId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                type: object
+          description: The replaced set of recipe effects.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing the required permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unknown or cross-tenant resource.
+      security:
+        - bearer: []
+      summary: Full replace, shaped like `PUT /recipes/:id/versions/:v/lines`.
+      tags:
+        - production
   /orders:
     get:
       operationId: OrdersController_list
@@ -10026,10 +10262,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: The order is not in a state that accepts a payment, the cash session is invalid for this order (wrong branch/employee/terminal/currency, or not open), the tendered cash is insufficient, or this payment would fully or over-settle the order (Completion is not implemented).
+          description: The order is not in a state that accepts a payment, the cash session is invalid for this order (wrong branch/employee/terminal/currency, or not open), the tendered cash is insufficient, or (for a settling payment) a component has no pinned unit conversion and Completion cannot depute an exact quantity.
       security:
         - bearer: []
-      summary: Capture a partial CASH or manual/external-card payment (full settlement is refused — Completion does not exist yet).
+      summary: Capture a partial, or final settling, CASH or manual/external-card payment. A settling payment completes the order atomically.
       tags:
         - sales
   /org/branches:
