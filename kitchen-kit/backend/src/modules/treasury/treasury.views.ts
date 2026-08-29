@@ -1,4 +1,8 @@
-import { CashSession, Shift } from '../../generated/prisma/client';
+import {
+  CashMovement,
+  CashSession,
+  Shift,
+} from '../../generated/prisma/client';
 
 /**
  * Treasury read models.
@@ -20,6 +24,21 @@ export function toCashSessionView(session: CashSession) {
     status: session.status,
     openedAt: session.openedAt,
     closedAt: session.closedAt,
+  };
+}
+
+/** P1G-0 — mirrors `toCashSessionView`'s money-as-string discipline exactly. */
+export function toCashMovementView(movement: CashMovement) {
+  return {
+    id: movement.id,
+    cashSessionId: movement.cashSessionId,
+    branchId: movement.branchId,
+    employeeId: movement.employeeId,
+    movementType: movement.movementType,
+    amountMinor: movement.amount.toString(),
+    currency: movement.currency,
+    reason: movement.reason,
+    occurredAt: movement.occurredAt,
   };
 }
 

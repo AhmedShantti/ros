@@ -3,9 +3,14 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { WorkforceModule } from '../workforce/workforce.module';
+import { CashMovementTotalsQueryService } from './cash-movements/cash-movement-totals.query.service';
+import { CashMovementsService } from './cash-movements/cash-movements.service';
 import { CashSessionFactsQueryService } from './cash-sessions/cash-session-facts.query.service';
 import { CashSessionsService } from './cash-sessions/cash-sessions.service';
-import { CASH_SESSION_FACTS_QUERY } from './contract';
+import {
+  CASH_MOVEMENT_TOTALS_QUERY,
+  CASH_SESSION_FACTS_QUERY,
+} from './contract';
 import { DrawersService } from './drawers/drawers.service';
 import { TreasuryController } from './treasury.controller';
 
@@ -38,6 +43,14 @@ import { TreasuryController } from './treasury.controller';
  * (`modules/treasury/contract`), consumed by Sales' Payment capture to
  * validate P1D-G attribution. Still no public read ROUTE — the contract is
  * an in-process module boundary, not HTTP.
+ *
+ * P1G-0 adds mid-shift cash movements (FR-POS-091): three routes
+ * (`pay-in`/`pay-out`/`safe-drop`), the append-only `cash_movements` ledger,
+ * and a SECOND `contract/` query, `CASH_MOVEMENT_TOTALS_QUERY`, for a future
+ * Cash Close (P1G-1) to read movement totals inside its own close
+ * transaction — again no public read ROUTE, since §15.2 names no
+ * movement-read permission. FR-POS-092's drawer limit is deliberately NOT
+ * implemented (design gate §5 — all four parameters undecided).
  */
 @Module({
   imports: [PrismaModule, IdentityModule, AuditModule, WorkforceModule],
@@ -46,11 +59,22 @@ import { TreasuryController } from './treasury.controller';
     DrawersService,
     CashSessionsService,
     CashSessionFactsQueryService,
+    CashMovementsService,
+    CashMovementTotalsQueryService,
     {
       provide: CASH_SESSION_FACTS_QUERY,
       useExisting: CashSessionFactsQueryService,
     },
+    {
+      provide: CASH_MOVEMENT_TOTALS_QUERY,
+      useExisting: CashMovementTotalsQueryService,
+    },
   ],
-  exports: [DrawersService, CashSessionsService, CASH_SESSION_FACTS_QUERY],
+  exports: [
+    DrawersService,
+    CashSessionsService,
+    CASH_SESSION_FACTS_QUERY,
+    CASH_MOVEMENT_TOTALS_QUERY,
+  ],
 })
 export class TreasuryModule {}

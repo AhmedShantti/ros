@@ -49,15 +49,16 @@ model User {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  credentials          Credential[]
-  sessions             Session[]
-  memberships          Membership[]
-  ownedTenants         Tenant[]             @relation("TenantOwner")
-  passwordResetTokens  PasswordResetToken[]
-  countSessionsStarted CountSession[]       @relation("CountStartedBy")
-  countSessionsPosted  CountSession[]       @relation("CountPostedBy")
-  wasteRecorded        WasteRecord[]
-  movementsPerformed   StockMovement[]
+  credentials            Credential[]
+  sessions               Session[]
+  memberships            Membership[]
+  ownedTenants           Tenant[]             @relation("TenantOwner")
+  passwordResetTokens    PasswordResetToken[]
+  countSessionsStarted   CountSession[]       @relation("CountStartedBy")
+  countSessionsPosted    CountSession[]       @relation("CountPostedBy")
+  wasteRecorded          WasteRecord[]
+  movementsPerformed     StockMovement[]
+  cashMovementsPerformed CashMovement[]
 
   // Production Spec back-relations (virtual; no DDL impact).
   publishedRecipeVersions RecipeVersion[] @relation("RecipeVersionPublisher")
@@ -216,6 +217,7 @@ model Tenant {
   shifts                    Shift[]
   drawers                   Drawer[]
   cashSessions              CashSession[]
+  cashMovements             CashMovement[]
   modifierGroups            ModifierGroup[]
   priceLists                PriceList[]
   /// P1E-3 back-relations. Prisma requires both sides of a relation; these add
@@ -566,9 +568,11 @@ model Branch {
   permittedForStaff EmployeeBranch[]
 
   // P1D-1 Workforce / Treasury back-relations (virtual; no DDL impact).
-  shifts       Shift[]
-  drawers      Drawer[]
-  cashSessions CashSession[]
+  shifts        Shift[]
+  drawers       Drawer[]
+  cashSessions  CashSession[]
+  // P1G-0 back-relation only (virtual; no DDL impact on this model).
+  cashMovements CashMovement[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_branch_code")
@@ -1594,6 +1598,8 @@ model Employee {
   shifts        Shift[]
   cashSessions  CashSession[]
   orderPayments OrderPayment[]
+  // P1G-0 back-relation only (virtual; no DDL impact on this model).
+  cashMovements CashMovement[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_employee_code")
@@ -2221,21 +2227,72 @@ model CashSession {
   closedAt     DateTime?         @map("closed_at") @db.Timestamptz(6)
   createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch   Branch         @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch         @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
   /// Same tenant AND same branch as the session.
-  drawer   Drawer         @relation(fields: [tenantId, branchId, drawerId], references: [tenantId, branchId, id], onDelete: Restrict)
+  drawer        Drawer         @relation(fields: [tenantId, branchId, drawerId], references: [tenantId, branchId, id], onDelete: Restrict)
   /// Same tenant, branch AND employee as the session - four columns, so a
   /// mismatch is a foreign-key violation rather than a missed service check.
-  shift    Shift          @relation(fields: [tenantId, branchId, employeeId, shiftId], references: [tenantId, branchId, employeeId, id], onDelete: Restrict)
-  employee Employee       @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
-  payments OrderPayment[]
+  shift         Shift          @relation(fields: [tenantId, branchId, employeeId, shiftId], references: [tenantId, branchId, employeeId, id], onDelete: Restrict)
+  employee      Employee       @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  payments      OrderPayment[]
+  // P1G-0 back-relation only (virtual; no DDL impact on this model).
+  cashMovements CashMovement[]
 
   @@unique([tenantId, id])
   @@index([tenantId, branchId, status])
   @@index([tenantId, shiftId])
   @@index([tenantId, employeeId])
   @@map("cash_sessions")
+  @@schema("treasury")
+}
+
+/// P1G-0 — mid-shift cash movements (FR-POS-091 [M]). Exactly three types;
+/// no substitution/adjustment/reversal type exists — see the design gate's
+/// §12 for why a correction is NOT SOURCE-DECIDABLE and is not invented here.
+enum CashMovementType {
+  pay_in
+  pay_out
+  safe_drop
+
+  @@schema("treasury")
+}
+
+/// CashMovement - an immutable, append-only source fact feeding the
+/// Pay-ins/Pay-outs/Safe-Drops terms of FR-FIN-004's expected-cash formula.
+/// `drawer_id`/`shift_id` are deliberately NOT copied here: both are
+/// immutably reachable through `cash_session_id` (design gate §7).
+model CashMovement {
+  id            String           @id @db.Uuid
+  tenantId      String           @map("tenant_id") @db.Uuid
+  branchId      String           @map("branch_id") @db.Uuid
+  cashSessionId String           @map("cash_session_id") @db.Uuid
+  /// P1D-E: the accountable business actor is the EMPLOYEE, not the login user.
+  employeeId    String           @map("employee_id") @db.Uuid
+  movementType  CashMovementType @map("movement_type")
+  /// POSITIVE magnitude, minor units (design gate §2). The type column
+  /// supplies the sign; a client can never submit a negative amount.
+  amount        BigInt
+  currency      String           @db.Char(3)
+  /// FR-POS-091 [M] literal: "each with reason and amount" — mandatory for
+  /// ALL THREE movement types.
+  reason        String
+  occurredAt    DateTime         @map("occurred_at") @db.Timestamptz(6)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// The identity USER who transmitted the movement (mirrors
+  /// inventory.stock_movements.performed_by), distinct from employeeId.
+  performedBy   String           @map("performed_by") @db.Uuid
+
+  tenant          Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch          Branch      @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  cashSession     CashSession @relation(fields: [tenantId, cashSessionId], references: [tenantId, id], onDelete: Restrict)
+  employee        Employee    @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  performedByUser User        @relation(fields: [performedBy], references: [id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, cashSessionId])
+  @@index([tenantId, branchId, occurredAt])
+  @@map("cash_movements")
   @@schema("treasury")
 }
 

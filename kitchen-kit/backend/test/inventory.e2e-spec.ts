@@ -799,14 +799,17 @@ describe('Inventory (e2e)', () => {
 
       // `workforce` and `treasury` were removed from this guard by carried item
       // P1D-A (2026-08-20), which authorises `workforce.shifts`,
-      // `treasury.drawers` and `treasury.cash_sessions` — and NOTHING else in
-      // either schema. The guard is narrowed rather than dropped: the assertion
-      // below proves neither context quietly grew the rest of itself.
+      // `treasury.drawers` and `treasury.cash_sessions` — and P1G-0
+      // (FR-POS-091), which additionally authorises `treasury.cash_movements`
+      // — and NOTHING else in either schema. The guard is narrowed rather
+      // than dropped: the assertion below proves neither context quietly
+      // grew the rest of itself.
       const p1dTables = await admin.$queryRawUnsafe<{ qualified: string }[]>(
         `SELECT schemaname || '.' || tablename AS qualified FROM pg_tables
           WHERE schemaname IN ('workforce','treasury') ORDER BY 1`,
       );
       expect(p1dTables.map((t) => t.qualified)).toEqual([
+        'treasury.cash_movements',
         'treasury.cash_sessions',
         'treasury.drawers',
         'workforce.shifts',

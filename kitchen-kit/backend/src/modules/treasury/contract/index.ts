@@ -6,3 +6,4 @@
  * §5.2.3 requires of the rule.
  */
 export * from './cash-session-facts.query';
+export * from './cash-movement-totals.query';

@@ -34,6 +34,10 @@ export const AUDIT_ACTION = {
   // drawer are two separately accountable events, hence two verbs.
   SHIFT_OPENED: 'SHIFT_OPENED',
   CASH_SESSION_OPENED: 'CASH_SESSION_OPENED',
+  // P1G-0 Mid-shift cash movements (FR-POS-091). One verb covers all three
+  // movement types (PAY_IN/PAY_OUT/SAFE_DROP); the type is metadata, not a
+  // different action — mirrors STOCK_MOVEMENT_RECORDED's own convention.
+  CASH_MOVEMENT_RECORDED: 'CASH_MOVEMENT_RECORDED',
   // D-2 (amended) PIN substrate. Security-sensitive state changes only; a PIN
   // value never appears in any payload.
   EMPLOYEE_CREATED: 'EMPLOYEE_CREATED',
@@ -134,6 +138,7 @@ export const AUDIT_ENTITY = {
   ORDER_PAYMENT: 'order_payment',
   SHIFT: 'shift',
   CASH_SESSION: 'cash_session',
+  CASH_MOVEMENT: 'cash_movement',
   DRAWER: 'drawer',
   EMPLOYEE: 'employee',
   USER: 'user',

@@ -197,6 +197,35 @@
         ],
         "type": "object"
       },
+      "CashMovementDto": {
+        "properties": {
+          "amountMinor": {
+            "description": "Positive integer minor units, as an exact string (ADR-008: money is never\na JSON number). The movement TYPE (the route) supplies the sign — a\nclient can never submit a negative amount.",
+            "pattern": "^(?!0+$)\\d{1,18}$",
+            "type": "string"
+          },
+          "id": {
+            "description": "FR-OFF-015 — the device's permanent ULID for this movement. REQUIRED.",
+            "type": "string"
+          },
+          "occurredAt": {
+            "description": "Device-declared instant. Defaults to server receipt time if omitted.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "FR-POS-091 [M] — mandatory for ALL THREE movement types. Non-blank.",
+            "maxLength": 500,
+            "pattern": "\\S",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "amountMinor",
+          "reason"
+        ],
+        "type": "object"
+      },
       "ChangeBaseUnitDto": {
         "properties": {
           "baseUnitId": {
@@ -4155,6 +4184,468 @@
           }
         ],
         "summary": "Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002.\n\nONE command for the cashier, two records for the model. FR-POS-090\ndescribes a single action (\"open a shift, declaring an opening float\"), and\nthe cashier should not have to know that a shift is a Workforce concept and\na session a Treasury one. They stay distinct in the schema (carried item\nP1D-A); only the command is unified, and both are written in one transaction.\n\n`Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a\nfinancially significant act, and a retry over a flaky link must not produce\na second shift or a second session. The two client ULIDs are independent\nduplicate protection beneath it.",
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
+    "/cash-sessions/{sessionId}/pay-in": {
+      "post": {
+        "operationId": "TreasuryController_payIn",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CashMovementDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "amountMinor": {
+                      "description": "Positive minor-unit amount as a decimal string. The route (not this field) decides the sign.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "cashSessionId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code — the cash session’s own currency.",
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "employeeId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "movementType": {
+                      "enum": [
+                        "pay_in",
+                        "pay_out",
+                        "safe_drop"
+                      ],
+                      "type": "string"
+                    },
+                    "occurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recorded pay-in movement."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/malformed id, a non-positive amountMinor, a blank reason, or an otherwise invalid request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown cash session or terminal."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The cash session is not open, or the movement id already exists with different content (FR-OFF-015)."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record cash added to the drawer — FR-POS-091 [M].",
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
+    "/cash-sessions/{sessionId}/pay-out": {
+      "post": {
+        "operationId": "TreasuryController_payOut",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CashMovementDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "amountMinor": {
+                      "description": "Positive minor-unit amount as a decimal string. The route (not this field) decides the sign.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "cashSessionId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code — the cash session’s own currency.",
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "employeeId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "movementType": {
+                      "enum": [
+                        "pay_in",
+                        "pay_out",
+                        "safe_drop"
+                      ],
+                      "type": "string"
+                    },
+                    "occurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recorded pay-out movement."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/malformed id, a non-positive amountMinor, a blank reason, or an otherwise invalid request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown cash session or terminal."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The cash session is not open, or the movement id already exists with different content (FR-OFF-015)."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record cash removed from the drawer for an expense — FR-POS-091 [M].",
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
+    "/cash-sessions/{sessionId}/safe-drop": {
+      "post": {
+        "operationId": "TreasuryController_safeDrop",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CashMovementDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "amountMinor": {
+                      "description": "Positive minor-unit amount as a decimal string. The route (not this field) decides the sign.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "cashSessionId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code — the cash session’s own currency.",
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "employeeId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "movementType": {
+                      "enum": [
+                        "pay_in",
+                        "pay_out",
+                        "safe_drop"
+                      ],
+                      "type": "string"
+                    },
+                    "occurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recorded safe-drop movement."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/malformed id, a non-positive amountMinor, a blank reason, or an otherwise invalid request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown cash session or terminal."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The cash session is not open, or the movement id already exists with different content (FR-OFF-015). NOTE: FR-POS-092’s configurable drawer limit is NOT enforced here (design gate §5 — all four of its parameters are undecided)."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record excess cash removed to the safe — FR-POS-091 [M].",
         "tags": [
           "treasury"
         ]

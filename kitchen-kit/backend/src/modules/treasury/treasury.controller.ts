@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -34,59 +35,92 @@ import { PermissionGuard } from '../identity/authz/guards/permission.guard';
 import { CurrentTenantContext } from '../identity/context/current-tenant-context.decorator';
 import type { TenantContext } from '../identity/context/tenant-context';
 import { TenantContextGuard } from '../identity/context/tenant-context.guard';
+import { CashMovementsService } from './cash-movements/cash-movements.service';
 import { CashSessionsService } from './cash-sessions/cash-sessions.service';
-import { OpenCashSessionDto } from './treasury.dto';
+import { CashMovementDto, OpenCashSessionDto } from './treasury.dto';
 import { TREASURY_PERMISSIONS } from './treasury.permissions';
-import { toCashSessionView, toShiftView } from './treasury.views';
+import {
+  toCashMovementView,
+  toCashSessionView,
+  toShiftView,
+} from './treasury.views';
 
 /**
- * Treasury API — cash session OPEN only.
+ * Treasury API — cash session OPEN, plus P1G-0's mid-shift cash movements.
  *
  * Route surface, following how `/orders`, `/recipes`, `/inventory` and
  * `/catalogue` map SRS §26.3 (the documented `/v1` prefix is applied at
  * deployment, not in the controller):
  *
- *   POST /cash-sessions        open a cashier shift + its cash session
+ *   POST /cash-sessions                          open a cashier shift + its cash session
+ *   POST /cash-sessions/{sessionId}/pay-in        FR-POS-091 — record cash in
+ *   POST /cash-sessions/{sessionId}/pay-out       FR-POS-091 — record cash out
+ *   POST /cash-sessions/{sessionId}/safe-drop     FR-POS-091 — remove excess cash to the safe
  *
- * That is the WHOLE public surface. There is exactly one route.
+ * ── WHY THREE SEPARATE ROUTES, NOT ONE `/movements` WITH `type` IN THE BODY ─
+ * `@RequirePermission` is a route-level static decorator evaluated by a guard
+ * BEFORE the handler runs; it cannot inspect the request body to pick a
+ * permission. A single collapsed route would force either one coarse
+ * permission (inventing one — forbidden) or body-dependent authorization (a
+ * new guard capability, and a security anti-pattern). Three routes give a
+ * 1:1 permission mapping and an unambiguous audit/OpenAPI surface (design
+ * gate §9).
  *
- * ── WHY THERE IS NO `GET /cash-sessions/:id` ────────────────────────────────
+ * ── WHY THERE IS NO `GET /cash-sessions/:id` OR ANY MOVEMENT READ ROUTE ─────
  * §15.2 quotes `cash.session.open` as "Open a shift" — a WRITE authority. It is
  * not a generic CashSession read permission, and reinterpreting it as one would
- * hand every session-opening cashier a read capability no source grants.
- *
- * No CashSession read code exists to use instead. §15.2's Cash group contains
+ * hand every session-opening cashier a read capability no source grants. The
+ * same reasoning excludes a movement-read route: §15.2's Cash group contains
  * only `cash.session.open`, `cash.session.close`, `cash.session.close_other`,
  * `cash.drawer.open_no_sale`, `cash.payin` / `cash.payout`, `cash.safedrop`,
- * `cash.variance.approve` and `cash.day.close`. §15.2 designates Appendix C as
- * the authoritative full catalogue, and **Appendix C is ABSENT from
- * ROS_SRS_v1.0.pdf** — the document ends at §29.5. That is not a new finding:
- * ratified decision **D-20** records the same absence and answers it the same
- * way, by DEFERRING the permission code rather than inventing one.
+ * `cash.variance.approve` and `cash.day.close` — no read code for either. §15.2
+ * designates Appendix C as the authoritative full catalogue, and **Appendix C
+ * is ABSENT from ROS_SRS_v1.0.pdf** — the document ends at §29.5. That is not
+ * a new finding: ratified decision **D-20** records the same absence and
+ * answers it the same way, by DEFERRING the permission code rather than
+ * inventing one.
  *
- * So the read route is withdrawn rather than misauthorised. `cash.session.read`
- * is not invented, `cash.session.close` is not repurposed, no report permission
- * is borrowed, and no unguarded read is exposed. `CashSessionsService.findOne`
- * remains as an INTERNAL query for the future Payment / Treasury slices, which
- * is where a read authority will become source-decidable.
+ * So the read routes are withdrawn rather than misauthorised. No permission is
+ * invented (`cash.session.read`, `cash.movement.read`, `cash.movement.manage`),
+ * no existing code is repurposed, and no unguarded read is exposed.
+ * `CashSessionsService.findOne` and the P1G-0
+ * `CASH_MOVEMENT_TOTALS_QUERY` module contract remain INTERNAL — the totals
+ * contract exists precisely so a future Cash Close (P1G-1) can read movement
+ * totals without any HTTP surface at all.
  *
  * ── DELIBERATELY ABSENT ─────────────────────────────────────────────────────
- *   GET  /cash-sessions/:id         · no source-supported read authority; see
- *                                     above.
- *   POST /cash-sessions/:id/close   · FR-POS-094/096 require a physical count,
- *                                     blind by default, and FR-FIN-006 requires
- *                                     independent variance approval. No approval
- *                                     subsystem exists, and `ros_app` holds no
- *                                     UPDATE on the table — closing is not
- *                                     merely unrouted, it is impossible.
- *   pay-in / pay-out / safe drop    · FR-POS-091/092, not in this slice.
- *   X report                        · FR-POS-093.
- *   drawer administration           · no SRS endpoint and no §15.2 permission
- *                                     exists; `cash.session.open` is NOT
- *                                     repurposed as a drawer-admin authority.
- *   payment capture                 · `pos.payment.capture` is authorised
- *                                     (carried item P1D-F) but has no route and
- *                                     is not seeded.
+ *   GET  /cash-sessions/:id               · no source-supported read authority.
+ *   GET  .../movements                    · no source-supported read authority.
+ *   POST /cash-sessions/:id/close         · FR-POS-094/096 require a physical
+ *                                            count, blind by default, and
+ *                                            FR-FIN-006 requires independent
+ *                                            variance approval. No approval
+ *                                            subsystem exists, and `ros_app`
+ *                                            holds no UPDATE on the table —
+ *                                            closing is not merely unrouted,
+ *                                            it is impossible.
+ *   drawer-limit enforcement / prompt     · FR-POS-092 — all four of its
+ *                                            parameters (source of truth,
+ *                                            level, default, prompt-vs-block)
+ *                                            are undecided (design gate §5).
+ *                                            The three movement routes exist;
+ *                                            no limit is enforced on them.
+ *   any correction/reversal endpoint      · NOT SOURCE-DECIDABLE (design
+ *                                            gate §12) — no UPDATE/DELETE, no
+ *                                            compensating-movement shortcut.
+ *   X report                              · FR-POS-093, authorization NOT
+ *                                            SOURCE-DECIDABLE (no
+ *                                            `cash.x_report`, `report.view.
+ *                                            <category>` unenumerated).
+ *   drawer administration                 · no SRS endpoint and no §15.2
+ *                                            permission exists;
+ *                                            `cash.session.open` is NOT
+ *                                            repurposed as a drawer-admin
+ *                                            authority.
+ *   payment capture                       · `pos.payment.capture` is
+ *                                            authorised (carried item P1D-F)
+ *                                            but has no route and is not
+ *                                            seeded.
  *
  * Guard chain: JwtAuthGuard (401) -> TenantContextGuard (403) ->
  * PermissionGuard (403). A cross-tenant id is invisible under RLS and yields
@@ -96,14 +130,14 @@ import { toCashSessionView, toShiftView } from './treasury.views';
  * every other route still refuses them by default.
  *
  * ── FR-SEC-028 SCOPE NOTE ───────────────────────────────────────────────────
- * The session behind this route must belong to a REGISTERED, unrevoked terminal,
- * so terminal registration / revocation enforcement is COMPLETE on this path.
- * That is a statement about this path only. FR-SEC-028 [M] requires BOTH
- * immediate credential invalidation AND wiping the terminal's local data on next
- * contact; the second half needs an offline local store that does not exist, so
- * the requirement is GLOBALLY **PARTIAL** — as
- * `docs/reconciliation/PHASE_1_SRS_REQUIREMENT_MAP.md` already records. No route
- * in this slice closes it.
+ * Every route here requires a registered, unrevoked terminal, so terminal
+ * registration / revocation enforcement is COMPLETE on this controller. That
+ * is a statement about this controller only. FR-SEC-028 [M] requires BOTH
+ * immediate credential invalidation AND wiping the terminal's local data on
+ * next contact; the second half needs an offline local store that does not
+ * exist, so the requirement is GLOBALLY **PARTIAL** — as
+ * `docs/reconciliation/PHASE_1_SRS_REQUIREMENT_MAP.md` already records. No
+ * route in this controller closes it.
  */
 
 // Shapes verified against `toCashSessionView`/`toShiftView` in
@@ -139,6 +173,31 @@ const shiftSchema = {
   },
 };
 
+// Shape verified against `toCashMovementView` in `treasury.views.ts`.
+const cashMovementSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    cashSessionId: uuidSchema(),
+    branchId: uuidSchema(),
+    employeeId: uuidSchema(),
+    movementType: {
+      type: 'string',
+      enum: ['pay_in', 'pay_out', 'safe_drop'],
+    },
+    amountMinor: moneyStringSchema(
+      'Positive minor-unit amount as a decimal string. The route (not this field) decides the sign.',
+    ),
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code — the cash session’s own currency.',
+      example: 'AED',
+    },
+    reason: { type: 'string' },
+    occurredAt: isoDateTimeSchema(),
+  },
+};
+
 @ApiTags('treasury')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token.' })
@@ -147,7 +206,10 @@ const shiftSchema = {
 @AllowPosSession()
 @Controller('cash-sessions')
 export class TreasuryController {
-  constructor(private readonly sessions: CashSessionsService) {}
+  constructor(
+    private readonly sessions: CashSessionsService,
+    private readonly movements: CashMovementsService,
+  ) {}
 
   /**
    * Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002.
@@ -223,6 +285,122 @@ export class TreasuryController {
     };
   }
 
+  /** Record cash added to the drawer — FR-POS-091 [M]. */
+  @Post(':sessionId/pay-in')
+  @HttpCode(HttpStatus.CREATED)
+  @Idempotent()
+  @RequirePermission(TREASURY_PERMISSIONS.CASH_PAYIN)
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).',
+  })
+  @ApiCreatedResponse({
+    description: 'The recorded pay-in movement.',
+    schema: cashMovementSchema,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/malformed id, a non-positive amountMinor, a blank reason, or an otherwise invalid request body.',
+  })
+  @ApiNotFoundResponse({ description: 'Unknown cash session or terminal.' })
+  @ApiConflictResponse({
+    description:
+      'The cash session is not open, or the movement id already exists with different content (FR-OFF-015).',
+  })
+  async payIn(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param('sessionId') sessionId: string,
+    @Body() dto: CashMovementDto,
+  ) {
+    const { movement } = await this.movements.payIn(
+      context.tenantId,
+      context.userId,
+      this.toMovementInput(principal, sessionId, dto),
+    );
+    return toCashMovementView(movement);
+  }
+
+  /** Record cash removed from the drawer for an expense — FR-POS-091 [M]. */
+  @Post(':sessionId/pay-out')
+  @HttpCode(HttpStatus.CREATED)
+  @Idempotent()
+  @RequirePermission(TREASURY_PERMISSIONS.CASH_PAYOUT)
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).',
+  })
+  @ApiCreatedResponse({
+    description: 'The recorded pay-out movement.',
+    schema: cashMovementSchema,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/malformed id, a non-positive amountMinor, a blank reason, or an otherwise invalid request body.',
+  })
+  @ApiNotFoundResponse({ description: 'Unknown cash session or terminal.' })
+  @ApiConflictResponse({
+    description:
+      'The cash session is not open, or the movement id already exists with different content (FR-OFF-015).',
+  })
+  async payOut(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param('sessionId') sessionId: string,
+    @Body() dto: CashMovementDto,
+  ) {
+    const { movement } = await this.movements.payOut(
+      context.tenantId,
+      context.userId,
+      this.toMovementInput(principal, sessionId, dto),
+    );
+    return toCashMovementView(movement);
+  }
+
+  /** Record excess cash removed to the safe — FR-POS-091 [M]. */
+  @Post(':sessionId/safe-drop')
+  @HttpCode(HttpStatus.CREATED)
+  @Idempotent()
+  @RequirePermission(TREASURY_PERMISSIONS.CASH_SAFEDROP)
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).',
+  })
+  @ApiCreatedResponse({
+    description: 'The recorded safe-drop movement.',
+    schema: cashMovementSchema,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/malformed id, a non-positive amountMinor, a blank reason, or an otherwise invalid request body.',
+  })
+  @ApiNotFoundResponse({ description: 'Unknown cash session or terminal.' })
+  @ApiConflictResponse({
+    description:
+      'The cash session is not open, or the movement id already exists with different content (FR-OFF-015). ' +
+      'NOTE: FR-POS-092’s configurable drawer limit is NOT enforced here (design gate §5 — all four of its ' +
+      'parameters are undecided).',
+  })
+  async safeDrop(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param('sessionId') sessionId: string,
+    @Body() dto: CashMovementDto,
+  ) {
+    const { movement } = await this.movements.safeDrop(
+      context.tenantId,
+      context.userId,
+      this.toMovementInput(principal, sessionId, dto),
+    );
+    return toCashMovementView(movement);
+  }
+
   // ------------------------------------------------------------- internals
 
   /**
@@ -251,6 +429,29 @@ export class TreasuryController {
     return {
       terminalId: principal.terminalId,
       employeeId: principal.employeeId,
+    };
+  }
+
+  /**
+   * The terminal and employee come from the SESSION, never the body — same
+   * requirement as `requirePosIdentity`. `sessionId` is the route param;
+   * `cashSessionId` has no field in `CashMovementDto` for a caller to supply
+   * a different one.
+   */
+  private toMovementInput(
+    principal: AuthenticatedPrincipal,
+    sessionId: string,
+    dto: CashMovementDto,
+  ) {
+    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    return {
+      id: dto.id,
+      cashSessionId: sessionId,
+      amountMinor: dto.amountMinor,
+      reason: dto.reason,
+      occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : undefined,
+      employeeId,
+      terminalId,
     };
   }
 }

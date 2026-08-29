@@ -1068,27 +1068,27 @@ describe('Cash session open (e2e)', () => {
   // ------------------------------------------------------- scope guards
 
   describe('slice boundary', () => {
-    it('exposes no close, count, variance, payment or drawer-admin route', () => {
+    it('exposes no close, count, variance, drawer-limit or drawer-admin route', () => {
       const paths = registeredRoutePaths(app);
       expect(paths.length).toBeGreaterThan(0);
       expect(paths).toContain('/cash-sessions');
 
-      // ONE route. `GET /cash-sessions/:id` is deliberately absent: no
-      // source-supported CashSession read authority exists, and
-      // `cash.session.open` is not reinterpreted as one.
+      // P1G-0 adds the three mid-shift movement routes (FR-POS-091).
+      // `GET /cash-sessions/:id` and any movement-READ route remain
+      // deliberately absent: no source-supported read authority exists for
+      // either, and `cash.session.open` is not reinterpreted as one.
       const treasury = paths.filter((p) => p.startsWith('/cash-sessions'));
-      expect(treasury.sort()).toEqual(['/cash-sessions']);
+      expect(treasury.sort()).toEqual([
+        '/cash-sessions',
+        '/cash-sessions/:sessionId/pay-in',
+        '/cash-sessions/:sessionId/pay-out',
+        '/cash-sessions/:sessionId/safe-drop',
+      ]);
       // Scoped to Treasury: `/inventory/counts` is a stock-count route and has
-      // nothing to do with counting cash.
-      for (const forbidden of [
-        'close',
-        'count',
-        'variance',
-        'payin',
-        'payout',
-        'safedrop',
-        'drawer',
-      ]) {
+      // nothing to do with counting cash. FR-POS-092's drawer limit is
+      // deliberately NOT enforced anywhere (design gate §5 — all four of its
+      // parameters are undecided), so no such route exists either.
+      for (const forbidden of ['close', 'count', 'variance', 'drawer']) {
         expect(treasury.filter((p) => p.includes(forbidden))).toHaveLength(0);
       }
       // P1F-1: Payment capture is now real, but it is a SALES route
@@ -1123,7 +1123,8 @@ describe('Cash session open (e2e)', () => {
       expect(attemptRows).toHaveLength(0);
     });
 
-    it('creates only the three authorised tables in workforce and treasury', async () => {
+    it('creates only the four authorised tables in workforce and treasury', async () => {
+      // P1G-0 adds treasury.cash_movements (FR-POS-091).
       const rows = await admin.$queryRawUnsafe<
         { schemaname: string; tablename: string }[]
       >(
@@ -1131,6 +1132,7 @@ describe('Cash session open (e2e)', () => {
           WHERE schemaname IN ('workforce','treasury') ORDER BY 1, 2`,
       );
       expect(rows.map((r) => `${r.schemaname}.${r.tablename}`)).toEqual([
+        'treasury.cash_movements',
         'treasury.cash_sessions',
         'treasury.drawers',
         'workforce.shifts',
