@@ -460,6 +460,68 @@ model AuditEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Migration 32 — the shared Approval runtime (FR-SEC-030..033). Authority:
+// GOVERNANCE_DECISION_REGISTER.md "Approval Runtime Minimum Resolution —
+// 2026-08-29" (RATIFIED) + the 2026-08-29 acceptance-closure corrections.
+//
+// P-1 (RATIFIED): ApprovalDecision references ApprovalRequest DIRECTLY — the
+// only intra-Governance relation modelled. No back-relation is added to
+// User or Tenant: requestedBy/approverId/excludedApproverUserId are plain
+// UUID columns with no FK (identity.users is global, so an FK would give
+// zero tenant safety — see the migration's own GRANTS comment).
+// ---------------------------------------------------------------------------
+model ApprovalRequest {
+  id                     String   @id @db.Uuid
+  tenantId               String   @map("tenant_id") @db.Uuid
+  /// Opaque to Governance (D-13). D-16's enumeration remains OPEN — no CHECK.
+  requestType            String   @map("request_type") @db.VarChar(32)
+  entityType             String   @map("entity_type") @db.VarChar(48)
+  entityId               String   @map("entity_id") @db.Uuid
+  /// Identity User who requested this approval. No FK (see migration).
+  requestedBy            String   @map("requested_by") @db.Uuid
+  /// SB-1 RESOLVED (RP-1): an existing SRS §15.2 permission CODE. No FK.
+  requiredPermission     String   @map("required_permission") @db.VarChar(64)
+  /// SB-2 RESOLVED: opaque carrier. Governance never parses this.
+  value                  Json     @db.JsonB
+  expiresAt              DateTime @map("expires_at") @db.Timestamptz(6)
+  /// Item 8 (F-1 = R-b): an Identity User prohibited from approving this
+  /// request. No FK. NULL when no exclusion applies.
+  excludedApproverUserId String?  @map("excluded_approver_user_id") @db.Uuid
+  /// The ONLY mutable column (D-6 Model B + Mechanism 1).
+  status                 String   @default("pending") @db.VarChar(16)
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  decision ApprovalDecision?
+
+  @@unique([tenantId, id], map: "approval_requests_tenant_id_id_key")
+  @@index([tenantId, status])
+  @@index([tenantId, entityType, entityId])
+  @@map("approval_requests")
+  @@schema("governance")
+}
+
+model ApprovalDecision {
+  id                String   @id @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  approvalRequestId String   @map("approval_request_id") @db.Uuid
+  /// Identity User who decided. No FK (same posture as audit_entries.approver_id).
+  approverId        String   @map("approver_id") @db.Uuid
+  decision          String   @db.VarChar(16)
+  comment           String?
+  /// Bound to statement_timestamp() via DB DEFAULT; ros_app cannot supply
+  /// this column (column-level GRANT INSERT in the migration omits it).
+  decidedAt         DateTime @default(dbgenerated("statement_timestamp()")) @map("decided_at") @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  request ApprovalRequest @relation(fields: [tenantId, approvalRequestId], references: [tenantId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([tenantId, approvalRequestId], map: "uq_approval_decision_per_request")
+  @@index([tenantId, approverId])
+  @@map("approval_decisions")
+  @@schema("governance")
+}
+
+// ---------------------------------------------------------------------------
 // Phase 15 — Organisation bounded context (ADR 0008, Accepted 2026-08-15).
 //
 // Tenant ownership (D-08): brands, branches, warehouses and central kitchens are

@@ -18,6 +18,17 @@ export interface AuditEvent {
   userAgent?: string | null;
   reasonCode?: string | null;
   reasonText?: string | null;
+  /**
+   * Additive (migration 32, Approval runtime). Maps directly to the
+   * PRE-EXISTING `audit_entries.approver_id` / `.approval_id` columns
+   * (present since the original audit_entries migration, never previously
+   * populated). NOT part of `computeEntryHash`'s input — D-19 ratified NO
+   * additional approval-specific hash coverage in Phase 1, so this remains
+   * OUTSIDE the tamper-evident chain exactly as GAP-11 records. Do not treat
+   * these fields as hash-protected.
+   */
+  approverId?: string | null;
+  approvalId?: string | null;
   /** Explicit, allow-listed safe fields → after_state (sanitized again here). */
   metadata?: Record<string, unknown> | null;
   before?: Record<string, unknown> | null;
@@ -103,6 +114,8 @@ export class AuditService {
         afterState: (afterState ?? undefined) as Prisma.InputJsonValue,
         reasonCode: event.reasonCode ?? null,
         reasonText: event.reasonText ?? null,
+        approverId: event.approverId ?? null,
+        approvalId: event.approvalId ?? null,
         ipAddress: event.ipAddress ?? null,
         userAgent: event.userAgent ?? null,
         terminalId: event.terminalId ?? null,

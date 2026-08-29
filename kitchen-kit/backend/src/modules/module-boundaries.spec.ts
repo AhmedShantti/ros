@@ -852,6 +852,135 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
   });
 
   /**
+   * Migration 32 — Governance's Approval runtime consumes Identity's FIRST
+   * public contract (`identity/contract`), and Governance's own
+   * `contract/` is interface-only, same contract-purity guarantee as every
+   * other module's.
+   */
+  it('Identity contract/ contains interface/types only — no persistence implementation', () => {
+    const contractDir = join(MODULES_ROOT, 'identity/contract');
+    const offending = walk(contractDir)
+      .filter((f) => !f.endsWith('.spec.ts'))
+      .filter((f) => containsPersistenceImplementation(readFileSync(f, 'utf8')))
+      .map((f) => relative(MODULES_ROOT, f));
+    expect(offending).toEqual([]);
+  });
+
+  it('Governance contract/ contains interface/types only — no persistence implementation', () => {
+    const contractDir = join(MODULES_ROOT, 'governance/contract');
+    // `*.errors.ts` is the one precedented exception (see
+    // `inventory/contract/sale-depletion.errors.ts` and
+    // `production/contract/consumption-gap.errors.ts`): a plain `class ...
+    // extends Error` published alongside a contract so a consumer can map
+    // it, never a persistence implementation.
+    const offending = walk(contractDir)
+      .filter((f) => !f.endsWith('.spec.ts') && !f.endsWith('.errors.ts'))
+      .filter((f) => containsPersistenceImplementation(readFileSync(f, 'utf8')))
+      .map((f) => relative(MODULES_ROOT, f));
+    expect(offending).toEqual([]);
+  });
+
+  it('Identity contract/ and Governance contract/ declare no `any`', () => {
+    for (const dir of ['identity/contract', 'governance/contract']) {
+      for (const file of walk(join(MODULES_ROOT, dir)).filter(
+        (f) => !f.endsWith('.spec.ts'),
+      )) {
+        expect(readFileSync(file, 'utf8')).not.toMatch(
+          /:\s*any\b|<any>|\bas any\b/,
+        );
+      }
+    }
+  });
+
+  it('the concrete ApprovalsService implementation is private (outside contract/), and nothing outside Governance imports it', () => {
+    const implementationSource = readFileSync(
+      join(MODULES_ROOT, 'governance/approvals/approvals.service.ts'),
+      'utf8',
+    );
+    expect(containsPersistenceImplementation(implementationSource)).toBe(true);
+
+    const offendingImporters = new Set<string>();
+    for (const file of walk(MODULES_ROOT)) {
+      if (
+        file.includes('/governance/') ||
+        file.endsWith('module-boundaries.spec.ts')
+      ) {
+        continue;
+      }
+      const source = readFileSync(file, 'utf8');
+      const importsIt = source
+        .split('\n')
+        .some(
+          (line) =>
+            /^\s*import\b/.test(line) &&
+            (line.includes('ApprovalsService') ||
+              line.includes('governance/approvals')),
+        );
+      if (importsIt) offendingImporters.add(relative(MODULES_ROOT, file));
+    }
+    expect([...offendingImporters]).toEqual([]);
+  });
+
+  it('Governance -> Identity crosses ONLY through identity/contract — no new deviation', () => {
+    expect(KNOWN_DEVIATIONS['governance->identity']).toBeUndefined();
+    expect(
+      violations.filter(
+        (v) => v.importer === 'governance' && v.imported === 'identity',
+      ),
+    ).toEqual([]);
+
+    const service = readFileSync(
+      join(MODULES_ROOT, 'governance/approvals/approvals.service.ts'),
+      'utf8',
+    );
+    // The service imports the VerifiedTerminalPrincipal TYPE from Identity's
+    // contract only via the re-exported `contract.ts` public surface — it
+    // never touches `pin.service` / `employees/*` directly.
+    expect(service).not.toContain('identity/employees');
+    expect(service).not.toContain('pin.service');
+  });
+
+  /**
+   * The PIN trust-boundary fence (2026-08-29 acceptance closure §4.2): a
+   * cast that PRODUCES a `VerifiedTerminalPrincipal` — the only way to
+   * satisfy its ambient, non-exported symbol brand — must appear ONLY
+   * inside Identity's own implementation. This does not (and cannot) stop
+   * a determined caller from writing the same cast elsewhere; it makes
+   * fabrication a greppable, reviewable act instead of a silent one, which
+   * is exactly what this detector, self-tested below, mechanically checks.
+   */
+  function containsVerifiedTerminalPrincipalCast(source: string): boolean {
+    return /as\s+(?:unknown\s+as\s+)?VerifiedTerminalPrincipal\b/.test(source);
+  }
+
+  it('the VerifiedTerminalPrincipal-cast detector fires on a fabricated outside cast, and not on unrelated code', () => {
+    const fabricated = `
+      function forge(): VerifiedTerminalPrincipal {
+        return { userId: 'x' } as unknown as VerifiedTerminalPrincipal;
+      }
+    `;
+    expect(containsVerifiedTerminalPrincipalCast(fabricated)).toBe(true);
+
+    const cleanFixture = `
+      function useIt(p: VerifiedTerminalPrincipal): string {
+        return p.userId;
+      }
+    `;
+    expect(containsVerifiedTerminalPrincipalCast(cleanFixture)).toBe(false);
+  });
+
+  it('no file outside src/modules/identity casts to VerifiedTerminalPrincipal', () => {
+    const offending = walk(MODULES_ROOT)
+      .filter((f) => !f.includes('/identity/'))
+      .filter((f) => !f.endsWith('module-boundaries.spec.ts'))
+      .filter((f) =>
+        containsVerifiedTerminalPrincipalCast(readFileSync(f, 'utf8')),
+      )
+      .map((f) => relative(MODULES_ROOT, f));
+    expect(offending).toEqual([]);
+  });
+
+  /**
    * P1E-5 §29 items 61/62 — Kitchen must never directly query the Sales
    * tables an event payload already snapshots, nor any Catalogue table.
    * Detects the Prisma delegate CALL shape (a real query), not the mere

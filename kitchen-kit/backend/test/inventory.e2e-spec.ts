@@ -641,12 +641,31 @@ describe('Inventory (e2e)', () => {
       ).toBe(before);
     });
 
-    it('governance.approval_requests was NOT created', async () => {
+    // Migration 32 (Governance Approval runtime, FR-SEC-030..033) legitimately
+    // created governance.approval_requests — the deliberate, reviewed change
+    // this tripwire exists to force. D-17's strict Inventory boundary (this
+    // slice's own concern) is unaffected: Inventory still creates no
+    // approval_request_id column on any of its own tables, and Governance
+    // still writes nothing into `inventory.*`.
+    it('governance.approval_requests exists (migration 32) but Inventory itself is untouched by it', async () => {
       const rows = await admin.$queryRawUnsafe<{ n: bigint }[]>(
         `SELECT count(*) AS n FROM pg_tables
           WHERE schemaname='governance' AND tablename='approval_requests'`,
       );
-      expect(Number(rows[0].n)).toBe(0);
+      expect(Number(rows[0].n)).toBe(1);
+
+      const wasteApprovalColumn = await admin.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM information_schema.columns
+          WHERE table_schema='inventory' AND table_name='waste_records'
+            AND column_name='approval_request_id'`,
+      );
+      expect(Number(wasteApprovalColumn[0].n)).toBe(1);
+      // The column exists (pre-migration-32 schema, D-17 cl. 6) but remains
+      // NULL/unused — migration 32 populated nothing here.
+      const populated = await admin.wasteRecord.count({
+        where: { approvalRequestId: { not: null } },
+      });
+      expect(populated).toBe(0);
     });
   });
 

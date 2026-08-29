@@ -38,6 +38,11 @@ export const AUDIT_ACTION = {
   // movement types (PAY_IN/PAY_OUT/SAFE_DROP); the type is metadata, not a
   // different action — mirrors STOCK_MOVEMENT_RECORDED's own convention.
   CASH_MOVEMENT_RECORDED: 'CASH_MOVEMENT_RECORDED',
+  // Governance Approval runtime (migration 32, FR-SEC-030..033). One verb
+  // covers both outcomes (approved/rejected) — the decision is metadata, not
+  // a different action, mirroring CASH_MOVEMENT_RECORDED's own convention.
+  APPROVAL_REQUEST_CREATED: 'APPROVAL_REQUEST_CREATED',
+  APPROVAL_DECISION_RECORDED: 'APPROVAL_DECISION_RECORDED',
   // D-2 (amended) PIN substrate. Security-sensitive state changes only; a PIN
   // value never appears in any payload.
   EMPLOYEE_CREATED: 'EMPLOYEE_CREATED',
@@ -139,6 +144,8 @@ export const AUDIT_ENTITY = {
   SHIFT: 'shift',
   CASH_SESSION: 'cash_session',
   CASH_MOVEMENT: 'cash_movement',
+  APPROVAL_REQUEST: 'approval_request',
+  APPROVAL_DECISION: 'approval_decision',
   DRAWER: 'drawer',
   EMPLOYEE: 'employee',
   USER: 'user',

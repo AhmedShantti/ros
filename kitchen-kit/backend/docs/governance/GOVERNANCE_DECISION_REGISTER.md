@@ -5859,6 +5859,228 @@ permission code is created.** No numbered decision is added, amended or
 renumbered.
 
 ---
+## Approval Runtime Minimum Resolution — 2026-08-29
+
+> **RECORDED 2026-08-29 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **P1A / P1C / P1D**,
+> **Fire Authorization**, **P1F-2 Completion Economics** and **FIFO Exhaustion
+> Carry-Forward** convention.
+>
+> This entry resolves the **carried items SB-1, SB-2 and SB-3**, the
+> **D-4 clause 5** question, the **D-16 Phase-1 constraint-form** question,
+> and settles **one-decision-per-request semantics**; it **narrowly amends
+> D-2, D-9 and D-15**, and adds one column to **D-1**'s ratified set. **All
+> historical text — including the SB status table of 2026-08-19, D-15's
+> clauses 4/10/11, and every prior analysis — is preserved verbatim above and
+> is NOT rewritten**, superseded forward in the register's established manner.
+>
+> Occasioned by
+> `docs/reports/claude/2026-08-29_APPROVAL_governance-runtime-resolution-gate.md`
+> and its correction
+> `docs/reports/claude/2026-08-29_APPROVAL_ratification-proposal-correction.md`.
+> **Those reports are non-authoritative evidence; this entry is the binding
+> record, and where they differ this entry governs** — see "Corrections" below.
+
+### The question
+
+Can the general approval mechanism `FR-SEC-030`…`033` [M] be made
+implementation-writable, and `FR-FIN-006` [M] cash-variance approval thereby
+reachable, without reopening `P-1`, `D-12`, or the `D-16` enumeration?
+
+The Phase 1 approval model was already ratified in near-complete detail
+(**D-1, D-4, D-5, D-6, D-7, D-8, D-9, D-10, P-1**), yet remained unbuildable
+on three counts: two mandatory columns had **no ratified type or posture**
+(`value` — SB-2; `required_permission` FK — SB-1), the request's **DELETE
+posture was unresolved** (SB-3), and **D-14 A-1 + D-2 (a) + D-11 N-B + D-20**
+jointly left **no path by which any human could approve anything** — a
+consequence D-14 itself recorded as delivering *"the tables and internal
+service exercisable only by tests."*
+
+---
+
+### RATIFICATION — APPROVAL RUNTIME MINIMUM RESOLUTION (2026-08-29)
+
+**RATIFIED — the following eight resolutions are binding.**
+
+**1. D-16 — Phase-1 constraint form.**
+`governance.approval_requests.request_type` is **`VARCHAR(32) NOT NULL` with
+NO CHECK constraint in this phase.**
+**D-16's ENUMERATION remains OPEN.** **No closed `request_type` vocabulary is
+ratified**, no value is added to any enum, and **D-16 is NOT closed** — only
+its Phase-1 constraint-form question is resolved. **The literal
+`request_type` code for cash variance is NOT decided here.**
+
+**2. SB-1 — `required_permission`.**
+Stores the **immutable SRS §15.2 permission CODE**. **No foreign key** to
+`identity.permissions`.
+Approver authority is checked **at decision time** against the approver's
+**effective resolved permission-code set**. **SB-1 is RESOLVED** (its
+representation half was already settled 2026-08-19; the FK posture is settled
+here). **No new permission code is created.**
+
+**3. SB-3 — `approval_requests` DELETE posture.**
+**`ros_app` has NO DELETE capability** on `governance.approval_requests`:
+**no DELETE grant and no DELETE policy.**
+`approval_decisions → approval_requests` carries **`ON DELETE RESTRICT`**.
+**`ON DELETE CASCADE` remains rejected.** **SB-3 is RESOLVED.** The **D-8
+clause 6 cascade verification** is **dissolved** — no delete path exists for a
+cascade to fire through — and **V2 is not required**.
+
+**4. D-4 clause 5 — `rejected` storage.**
+`approval_decisions.decision` is the **immutable historical fact**.
+`approval_requests.status` is the **current-state projection** and **remains
+the sole request column that may be updated under D-6**.
+**D-4 clause 5 is RESOLVED.** D-4's ratified lifecycle
+(`pending → approved | rejected`) is **unchanged**, and **no new state is
+introduced** — `cancelled`, `escalated` and `expired` remain prohibited.
+
+**5. Decision cardinality — exactly ONE final decision per request.**
+A future schema **SHALL** enforce **`UNIQUE (tenant_id, approval_request_id)`**
+on `governance.approval_decisions`.
+**This NARROWLY AMENDS D-15 clause 4**, which reads *"Do NOT introduce a
+UNIQUE constraint establishing 'one decision per approval request.' The
+sources do not establish that semantic."* That statement **remains true as a
+source finding** — this is an **architectural ratification, NOT a claim that
+the SRS mandates the semantic** — and it is made by exactly the route
+**D-15 clause 14** provides: *"Any future requirement or architectural
+decision establishing duplicate-decision prevention, one-decision-per-request
+semantics, or stronger approval concurrency guarantees must be handled by an
+explicit future decision/amendment."* **This entry is that amendment.**
+**D-15 clauses 10 and 11** — recording duplicate and contradictory decision
+rows as unresolved architectural behaviour — are **superseded forward to
+exactly this extent**.
+**All other D-15 clauses are preserved exactly**, specifically: **clause 3**
+(no approval-specific idempotency key, duplicate-request mechanism or HTTP
+retry contract), **clause 5** (no pessimistic row locking), and **clause 9's
+prohibition on the C-3 pending-status predicate — no such predicate is added.**
+
+**6. D-2 — AMENDMENT IN PART.**
+The defer is **LIFTED for exactly one thing**: obtaining an approval decision
+**synchronously via manager PIN on a registered terminal**, reusing the
+**existing `FR-SEC-021` / `FR-SEC-022` PIN substrate** already lifted by the
+2026-08-19 amendment.
+**D-2's 2026-08-17 ratified text is unchanged, not reinterpreted and not
+deleted.**
+**Defer REMAINS IN FORCE for everything else, explicitly:** the
+**asynchronous half of `FR-SEC-032`** and all push notification
+(**D-11 unchanged**); **broader branch-scoped RBAC** (`FR-SEC-002` /
+`FR-SEC-003` / `FR-SEC-004`); **D-12**; **D-14 A-1** — **no Governance
+HTTP/API surface**, the PIN being carried on the **consuming** route and never
+on a Governance endpoint; and **D-20** — **no Governance read surface**.
+
+**7. SB-2 — `approval_requests.value`.**
+**`JSONB NOT NULL`**, treated by Governance as an **OPAQUE CARRIER**:
+Governance **does not interpret its domain meaning**; **no Governance RLS
+predicate reads inside it**; **no Governance CHECK reads inside it**; **no
+Governance index depends on its internals**; **no Governance security rule
+parses it**. The consuming domain owns its shape and meaning entirely,
+consistent with **D-13** (*"Governance is a generic carrier"*).
+**Monetary values within the JSONB SHALL be represented as base-10 integer
+strings of minor units, so that application-layer numeric precision is
+preserved.**
+**SB-2 is RESOLVED.** **SB-2's previously ratified EXCLUSION remains valid** —
+a money-only `BIGINT` minor-units representation (VT-4) is still excluded, and
+clause 7's string convention is **not** a reintroduction of it: no monetary
+type is imposed on the column. The **nullability sub-question** SB-2 left open
+(`FR-POS-047`'s boolean dimension) is resolved by `NOT NULL`, a boolean
+condition being representable as a document.
+
+**8. F-1 — approver ≠ subject owner (option R-b).**
+`governance.approval_requests` gains **one nullable excluded-approver identity
+field**, supplied by the consuming domain.
+**BINDING CLARIFICATION — this identity is an Identity USER ID, in the same
+identity domain as `approval_decisions.approver_id`. It is NOT an Employee
+ID.** For cash variance, **Treasury supplies the User identity corresponding
+to the CashSession owner** according to the accepted Employee/User model.
+The `approval_decisions` **INSERT policy gains an additional DB-enforced
+conjunct** prohibiting that User from approving.
+**The existing requester ≠ approver protection remains independently
+enforced** — D-7's conjunct is unchanged, so SRS §7.3 row 36's aggregate
+invariant and `FR-FIN-006`'s *"SHALL NOT be the session owner"* hold
+**simultaneously and independently**.
+**Service-only enforcement is NOT sufficient** (**D-7 clause 5**;
+`FR-SEC-016`'s *"block, not merely warn … regardless of role configuration"*).
+**The excluded identity SHALL NOT be extracted from
+`approval_requests.value`** — clause 7 forbids it, and a security predicate
+must not depend on a domain-supplied payload shape.
+**This amends D-1's ratified column set** (one further documented deviation
+from the approved SQL, of the species D-1 itself performed) **and amends D-9's
+decision INSERT policy**, recorded explicitly as a **D-9 policy
+amendment/consequence** in the manner established at **D-7 clause 6** and
+**D-10 clause 9**, and anticipated by the register's own rule that such an
+extension *"must be ratified explicitly, not applied silently."*
+**D-15 clause 9's general preservation of D-9 is superseded forward to exactly
+this extent**; its specific C-3 prohibition is untouched. **D-7, D-8 and D-10
+are otherwise unamended.**
+
+---
+
+### Corrections to the occasioning reports
+
+Both reports are **non-authoritative evidence**. Two of their characterizations
+are **corrected here and do not enter the binding record**:
+
+1. **The correction report stated that item 5 "does not amend D-15."** That is
+   **wrong**: **D-15 clause 4 explicitly prohibits** the one-decision-per-request
+   UNIQUE constraint by name. Item 5 **does** amend D-15, by the route
+   **D-15 clause 14** provides. Clause 5 above records this accurately.
+2. **Both reports attributed IEEE-754 storage to JSON numbers.** That
+   attribution is **not made here.** The binding rationale for clause 7's
+   integer-string convention is **application-layer numeric precision**, not
+   any claim about PostgreSQL `jsonb` internal storage.
+
+### Not decided by this entry
+
+**The following are NOT ratified and remain open**, and **no part of this entry
+may be read as settling any of them**: the **literal `request_type` code for
+cash variance**; the **exact excluded-User column name**; its **exact FK
+shape**; the **exact RLS SQL / predicate form**; **approval service
+interfaces**; the **Identity contract shape** for PIN verification; the
+**migration number** beyond the existing planning assumption; the
+**CashSession-close API shape**; **variance tolerance / settings**; the
+**denomination catalogue**; the **X-report permission**; **Shift close**;
+**Day Close**; **D-12 escalation**; **asynchronous approval**; and
+**notifications**.
+
+*Recorded as a Design-Gate consequence, NOT ratified:* `identity.employees.user_id`
+is **nullable** (SRS §7.3 #25 — *"May link to at most one User"*), so the
+Employee → User mapping clause 8 requires can yield NULL for an Employee with
+no linked User. The Design Gate must address this; PIN authentication already
+requires a linked User, so a PIN-opened session's owner necessarily has one.
+
+### Preservation
+
+**P-1 remains RATIFIED and UNCHANGED: `approval_decisions` references
+`approval_requests` DIRECTLY.** **D-12 remains BLOCKED.** **D-16's
+`request_type` ENUMERATION remains OPEN.** **D-11 remains unchanged — no
+notification implementation of any kind.** **D-14 A-1 remains unchanged — NO
+Governance HTTP/API surface.** **D-20 remains unchanged — NO Governance read
+surface.** **The asynchronous half of `FR-SEC-032` remains deferred and
+knowingly unmet.** **SB-2's exclusion of a money-only `BIGINT` representation
+remains valid.**
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures, the P1A / P1C / P1D carried items,
+the Fire Authorization Ratification, the P1F-2 Completion Economics &
+Depletion Resolution and the FIFO Exhaustion Carry-Forward Ratification are
+unchanged except exactly as stated above** — namely: **D-1** gains one column
+(clause 8); **D-2** is amended in part (clause 6); **D-9**'s decision INSERT
+policy gains one conjunct (clause 8); **D-15** clauses 4, 10 and 11 are
+narrowly amended (clause 5) and its clause 9 superseded only to the extent of
+clause 8. **D-3, D-4 (lifecycle), D-5, D-6, D-7, D-8, D-10, D-11, D-13, D-14,
+D-16 (enumeration), D-17, D-18, D-19 and D-20 are untouched.** The **D-3
+residual**, **GAP-11**, **granted-approval staleness**, **`FR-AUD-008`** and
+**`FR-SEC-035`** remain carried and unresolved.
+
+**No numbered decision is added, amended by number, or renumbered.** **No new
+permission code is created.** **No approval schema is created by this entry.**
+**NO IMPLEMENTATION IS AUTHORISED BY THIS RATIFICATION** — a separate runtime
+Design Gate is required before any migration.
+
+**Status:** **RATIFIED — CLOSED.**
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |
@@ -6037,6 +6259,47 @@ renumbered.
   chains deferred; §24.5.3 semantics (sequential, first-accept, no parallel,
   permission-based authority) recorded for the future phase. Chain exhaustion, value-band
   derivation (D-13) and Conflict **C-7** all explicitly left unresolved.
+- **APPROVAL RUNTIME MINIMUM RESOLUTION — RATIFIED 2026-08-29.** Recorded as an
+  **unnumbered carried-item/amendment entry — no D-21 is created and the 20-decision tally is
+  unaltered (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN)**. Eight binding resolutions:
+  **(1)** `request_type` = **`VARCHAR(32) NOT NULL`, no CHECK** this phase — **D-16's
+  ENUMERATION remains OPEN and D-16 is NOT closed**, only its Phase-1 constraint form resolved;
+  **(2)** **SB-1 RESOLVED** — `required_permission` stores the immutable §15.2 **code**, **no
+  FK**, authority checked at decision time against the approver's resolved permission-code set;
+  **(3)** **SB-3 RESOLVED** — **no DELETE capability** for `ros_app`, no DELETE policy,
+  decisions FK **`ON DELETE RESTRICT`**, **CASCADE still rejected**, and the **D-8 clause 6
+  cascade verification is dissolved** (no delete path exists), **V2 not required**;
+  **(4)** **D-4 clause 5 RESOLVED** — `decision` is the immutable fact, `status` the
+  current-state projection and still the sole D-6-updatable request column; **(5)** **exactly
+  ONE final decision per request**, future schema enforcing **`UNIQUE (tenant_id,
+  approval_request_id)`** — this **narrowly AMENDS D-15 clause 4**, which named that constraint
+  and declined it, by the route **D-15 clause 14** expressly provides, superseding **D-15
+  clauses 10 and 11**; it is an **architectural ratification, not a claim the SRS mandates the
+  semantic**, and D-15 clauses 3, 5 and 9's C-3 prohibition are **preserved**; **(6)** **D-2
+  AMENDED IN PART** — defer lifted **only** for **synchronous manager-PIN approval on a
+  registered terminal** reusing the existing `FR-SEC-021`/`022` substrate, with the
+  **asynchronous half of `FR-SEC-032`, D-11, D-12, broader branch RBAC, D-14 A-1 (no Governance
+  HTTP surface) and D-20 (no read surface) all preserved**; **(7)** **SB-2 RESOLVED** —
+  `value` = **`JSONB NOT NULL`**, an **opaque carrier** Governance never parses, indexes into,
+  or reads in any RLS/CHECK/security rule, with **monetary amounts as base-10 integer strings
+  of minor units** to preserve application-layer precision; **SB-2's money-only `BIGINT`
+  exclusion remains valid** and the open nullability sub-question is resolved by `NOT NULL`;
+  **(8)** **F-1 = R-b** — one **nullable excluded-approver column**, binding clarification that
+  it is an **Identity USER ID** in the same domain as `approval_decisions.approver_id` and
+  **NOT an Employee ID** (Treasury supplying the User corresponding to the CashSession owner),
+  with a **DB-enforced fourth conjunct** on the decisions INSERT policy; **service-only
+  enforcement is NOT sufficient**, the identity **SHALL NOT** be read from `value`, and D-7's
+  requester ≠ approver conjunct remains **independently enforced**. This **amends D-1**'s
+  column set and **D-9**'s decision INSERT policy, recorded as a **D-9 policy
+  amendment/consequence** in the manner of **D-7 cl. 6** and **D-10 cl. 9**.
+  **P-1 remains RATIFIED and UNCHANGED · D-12 remains BLOCKED · D-16's enumeration remains
+  OPEN · asynchronous `FR-SEC-032` remains deferred · no Governance HTTP or read surface · no
+  new permission code · no numbered decision added or renumbered.** **No implementation
+  authorized** — a separate runtime Design Gate is required. Exact column name, FK shape and
+  RLS SQL are **Design-Gate details, NOT ratified here**.
+  *Note: the SB status table of 2026-08-19, D-15's clauses 4/10/11 and all prior analysis are
+  **ratified historical text and are deliberately left unedited**; they are superseded forward
+  by this entry, in the register's established manner.*
 
 **6 decisions remain fully unratified** (including **D-16**, which must remain OPEN), plus
 D-3's deferred residual, the decision→parent linkage question exposed by D-5, and the

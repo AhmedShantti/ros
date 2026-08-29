@@ -15,6 +15,11 @@ import {
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
 import { CredentialsService } from '../credentials/credentials.service';
+import type {
+  TerminalPinVerifier,
+  VerifiedTerminalPrincipal,
+  VerifyTerminalPinInput,
+} from '../contract/pin-verification.contract';
 
 /** FR-SEC-020: "a 4–8 digit PIN". */
 const PIN_PATTERN = /^\d{4,8}$/;
@@ -69,7 +74,7 @@ export interface PinAuthResult {
  * process boundaries.
  */
 @Injectable()
-export class PinService {
+export class PinService implements TerminalPinVerifier {
   constructor(
     private readonly prisma: PrismaService,
     private readonly credentials: CredentialsService,
@@ -402,6 +407,77 @@ export class PinService {
       terminalId: result.terminalId,
       membershipId: result.membershipId,
     };
+  }
+
+  /**
+   * `TerminalPinVerifier.verifyTerminalPin` — Identity's first public
+   * contract implementation (`contract/pin-verification.contract.ts`).
+   *
+   * Reuses {@link authenticate} verbatim for the entire verification path
+   * (terminal, employee, branch, PIN hash, lockout, membership) — nothing is
+   * duplicated. Adds exactly one further read: the SAME membership's
+   * effective permission codes, via the identical membership -> role ->
+   * permission shape `TenantContextService.resolve` uses, resolved in its
+   * OWN transaction (never the caller's — see the contract's docblock on why
+   * this must run before any consuming module's business transaction).
+   *
+   * The returned object is deliberately constructed via a cast: the brand
+   * field on `VerifiedTerminalPrincipal` is an ambient `unique symbol` with
+   * no runtime representation, so no plain object literal can satisfy the
+   * interface structurally. `module-boundaries.spec.ts` confines this exact
+   * cast pattern to `src/modules/identity/`.
+   */
+  async verifyTerminalPin(
+    input: VerifyTerminalPinInput,
+  ): Promise<VerifiedTerminalPrincipal> {
+    const authResult = await this.authenticate(
+      input.tenantId,
+      input.terminalId,
+      input.employeeCode,
+      input.pin,
+    );
+
+    const membership = await this.prisma.withAuthContext(
+      { userId: authResult.userId, tenantId: input.tenantId },
+      (tx) =>
+        tx.membership.findUniqueOrThrow({
+          where: { id: authResult.membershipId },
+          select: {
+            membershipRoles: {
+              where: {
+                role: {
+                  OR: [{ tenantId: input.tenantId }, { isSystem: true }],
+                },
+              },
+              select: {
+                role: {
+                  select: {
+                    rolePermissions: {
+                      select: { permission: { select: { code: true } } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+    );
+
+    const permissions = new Set<string>();
+    for (const mr of membership.membershipRoles) {
+      for (const rp of mr.role.rolePermissions) {
+        permissions.add(rp.permission.code);
+      }
+    }
+
+    return {
+      userId: authResult.userId,
+      employeeId: authResult.employeeId,
+      membershipId: authResult.membershipId,
+      branchId: authResult.branchId,
+      terminalId: authResult.terminalId,
+      permissions,
+    } as unknown as VerifiedTerminalPrincipal;
   }
 
   /**

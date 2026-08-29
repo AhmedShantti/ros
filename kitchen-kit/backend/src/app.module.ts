@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { AuditModule } from './modules/governance/audit/audit.module';
+import { GovernanceModule } from './modules/governance/governance.module';
 import { IdentityModule } from './modules/identity/identity.module';
 import { CatalogueModule } from './modules/catalogue/catalogue.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
@@ -32,6 +33,10 @@ import { PrismaModule } from './prisma/prisma.module';
     SalesModule,
     // Governance audit trail — global, cross-cutting; consumed by identity.
     AuditModule,
+    // Governance bounded context — the general Approval mechanism (migration
+    // 32, FR-SEC-030..033). No HTTP surface; consumed only via
+    // `governance/contract`.
+    GovernanceModule,
     HealthModule,
     // Identity bounded context (users, credentials, auth, sessions, tenants,
     // rbac, terminals) — grown incrementally from Phase 2 onwards.
