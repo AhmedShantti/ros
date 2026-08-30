@@ -1068,18 +1068,23 @@ describe('Cash session open (e2e)', () => {
   // ------------------------------------------------------- scope guards
 
   describe('slice boundary', () => {
-    it('exposes no close, count, variance, drawer-limit or drawer-admin route', () => {
+    it('exposes exactly the routes this slice authorises — count, variance, drawer-limit, drawer-admin still absent', () => {
       const paths = registeredRoutePaths(app);
       expect(paths.length).toBeGreaterThan(0);
       expect(paths).toContain('/cash-sessions');
 
-      // P1G-0 adds the three mid-shift movement routes (FR-POS-091).
+      // P1G-0 adds the three mid-shift movement routes (FR-POS-091). P1G-1
+      // migration 34 adds CashSession Close (FR-POS-094/095/096/097): the
+      // close-context read plus the two close/finalize writes.
       // `GET /cash-sessions/:id` and any movement-READ route remain
       // deliberately absent: no source-supported read authority exists for
       // either, and `cash.session.open` is not reinterpreted as one.
       const treasury = paths.filter((p) => p.startsWith('/cash-sessions'));
       expect(treasury.sort()).toEqual([
         '/cash-sessions',
+        '/cash-sessions/:sessionId/close',
+        '/cash-sessions/:sessionId/close-context',
+        '/cash-sessions/:sessionId/close/finalize',
         '/cash-sessions/:sessionId/pay-in',
         '/cash-sessions/:sessionId/pay-out',
         '/cash-sessions/:sessionId/safe-drop',
@@ -1087,8 +1092,12 @@ describe('Cash session open (e2e)', () => {
       // Scoped to Treasury: `/inventory/counts` is a stock-count route and has
       // nothing to do with counting cash. FR-POS-092's drawer limit is
       // deliberately NOT enforced anywhere (design gate §5 — all four of its
-      // parameters are undecided), so no such route exists either.
-      for (const forbidden of ['close', 'count', 'variance', 'drawer']) {
+      // parameters are undecided), so no such route exists either. `count`
+      // and `variance` are dropped from this forbidden list — P1G-1
+      // migration 34 legitimately introduces `close-context` (a count-mode
+      // reader) and the variance-approval `close/finalize` route; `drawer`
+      // stays forbidden (no drawer-admin route exists).
+      for (const forbidden of ['drawer']) {
         expect(treasury.filter((p) => p.includes(forbidden))).toHaveLength(0);
       }
       // P1F-1: Payment capture is now real, but it is a SALES route
@@ -1123,11 +1132,13 @@ describe('Cash session open (e2e)', () => {
       expect(attemptRows).toHaveLength(0);
     });
 
-    it('creates only the five authorised tables in workforce and treasury', async () => {
+    it('creates only the seven authorised tables in workforce and treasury', async () => {
       // P1G-0 adds treasury.cash_movements (FR-POS-091). P1G-1 migration 33
       // adds treasury.cash_close_policies (FR-FIN-006/FR-POS-094/095) — the
       // narrow cash-close policy substrate, NOT the generic FR-PLT-025
-      // settings hierarchy.
+      // settings hierarchy. P1G-1 migration 34 adds
+      // treasury.cash_session_close_attempts and
+      // treasury.cash_count_denominations (CashSession Close itself).
       const rows = await admin.$queryRawUnsafe<
         { schemaname: string; tablename: string }[]
       >(
@@ -1136,7 +1147,9 @@ describe('Cash session open (e2e)', () => {
       );
       expect(rows.map((r) => `${r.schemaname}.${r.tablename}`)).toEqual([
         'treasury.cash_close_policies',
+        'treasury.cash_count_denominations',
         'treasury.cash_movements',
+        'treasury.cash_session_close_attempts',
         'treasury.cash_sessions',
         'treasury.drawers',
         'workforce.shifts',

@@ -1286,17 +1286,21 @@ describe('Catalogue (e2e)', () => {
       // (FR-POS-091), which additionally authorises `treasury.cash_movements`
       // — and P1G-1 migration 33, which additionally authorises
       // `treasury.cash_close_policies` (the narrow cash-close policy
-      // substrate, NOT the generic FR-PLT-025 settings hierarchy) —
-      // and NOTHING else in either schema. The guard is narrowed rather
-      // than dropped: the assertion below proves neither context quietly
-      // grew the rest of itself.
+      // substrate, NOT the generic FR-PLT-025 settings hierarchy) — and
+      // P1G-1 migration 34 (CashSession Close), which additionally
+      // authorises `treasury.cash_session_close_attempts` and
+      // `treasury.cash_count_denominations` — and NOTHING else in either
+      // schema. The guard is narrowed rather than dropped: the assertion
+      // below proves neither context quietly grew the rest of itself.
       const p1dTables = await admin.$queryRawUnsafe<{ qualified: string }[]>(
         `SELECT schemaname || '.' || tablename AS qualified FROM pg_tables
           WHERE schemaname IN ('workforce','treasury') ORDER BY 1`,
       );
       expect(p1dTables.map((t) => t.qualified)).toEqual([
         'treasury.cash_close_policies',
+        'treasury.cash_count_denominations',
         'treasury.cash_movements',
+        'treasury.cash_session_close_attempts',
         'treasury.cash_sessions',
         'treasury.drawers',
         'workforce.shifts',

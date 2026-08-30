@@ -55,6 +55,17 @@ import { createMigratorClient } from './rls-admin';
  * so pausing there is pausing exactly "after the read, before the write" —
  * with zero production code changes.
  *
+ * ── ACCEPTANCE CLOSURE CORRECTION — TWO CASH SESSIONS, NOT ONE ────────────
+ * P1G-1 added a "step 1.5" `ros_cash_session` advisory-lock acquisition
+ * BEFORE the order load, i.e. strictly BEFORE this stub's barrier point.
+ * The two racing calls below now use two INDEPENDENT cash sessions
+ * (`cashSessionA` / `cashSessionB`) precisely so neither call can be
+ * serialized against the other before it ever reaches the barrier — see the
+ * inline comment at the race itself for the full reasoning. This does not
+ * change what the test proves: the CAS race is on the ORDER's version, not
+ * on cash-session state, and attribution to two sessions instead of one is
+ * orthogonal to it.
+ *
  * ── WHY THIS ALSO PROVES THE SETTLEMENT-GATE RACE, NOT JUST LOST-UPDATE ──
  * Both participants request an amount that is individually partial against
  * the pre-race `paid_total` (0) but would together exceed `grand_total`.
@@ -166,6 +177,9 @@ describe('Sales Payment — real Postgres concurrency (P1F-1 §19)', () => {
   let priceListA: string;
   let taxClassStandard: string;
   let cashSessionA: string;
+  /** Acceptance closure addition — see the race test's own inline comment
+   *  for why a SECOND, independent cash session is now required. */
+  let cashSessionB: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -315,6 +329,44 @@ describe('Sales Payment — real Postgres concurrency (P1F-1 §19)', () => {
         },
       })
     ).id;
+
+    // Acceptance closure addition — a SECOND, fully independent drawer/shift/
+    // session, for the same reason explained inline at the race test below.
+    const drawerB = await admin.drawer.create({
+      data: {
+        id: newId(),
+        tenantId: tenantA,
+        branchId: branchA,
+        name: 'Race Drawer B',
+        terminalId: null,
+      },
+    });
+    const shiftB = await admin.shift.create({
+      data: {
+        id: newId(),
+        tenantId: tenantA,
+        branchId: branchA,
+        employeeId: employeeA,
+        status: 'open',
+        openedAt: AT,
+      },
+    });
+    cashSessionB = (
+      await admin.cashSession.create({
+        data: {
+          id: newId(),
+          tenantId: tenantA,
+          branchId: branchA,
+          drawerId: drawerB.id,
+          shiftId: shiftB.id,
+          employeeId: employeeA,
+          openingFloat: 50_000n,
+          currency: 'EGP',
+          status: 'open',
+          openedAt: AT,
+        },
+      })
+    ).id;
   }, 30_000);
 
   afterAll(async () => {
@@ -403,6 +455,20 @@ describe('Sales Payment — real Postgres concurrency (P1F-1 §19)', () => {
           expectedVersion: raceVersion,
           tender: 'cash',
           amountMinor: amountEach,
+          // Acceptance closure correction: the P1G-1 Payment/Close advisory
+          // lock (`sales-payment.service.ts` "step 1.5") now acquires
+          // `pg_advisory_xact_lock(hashtext('ros_cash_session'),
+          // hashtext(cashSessionId))` BEFORE this stub's barrier point is
+          // ever reached — a statement this test's own barrier synchronizes
+          // AFTER. Racing both calls on the SAME cash session would now
+          // genuinely serialize them at the lock, so the second call could
+          // never reach the barrier concurrently with the first — a
+          // deadlock against the barrier itself, not the CAS this test
+          // exists to prove. Two INDEPENDENT sessions route through two
+          // DIFFERENT lock keys, restoring genuine concurrent arrival at the
+          // barrier while leaving the Order-version CAS race (this test's
+          // actual subject — orthogonal to which session a payment is
+          // attributed to) completely unchanged.
           cashSessionId: cashSessionA,
           employeeId: employeeA,
           terminalId: terminalA,
@@ -414,7 +480,7 @@ describe('Sales Payment — real Postgres concurrency (P1F-1 §19)', () => {
           expectedVersion: raceVersion,
           tender: 'cash',
           amountMinor: amountEach,
-          cashSessionId: cashSessionA,
+          cashSessionId: cashSessionB,
           employeeId: employeeA,
           terminalId: terminalA,
           tenderedAmountMinor: amountEach,

@@ -50,6 +50,8 @@ import {
   AUDIT_ENTITY,
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
+import { BRANCH_CURRENCY_QUERY } from '../../organisation/contract';
+import type { BranchCurrencyQuery } from '../../organisation/contract';
 import { SHIFT_OPENER } from '../../workforce/contract';
 import type { ShiftOpener } from '../../workforce/contract';
 import { DrawersService } from '../drawers/drawers.service';
@@ -80,6 +82,8 @@ export class CashSessionsService {
     private readonly audit: AuditService,
     private readonly drawers: DrawersService,
     @Inject(SHIFT_OPENER) private readonly shifts: ShiftOpener,
+    @Inject(BRANCH_CURRENCY_QUERY)
+    private readonly branchCurrency: BranchCurrencyQuery,
   ) {}
 
   async open(
@@ -122,11 +126,17 @@ export class CashSessionsService {
           throw new ConflictException('That terminal is not active.');
         }
 
-        const branch = await tx.branch.findUnique({
-          where: { id: terminal.branchId },
-          select: { id: true, baseCurrency: true },
+        // Organisation's PUBLIC contract, SAME transaction (SRS §5.5.1) —
+        // never a direct `tx.branch.*` query (SRS §5.2.3; the acceptance-
+        // closure correction already applied to `CashClosePolicyService`,
+        // now applied here too — see `cash-close-policy.db-ownership.spec.ts`,
+        // whose scan is widened by this same slice to cover this file).
+        const branchFacts = await this.branchCurrency.find(tx, {
+          tenantId,
+          branchId: terminal.branchId,
         });
-        if (!branch) throw new NotFoundException('Branch not found.');
+        if (!branchFacts) throw new NotFoundException('Branch not found.');
+        const branch = { id: branchFacts.branchId, baseCurrency: branchFacts.baseCurrency };
 
         const employee = await tx.employee.findUnique({
           where: { id: input.employeeId },

@@ -2,8 +2,10 @@ import {
   Body,
   Controller,
   ForbiddenException,
+  Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Param,
   Post,
   UseGuards,
@@ -16,6 +18,7 @@ import {
   ApiForbiddenResponse,
   ApiHeader,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -30,12 +33,25 @@ import { CurrentPrincipal } from '../identity/auth/decorators/current-principal.
 import { AllowPosSession } from '../identity/auth/decorators/pos-session.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import type { AuthenticatedPrincipal } from '../identity/auth/auth.types';
-import { RequirePermission } from '../identity/authz/decorators/require-permission.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermission,
+} from '../identity/authz/decorators/require-permission.decorator';
 import { PermissionGuard } from '../identity/authz/guards/permission.guard';
-import { CurrentTenantContext } from '../identity/context/current-tenant-context.decorator';
-import type { TenantContext } from '../identity/context/tenant-context';
+import {
+  CurrentAuthorization,
+  CurrentTenantContext,
+} from '../identity/context/current-tenant-context.decorator';
+import type { RequestAuthorization, TenantContext } from '../identity/context/tenant-context';
 import { TenantContextGuard } from '../identity/context/tenant-context.guard';
+import { TERMINAL_PIN_VERIFIER } from '../identity/contract';
+import type { TerminalPinVerifier } from '../identity/contract';
 import { CashMovementsService } from './cash-movements/cash-movements.service';
+import {
+  DeclareCashSessionCloseDto,
+  FinalizeCashSessionCloseDto,
+} from './cash-session-close/cash-session-close.dto';
+import { CashSessionCloseService } from './cash-session-close/cash-session-close.service';
 import { CashSessionsService } from './cash-sessions/cash-sessions.service';
 import { CashMovementDto, OpenCashSessionDto } from './treasury.dto';
 import { TREASURY_PERMISSIONS } from './treasury.permissions';
@@ -46,7 +62,8 @@ import {
 } from './treasury.views';
 
 /**
- * Treasury API — cash session OPEN, plus P1G-0's mid-shift cash movements.
+ * Treasury API — cash session OPEN, P1G-0's mid-shift cash movements, and
+ * P1G-1 migration 34's CashSession Close.
  *
  * Route surface, following how `/orders`, `/recipes`, `/inventory` and
  * `/catalogue` map SRS §26.3 (the documented `/v1` prefix is applied at
@@ -56,6 +73,9 @@ import {
  *   POST /cash-sessions/{sessionId}/pay-in        FR-POS-091 — record cash in
  *   POST /cash-sessions/{sessionId}/pay-out       FR-POS-091 — record cash out
  *   POST /cash-sessions/{sessionId}/safe-drop     FR-POS-091 — remove excess cash to the safe
+ *   GET  /cash-sessions/{sessionId}/close-context FR-POS-094/095 — count-mode + (open-mode-only) preview
+ *   POST /cash-sessions/{sessionId}/close         FR-POS-094/096/097 — declare the physical count
+ *   POST /cash-sessions/{sessionId}/close/finalize FR-FIN-006 — manager decision on an above-tolerance close
  *
  * ── WHY THREE SEPARATE ROUTES, NOT ONE `/movements` WITH `type` IN THE BODY ─
  * `@RequirePermission` is a route-level static decorator evaluated by a guard
@@ -91,14 +111,6 @@ import {
  * ── DELIBERATELY ABSENT ─────────────────────────────────────────────────────
  *   GET  /cash-sessions/:id               · no source-supported read authority.
  *   GET  .../movements                    · no source-supported read authority.
- *   POST /cash-sessions/:id/close         · FR-POS-094/096 require a physical
- *                                            count, blind by default, and
- *                                            FR-FIN-006 requires independent
- *                                            variance approval. No approval
- *                                            subsystem exists, and `ros_app`
- *                                            holds no UPDATE on the table —
- *                                            closing is not merely unrouted,
- *                                            it is impossible.
  *   drawer-limit enforcement / prompt     · FR-POS-092 — all four of its
  *                                            parameters (source of truth,
  *                                            level, default, prompt-vs-block)
@@ -121,6 +133,15 @@ import {
  *                                            authorised (carried item P1D-F)
  *                                            but has no route and is not
  *                                            seeded.
+ *   Day Close, X/Z report, shift auto-close,
+ *   refunds, tips, adjusting entries       · explicitly out of scope for
+ *                                            P1G-1 migration 34 (final
+ *                                            implementation slice §0) — none
+ *                                            of these is a defect, and none
+ *                                            is invented.
+ *   `cash.drawer.open_no_sale`, `cash.day.close` · still no executable
+ *                                            consumer; still not seeded
+ *                                            (`treasury.permissions.ts`).
  *
  * Guard chain: JwtAuthGuard (401) -> TenantContextGuard (403) ->
  * PermissionGuard (403). A cross-tenant id is invisible under RLS and yields
@@ -156,7 +177,7 @@ const cashSessionSchema = {
       description: 'ISO 4217 currency code.',
       example: 'AED',
     },
-    status: { type: 'string', enum: ['open', 'closed'] },
+    status: { type: 'string', enum: ['open', 'closing', 'closed'] },
     openedAt: isoDateTimeSchema(),
     closedAt: nullable(isoDateTimeSchema()),
   },
@@ -198,6 +219,93 @@ const cashMovementSchema = {
   },
 };
 
+// P1G-1 migration 34. Shape verified against `CashSessionCloseService
+// .getCloseContext`. Acceptance closure correction: `toleranceMinorUnits`
+// is a POLICY fact (the configured threshold), not a VARIANCE fact, and is
+// present whenever a policy is configured — in BOTH blind and open mode.
+// FR-POS-095's blind default protects the COUNT: `expectedCashMinorUnits`
+// (and the formula it comes from) is the field structurally ABSENT from the
+// response body — never present as `null` — while `status === 'open'` and
+// the resolved count mode is `blind`. Both are always present once `status`
+// is `closing`/`closed`, or when `open` + open-mode with a configured
+// policy; `toleranceMinorUnits` is additionally absent only when NO policy
+// is configured for the branch at all (nothing to report).
+const closeContextSchema = {
+  type: 'object',
+  properties: {
+    cashSessionId: uuidSchema(),
+    status: { type: 'string', enum: ['open', 'closing', 'closed'] },
+    countMode: { type: 'string', enum: ['blind', 'open'] },
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+    openingFloatMinorUnits: moneyStringSchema(),
+    toleranceMinorUnits: moneyStringSchema(
+      'Present whenever a cash-close policy is configured for the branch — in BOTH blind and open mode. Absent only when no policy is configured at all.',
+    ),
+    expectedCashMinorUnits: moneyStringSchema(
+      'Absent while open + blind (FR-POS-095). A PREVIEW only while open + open-mode; authoritative once closing/closed.',
+    ),
+    countedCashMinorUnits: moneyStringSchema(
+      'Present only once status is closing/closed.',
+    ),
+    varianceMinorUnits: moneyStringSchema(
+      'Present only once status is closing/closed.',
+    ),
+    approvalRequired: {
+      type: 'boolean',
+      description: 'Present only once status is closing/closed.',
+    },
+    closedAt: nullable(isoDateTimeSchema()),
+  },
+};
+
+// Shape verified against `CashSessionCloseService.declareClose`'s
+// `buildDeclareResult`.
+const declareCloseResponseSchema = {
+  type: 'object',
+  properties: {
+    cashSessionId: uuidSchema(),
+    closeAttemptId: uuidSchema(),
+    status: { type: 'string', enum: ['closing', 'closed'] },
+    approvalRequired: { type: 'boolean' },
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+    countMode: { type: 'string', enum: ['blind', 'open'] },
+    toleranceMinorUnits: moneyStringSchema(),
+    expectedCashMinorUnits: moneyStringSchema(
+      'Disclosed only in this COMMITTED response — never before the count is durable (FR-POS-095).',
+    ),
+    countedCashMinorUnits: moneyStringSchema(),
+    varianceMinorUnits: moneyStringSchema(),
+    created: {
+      type: 'boolean',
+      description: 'False on an idempotent replay of an already-declared attempt.',
+    },
+  },
+};
+
+// Shape verified against `CashSessionCloseService.finalizeClose`'s
+// `buildFinalizeResult`.
+const finalizeCloseResponseSchema = {
+  type: 'object',
+  properties: {
+    cashSessionId: uuidSchema(),
+    status: { type: 'string', enum: ['closing', 'closed'] },
+    outcome: {
+      type: 'string',
+      enum: ['closed', 'rejected'],
+      description:
+        'R-6(a): an explicit rejection COMMITS and returns 200 with outcome "rejected" — never an error. The session remains "closing"; a retry with fresh approvalRequestId/approvalDecisionId is expected.',
+    },
+  },
+};
+
 @ApiTags('treasury')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token.' })
@@ -209,6 +317,9 @@ export class TreasuryController {
   constructor(
     private readonly sessions: CashSessionsService,
     private readonly movements: CashMovementsService,
+    private readonly close: CashSessionCloseService,
+    @Inject(TERMINAL_PIN_VERIFIER)
+    private readonly pinVerifier: TerminalPinVerifier,
   ) {}
 
   /**
@@ -399,6 +510,186 @@ export class TreasuryController {
       this.toMovementInput(principal, sessionId, dto),
     );
     return toCashMovementView(movement);
+  }
+
+  /**
+   * The close context — FR-POS-094/095. Read-only.
+   *
+   * `cash.session.close` (own) / `cash.session.close_other` (another
+   * employee's) — the SAME own/other split `declareClose`/`finalizeClose`
+   * enforce, checked here too so a caller cannot probe another employee's
+   * session state without holding the right authority.
+   *
+   * While `open` in BLIND mode (FR-POS-095's default), `toleranceMinorUnits`/
+   * `expectedCashMinorUnits` are structurally ABSENT from the response —
+   * never merely `null` — until a count is durably declared. While `open` in
+   * open-count mode, they are a PREVIEW only (not authoritative — the actual
+   * close re-resolves everything fresh, under the advisory lock).
+   */
+  @Get(':sessionId/close-context')
+  @RequireAnyPermission(
+    TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
+    TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
+  )
+  @ApiOkResponse({
+    description: 'The close context for this cash session.',
+    schema: closeContextSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Unknown cash session.' })
+  async getCloseContext(
+    @CurrentAuthorization() authorization: RequestAuthorization,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param('sessionId') sessionId: string,
+  ) {
+    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    return this.close.getCloseContext(
+      authorization.context.tenantId,
+      { terminalId, employeeId },
+      authorization.permissions,
+      sessionId,
+    );
+  }
+
+  /**
+   * Declare the physical cash count — FR-POS-094/096/097 [M].
+   *
+   * Within tolerance, this closes the session in the SAME request. Above
+   * tolerance, it freezes the session (`open -> closing`) and the disclosed
+   * figures in THIS response are the first and only legitimate disclosure —
+   * FR-POS-095's blind-count control is that expected cash/variance are
+   * revealed strictly AFTER the count is durably committed, never before.
+   * `POST .../close/finalize` is the ONLY way out of `closing` — there is no
+   * above-tolerance one-request path (a manager PIN entered before this
+   * response exists could not be an informed decision).
+   */
+  @Post(':sessionId/close')
+  @HttpCode(HttpStatus.CREATED)
+  @Idempotent()
+  @RequireAnyPermission(
+    TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
+    TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
+  )
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).',
+  })
+  @ApiCreatedResponse({
+    description:
+      'The committed count declaration — closed immediately if within tolerance, otherwise frozen awaiting a manager decision.',
+    schema: declareCloseResponseSchema,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/malformed closeAttemptId, neither countedTotalMinorUnits nor denominations supplied, a denomination-sum mismatch, or a duplicate denomination.',
+  })
+  @ApiNotFoundResponse({ description: 'Unknown cash session.' })
+  @ApiConflictResponse({
+    description:
+      'The session is not open, the closeAttemptId already exists with different content (FR-OFF-015), no cash-close policy is configured for this branch as of when the session opened, or the policy currency does not match the session.',
+  })
+  async declareClose(
+    @CurrentAuthorization() authorization: RequestAuthorization,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param('sessionId') sessionId: string,
+    @Body() dto: DeclareCashSessionCloseDto,
+  ) {
+    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    return this.close.declareClose(
+      authorization.context.tenantId,
+      authorization.context.userId,
+      { terminalId, employeeId },
+      authorization.permissions,
+      {
+        cashSessionId: sessionId,
+        closeAttemptId: dto.closeAttemptId,
+        countedTotalMinorUnits: dto.countedTotalMinorUnits,
+        denominations: dto.denominations,
+      },
+    );
+  }
+
+  /**
+   * The manager's decision on a frozen (above-tolerance) close — FR-FIN-006
+   * [M], FR-SEC-016/030/032/033.
+   *
+   * The manager PIN is verified BEFORE the business transaction opens
+   * (`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/
+   * lockout counter must survive a later rollback, and never runs at all on
+   * an idempotent replay). The verified manager's permission set — not the
+   * calling cashier's — is what `cash.variance.approve` is checked against,
+   * by the Approval Runtime itself, never by a route-level permission guard
+   * (the approver is a different actor than the caller).
+   *
+   * R-6(a): an explicit REJECTED decision COMMITS and returns 200 with
+   * `outcome: "rejected"` — never an error. The session stays `closing`; a
+   * retry supplies FRESH `approvalRequestId`/`approvalDecisionId` values.
+   */
+  @Post(':sessionId/close/finalize')
+  @HttpCode(HttpStatus.OK)
+  @Idempotent()
+  @RequireAnyPermission(
+    TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
+    TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
+  )
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).',
+  })
+  @ApiOkResponse({
+    description:
+      'The manager decision outcome — "closed" (approved) or "rejected" (R-6(a); the session remains closing).',
+    schema: finalizeCloseResponseSchema,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing/malformed approvalRequestId/approvalDecisionId, an invalid decision, a blank reason, or an otherwise invalid request body.',
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid manager PIN, terminal, or employee code.',
+  })
+  @ApiNotFoundResponse({ description: 'Unknown cash session.' })
+  @ApiConflictResponse({
+    description:
+      'The session has no pending close awaiting a decision, is already closed under a different approval request, the owning employee has no linked Identity user (self-approval cannot be enforced), the governing cash-close policy could not be re-resolved identically, or the approval request/decision id already exists with different content.',
+  })
+  @ApiForbiddenResponse({
+    description:
+      'The manager holds no cash.variance.approve permission, or is the excluded (self-approving) approver.',
+  })
+  async finalizeClose(
+    @CurrentAuthorization() authorization: RequestAuthorization,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param('sessionId') sessionId: string,
+    @Body() dto: FinalizeCashSessionCloseDto,
+  ) {
+    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+
+    const approver = await this.pinVerifier.verifyTerminalPin({
+      tenantId: authorization.context.tenantId,
+      terminalId,
+      employeeCode: dto.managerEmployeeCode,
+      pin: dto.managerPin,
+    });
+
+    return this.close.finalizeClose(
+      authorization.context.tenantId,
+      authorization.context.userId,
+      { terminalId, employeeId },
+      authorization.permissions,
+      approver,
+      {
+        cashSessionId: sessionId,
+        approvalRequestId: dto.approvalRequestId,
+        approvalDecisionId: dto.approvalDecisionId,
+        decision: dto.decision,
+        reason: dto.reason,
+        comment: dto.comment,
+      },
+    );
   }
 
   // ------------------------------------------------------------- internals

@@ -152,6 +152,9 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
   let priceListA: string;
   let taxClassStandard: string;
   let cashSessionA: string;
+  /** Acceptance closure addition — see the race tests' own inline comments
+   *  for why a SECOND, independent cash session is now required. */
+  let cashSessionB: string;
   let unitKg: string;
 
   beforeAll(async () => {
@@ -299,6 +302,44 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
           branchId: branchA,
           drawerId: drawer.id,
           shiftId: shift.id,
+          employeeId: employeeA,
+          openingFloat: 50_000n,
+          currency: 'EGP',
+          status: 'open',
+          openedAt: AT,
+        },
+      })
+    ).id;
+
+    // Acceptance closure addition — a SECOND, fully independent drawer/shift/
+    // session. See the race tests' own inline comments for why.
+    const drawerB = await admin.drawer.create({
+      data: {
+        id: newId(),
+        tenantId: tenantA,
+        branchId: branchA,
+        name: 'Race Drawer B',
+        terminalId: null,
+      },
+    });
+    const shiftB = await admin.shift.create({
+      data: {
+        id: newId(),
+        tenantId: tenantA,
+        branchId: branchA,
+        employeeId: employeeA,
+        status: 'open',
+        openedAt: AT,
+      },
+    });
+    cashSessionB = (
+      await admin.cashSession.create({
+        data: {
+          id: newId(),
+          tenantId: tenantA,
+          branchId: branchA,
+          drawerId: drawerB.id,
+          shiftId: shiftB.id,
           employeeId: employeeA,
           openingFloat: 50_000n,
           currency: 'EGP',
@@ -466,7 +507,12 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
               expectedVersion: order.version,
               tender: 'cash',
               amountMinor: order.grandTotal,
-              cashSessionId: cashSessionA,
+              // Acceptance closure correction: a SECOND, independent cash
+              // session — see `sales-payment-concurrency.e2e-spec.ts`'s
+              // matching comment for why racing both calls on the SAME
+              // session would now deadlock against this file's own barrier
+              // (P1G-1's advisory lock acquires before the barrier point).
+              cashSessionId: cashSessionB,
               employeeId: employeeA,
               terminalId: terminalA,
               tenderedAmountMinor: order.grandTotal,
@@ -574,7 +620,10 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
               expectedVersion: orderB.version,
               tender: 'cash',
               amountMinor: orderB.grandTotal,
-              cashSessionId: cashSessionA,
+              // Acceptance closure correction — see the first call's comment
+              // above (same reasoning: an independent cash session avoids a
+              // deadlock against this file's own barrier).
+              cashSessionId: cashSessionB,
               employeeId: employeeA,
               terminalId: terminalA,
               tenderedAmountMinor: orderB.grandTotal,

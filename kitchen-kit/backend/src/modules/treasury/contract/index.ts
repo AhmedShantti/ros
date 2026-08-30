@@ -7,3 +7,4 @@
  */
 export * from './cash-session-facts.query';
 export * from './cash-movement-totals.query';
+export * from './events';

@@ -47,6 +47,30 @@ export const AUDIT_ACTION = {
   // "configuration changes"). One verb: every write is a NEW immutable
   // version, never an edit, so there is no separate _UPDATED counterpart.
   CASH_CLOSE_POLICY_VERSION_CREATED: 'CASH_CLOSE_POLICY_VERSION_CREATED',
+  // P1G-1 migration 34 — CashSession Close (FR-FIN-005/006/007, FR-AUD-006
+  // "cash variances"). ONE verb covers both close paths (within-tolerance
+  // fast path, and an approved above-tolerance finalize) — the route taken
+  // is metadata, not a different action, mirroring CASH_MOVEMENT_RECORDED's
+  // own convention. A REJECTED decision emits NO separate Treasury event
+  // here: Governance's own APPROVAL_REQUEST_CREATED /
+  // APPROVAL_DECISION_RECORDED already covers it — a second Treasury-side
+  // echo would be exactly the audit duplication the design gate's §32 warns
+  // against.
+  CASH_SESSION_CLOSED: 'CASH_SESSION_CLOSED',
+  // Acceptance closure correction: FR-AUD-006 names "cash variances" as an
+  // action that SHALL ALWAYS generate an audit entry, independent of
+  // FR-AUD-006's separately-listed "voids"/"refunds"/etc — a variance is
+  // computed and durably recorded the instant a NEW close attempt is
+  // created (both the within-tolerance fast path AND the above-tolerance
+  // freeze), and a frozen session may sit in `closing`, or be rejected and
+  // retried, for an unbounded time before any CASH_SESSION_CLOSED entry
+  // ever exists. The close attempt ROW is durable business evidence but is
+  // not itself a `governance.audit_entries` row — FR-AUD-001/006 require
+  // the latter specifically. One verb, written exactly once per NEWLY
+  // created attempt (never on a permanent-id replay, mirroring every other
+  // audited write in this module); CASH_SESSION_CLOSED remains the
+  // separate, later fact that the session actually closed.
+  CASH_VARIANCE_DECLARED: 'CASH_VARIANCE_DECLARED',
   // D-2 (amended) PIN substrate. Security-sensitive state changes only; a PIN
   // value never appears in any payload.
   EMPLOYEE_CREATED: 'EMPLOYEE_CREATED',

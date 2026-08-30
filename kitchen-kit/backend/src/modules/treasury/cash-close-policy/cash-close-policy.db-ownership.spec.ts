@@ -33,13 +33,17 @@ import { join, resolve } from 'node:path';
  *
  * It does **NOT** prove, and does not claim to prove, that no OTHER module in
  * this repository queries another module's table directly through the shared
- * Prisma client (`CashSessionsService.open`, pre-existing and out of this
- * correction's fence, does exactly that for the same `branches` table — see
- * that file's own TODO surface). **Repo-wide SRS §5.2.3 table-ownership
- * enforcement — e.g. per-module database roles/grants checked in CI — remains
- * PARTIAL.** A general version of this check (scanning every module for
- * property-access patterns against every OTHER module's Prisma model names)
- * is a separate, larger architecture-test slice, not undertaken here.
+ * Prisma client. `CashSessionsService.open`'s OWN `tx.branch` query — named
+ * here as still open when this file was first written — was corrected by the
+ * P1G-1 migration 34 final implementation slice (§8) and is now proven by
+ * the sibling
+ * `cash-session-close/cash-session-close.db-ownership.spec.ts`, which also
+ * covers the `cash-session-close/` directory's own Sales edge. **Repo-wide
+ * SRS §5.2.3 table-ownership enforcement — e.g. per-module database
+ * roles/grants checked in CI — remains PARTIAL.** A general version of this
+ * check (scanning every module for property-access patterns against every
+ * OTHER module's Prisma model names) is a separate, larger architecture-test
+ * slice, not undertaken here.
  */
 
 const CCP_DIR = resolve(__dirname);
