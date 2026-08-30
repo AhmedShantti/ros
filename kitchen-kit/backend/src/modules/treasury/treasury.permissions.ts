@@ -28,12 +28,26 @@ import { PermissionDef } from '../identity/authz/permissions.constants';
  * comes from the terminal binding, the FR-SEC-021 permitted-branch set, and
  * (for the movement routes) the own-session-only rule (design gate §4): §15.2
  * supplies NO `_other` variant for any movement permission.
+ *
+ * `SETTINGS_BRANCH_MANAGE` — P1G-1 migration 33 (cash-close policy write).
+ * `'settings.branch.manage'` is quoted VERBATIM from §15.2 ("Branch
+ * configuration"; ratification R-5) and is ALREADY SEEDED by Organisation
+ * (`ORGANISATION_PERMISSION_DEFS`, ADR 0008 D-01) — it is declared here as a
+ * plain local STRING LITERAL, not imported from
+ * `organisation/organisation.permissions`, because that import would be a
+ * NEW `treasury->organisation` private-path deviation
+ * (`module-boundaries.spec.ts` has no such entry today). No duplicate
+ * `PermissionDef` is added below: the permission row already exists, keyed
+ * by `code`, and a second def would be a redundant upsert, not a second
+ * permission.
  */
 export const TREASURY_PERMISSIONS = {
   CASH_SESSION_OPEN: 'cash.session.open',
   CASH_PAYIN: 'cash.payin',
   CASH_PAYOUT: 'cash.payout',
   CASH_SAFEDROP: 'cash.safedrop',
+  /** Existing SRS §15.2 code; owned/seeded by Organisation. See docblock. */
+  SETTINGS_BRANCH_MANAGE: 'settings.branch.manage',
 } as const;
 
 export const TREASURY_PERMISSION_DEFS: PermissionDef[] = [

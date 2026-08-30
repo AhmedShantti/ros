@@ -1123,8 +1123,11 @@ describe('Cash session open (e2e)', () => {
       expect(attemptRows).toHaveLength(0);
     });
 
-    it('creates only the four authorised tables in workforce and treasury', async () => {
-      // P1G-0 adds treasury.cash_movements (FR-POS-091).
+    it('creates only the five authorised tables in workforce and treasury', async () => {
+      // P1G-0 adds treasury.cash_movements (FR-POS-091). P1G-1 migration 33
+      // adds treasury.cash_close_policies (FR-FIN-006/FR-POS-094/095) — the
+      // narrow cash-close policy substrate, NOT the generic FR-PLT-025
+      // settings hierarchy.
       const rows = await admin.$queryRawUnsafe<
         { schemaname: string; tablename: string }[]
       >(
@@ -1132,6 +1135,7 @@ describe('Cash session open (e2e)', () => {
           WHERE schemaname IN ('workforce','treasury') ORDER BY 1, 2`,
       );
       expect(rows.map((r) => `${r.schemaname}.${r.tablename}`)).toEqual([
+        'treasury.cash_close_policies',
         'treasury.cash_movements',
         'treasury.cash_sessions',
         'treasury.drawers',

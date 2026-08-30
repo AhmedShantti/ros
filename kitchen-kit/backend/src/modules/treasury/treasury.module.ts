@@ -2,7 +2,11 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
+import { OrganisationModule } from '../organisation/organisation.module';
 import { WorkforceModule } from '../workforce/workforce.module';
+import { CashClosePolicyController } from './cash-close-policy/cash-close-policy.controller';
+import { CashClosePolicyResolver } from './cash-close-policy/cash-close-policy.resolver';
+import { CashClosePolicyService } from './cash-close-policy/cash-close-policy.service';
 import { CashMovementTotalsQueryService } from './cash-movements/cash-movement-totals.query.service';
 import { CashMovementsService } from './cash-movements/cash-movements.service';
 import { CashSessionFactsQueryService } from './cash-sessions/cash-session-facts.query.service';
@@ -51,16 +55,45 @@ import { TreasuryController } from './treasury.controller';
  * transaction — again no public read ROUTE, since §15.2 names no
  * movement-read permission. FR-POS-092's drawer limit is deliberately NOT
  * implemented (design gate §5 — all four parameters undecided).
+ *
+ * P1G-1 migration 33 adds the cash-close POLICY substrate (FR-FIN-006
+ * tolerance, FR-POS-094/095 count mode, R-4(a) approval-expiry duration): a
+ * THIRD controller-visible route, `POST /branches/:branchId/cash-close-policy`
+ * on the SEPARATE `CashClosePolicyController` (a dashboard/back-office route,
+ * not a POS-session one), plus a Treasury-PRIVATE resolver
+ * (`CashClosePolicyResolver`, `cash-close-policy/`) — NOT a `contract/`
+ * export, because the only consumer this slice has is Treasury itself
+ * (design gate §9.1). CashSession Close itself is NOT implemented by this
+ * migration; the resolver exists for a future P1G-1 close to consume.
+ *
+ * `OrganisationModule` is imported for the acceptance-closure correction:
+ * `CashClosePolicyService` needs a branch's authoritative base currency, and
+ * `org.branches` is Organisation-owned data (SRS §5.2.3 — a module MUST NOT
+ * query another module's tables, and a direct `tx.branch.*` query would have
+ * violated that even though no PRIVATE Organisation file is imported). The
+ * ONLY thing imported is `organisation/contract`'s `BRANCH_CURRENCY_QUERY`
+ * token, the published `BranchCurrencyQuery` interface —
+ * `module-boundaries.spec.ts` allows importing `modules/<other>/contract`
+ * and `modules/<other>/<other>.module` unconditionally (SRS §5.4), so this
+ * is not a `KNOWN_DEVIATIONS` entry.
  */
 @Module({
-  imports: [PrismaModule, IdentityModule, AuditModule, WorkforceModule],
-  controllers: [TreasuryController],
+  imports: [
+    PrismaModule,
+    IdentityModule,
+    AuditModule,
+    WorkforceModule,
+    OrganisationModule,
+  ],
+  controllers: [TreasuryController, CashClosePolicyController],
   providers: [
     DrawersService,
     CashSessionsService,
     CashSessionFactsQueryService,
     CashMovementsService,
     CashMovementTotalsQueryService,
+    CashClosePolicyService,
+    CashClosePolicyResolver,
     {
       provide: CASH_SESSION_FACTS_QUERY,
       useExisting: CashSessionFactsQueryService,
@@ -75,6 +108,9 @@ import { TreasuryController } from './treasury.controller';
     CashSessionsService,
     CASH_SESSION_FACTS_QUERY,
     CASH_MOVEMENT_TOTALS_QUERY,
+    // P1G-1: exported so a future CashSession Close slice (this module) can
+    // inject the resolver directly. NOT a `contract/` token — Treasury-only.
+    CashClosePolicyResolver,
   ],
 })
 export class TreasuryModule {}

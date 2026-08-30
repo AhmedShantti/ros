@@ -6081,6 +6081,236 @@ Design Gate is required before any migration.
 **Status:** **RATIFIED — CLOSED.**
 
 ---
+## P1G-1 Cash-Close Policy Ratification — 2026-08-30
+
+> **RECORDED 2026-08-30 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **P1A / P1C / P1D**,
+> **Fire Authorization**, **P1F-2 Completion Economics**, **FIFO Exhaustion
+> Carry-Forward** and **Approval Runtime Minimum Resolution** convention.
+>
+> This entry resolves the **four narrow items** the P1G-1 variance/settings
+> design gate returned as `USER RATIFICATION REQUIRED` (**R-1, R-2, R-3, R-4**)
+> and records the user's **acknowledgement of the derived fail-closed
+> consequence R-5**. It **amends no numbered decision**, creates **no
+> permission code**, creates **no schema**, and **does not reopen** P-1, D-12,
+> D-13 or the D-16 enumeration. **All historical text is preserved verbatim
+> above and is NOT rewritten**, superseded forward in the register's
+> established manner.
+>
+> Occasioned by
+> `docs/reports/claude/2026-08-30_P1G1_variance-settings-final-design-gate.md`.
+> **That report is non-authoritative evidence; this entry is the binding
+> record, and where they differ this entry governs.**
+
+### The question
+
+`FR-FIN-006` [M] requires approval and a reason for variance *"beyond a
+configurable tolerance"*, and `FR-POS-094`/`095` [M] require a per-branch
+blind/open cash count mode with `blind` as the default. The SRS states the
+requirement's **existence** in every case but, unlike `FR-PRC-041`
+(*"default 0%"* / *"default 2%"* / *"1 minor unit"*), `FR-INV-046`
+(*"by percentage or value"*) and `FR-KDS-025` (*"default 30 minutes"*),
+**states no dimension, no default value and no configuration level for the
+cash variance tolerance**. The design gate established that four questions
+could not be answered from source without invention:
+
+1. the tolerance's **representation** (absolute money · percentage · both);
+2. whether the comparison is on the **signed** or the **absolute** variance;
+3. **which effective policy version governs a CashSession** (open · close);
+4. the **source of the synchronous approval's `expiresAt`**, given that D-10
+   ratified `expires_at` as mandatory and immutable with **no default
+   duration**.
+
+Each is recorded below as **explicit user ratification resolving source
+silence** — **not** as a finding that the SRS decided it.
+
+---
+
+### RATIFICATION — P1G-1 CASH-CLOSE POLICY (2026-08-30)
+
+**RATIFIED — the following five resolutions are binding.**
+
+**R-1(a) — Cash variance tolerance representation.**
+The P1G-1 variance tolerance **SHALL be an ABSOLUTE MONEY AMOUNT**, represented
+as **integer minor units in a `BIGINT` column** with an **ISO 4217 currency**.
+The policy version's currency **SHALL correspond to the CashSession / branch
+operational currency used for the comparison**; a mismatch is not reconciled by
+conversion. **No floating-point representation** of money is permitted
+(§7.2 / `BR-CORE-001`). **No percentage tolerance exists in this phase**, and
+the hybrid form is not adopted.
+This is a **domain-owned Treasury control threshold**, consistent with **D-13**
+(RATIFIED 2026-08-17, option (b) — thresholds are domain-owned and Governance
+stays generic).
+**The SRS did NOT select this representation.** `FR-FIN-006`'s *"a configurable
+tolerance"* is dimensionless, and the register records that silence as
+unresolved until this entry. **This clause is the resolution, by user
+ratification, not an SRS finding.**
+
+**R-2(a) — Variance comparison semantics.**
+The reason/approval threshold test **SHALL be**:
+
+```
+abs(counted_cash − expected_cash) > tolerance
+```
+
+therefore:
+
+* `abs(variance) <  tolerance` → **within** tolerance;
+* `abs(variance) =  tolerance` → **within** tolerance;
+* `abs(variance) >  tolerance` → **beyond** tolerance → `FR-FIN-006` reason +
+  approval path.
+
+The **strict `>`** is **source-backed** — `FR-FIN-006` [M] *"Variance **beyond**
+a configurable tolerance"* and `FR-POS-096` [M] *"when variance **exceeds** a
+configurable tolerance"*, two independent mandatory statements.
+The **absolute-value framing is the user-ratified choice**, not an SRS finding.
+Consequently **shortages and overages are subject to the same single configured
+scalar tolerance**; no separate positive/negative thresholds exist, and none may
+be inferred from this entry.
+`FR-FIN-005` [M]'s signed definition of variance (`Counted − Expected`) is
+**unchanged** — the signed value is still what is computed and recorded; only
+the *threshold test* uses its magnitude.
+
+**R-3(a) — Policy version governing a CashSession.**
+A CashSession **SHALL** be governed by the cash-close policy version that was
+**effective at the session's OPEN time**. Resolution **MAY** occur lazily during
+close, using **`cash_session.opened_at`** as the resolver's `asOf` instant.
+The policy is **NOT** selected according to the configuration current at close
+time. This prevents a tolerance being widened after a drawer is already open.
+**No snapshot need be physically written at open merely to implement this
+selection rule** — no column is added to `treasury.cash_sessions` by this entry,
+and the accepted P1D-1 session-open path is **not** modified.
+This does **not** disturb `FR-PLT-028`'s own rule for closed historical records;
+it settles only which version an **in-flight** session takes, a point the SRS
+does not address.
+
+**R-4(a) — Approval expiry source.**
+The synchronous cash-variance `ApprovalRequest`'s `expiresAt` **SHALL be derived
+from a CONFIGURED POSITIVE DURATION stored on the immutable cash-close policy
+version**. Planned representation:
+`variance_approval_expiry_seconds INTEGER NOT NULL`, `CHECK (… > 0)`.
+**There is NO database default and NO application default duration.**
+**No `5m` / `15m` / `30m` constant is authorised**, and none may be introduced
+by an implementation slice.
+Treasury derives the **explicit** `expiresAt` from the configured duration at
+the moment it creates the request.
+**D-10 (E2) is UNCHANGED**: `expires_at` remains **mandatory, explicit and
+immutable**, evaluated **lazily at decision INSERT**, with **no `expired`
+status, no scheduler, and no mutation of `approval_requests`**. This entry
+supplies the consuming domain's *source* for the value; it does not alter the
+generic runtime's rule.
+
+**R-5 — Fail-closed unconfigured branch (ACKNOWLEDGEMENT).**
+The user **acknowledges and accepts** the derived operational consequence:
+**a branch SHALL NOT be able to complete a CashSession close if no valid
+cash-close policy version existed at the session's governing policy time**
+(R-3(a)).
+**No default tolerance is invented** — the unconfigured state is the **absence
+of any policy version row**, not a column default.
+A holder of the **existing, source-named** permission **`settings.branch.manage`**
+(SRS §15.2, *"Branch configuration"*, already seeded per **ADR 0008 D-01**) must
+configure the branch policy before normal cash close can operate. **No new
+permission code is created by this entry.**
+**Blind count remains independently source-defaulted to `blind` under
+`FR-POS-095` [M]**, so a *count-mode* read never fails closed; only the
+tolerance-dependent close path does.
+
+---
+
+### Binding design constraints recorded with this ratification
+
+These are recorded as **implementation/design constraints**, **NOT** as new
+business requirements.
+
+**C-1 — API versioning.** The cash-close-policy administration slice **MUST NOT
+perform an isolated `/v1` API-versioning retrofit.** The repository's current
+API routing convention remains in force for that route. **The existing global
+SRS `/v1` API-compliance gap remains a separate, open matter and MUST NOT be
+silently declared fixed.** **No specific route URL is ratified by this entry.**
+
+**C-2 — No backdating (a consequence of R-3(a)).** Cash-close policy versions
+**MUST NOT be backdated by the application role**. The implementation design
+**MAY** enforce this with a server-created immutable timestamp (excluded from
+the application role's column-level `INSERT` grant) together with an
+`effective_from >= created_at` constraint, as proposed by the accepted design
+gate.
+Consequently: **a CashSession opened before the first applicable policy version
+exists cannot later become eligible merely because an administrator creates a
+backdated version.** **No historical configuration may be invented.**
+**Sessions already open at rollout that predate configuration are a
+rollout/transition case** and **MUST be handled explicitly** by a future
+implementation or operational decision — they **MUST NOT** be handled by
+silently weakening R-3(a) or C-2.
+
+---
+
+### Not decided by this entry
+
+**This ratification does NOT decide** — and nothing below may be read as
+settled by implication: the **system-wide settings architecture**; **Platform
+Default** storage; **Country Pack** cash settings; **Tenant / Brand / Terminal**
+cash-tolerance overrides; **`FR-PLT-026` lock mechanics** beyond the existing
+source wording; the future **settings inspector** (`FR-PLT-027` [S]); the
+**drawer-limit value or behaviour** (`FR-POS-092` [M]); the **denomination
+catalogue**; **offline cash-close policy sync**; **transition handling for
+already-open sessions at rollout**; the **full CashSession Close
+implementation**; **Day Close**; **X / Z reports**; and **`NFR-PERF-006`**.
+
+Also **not** decided: the exact table, column and index names; the exact RLS
+predicate SQL; the resolver's interface shape; the route URL; and the audit
+action literal — all **Design-Gate / implementation details**, consistent with
+how the Approval Runtime Minimum Resolution treated the same class of item.
+
+### Preservation
+
+**The narrow Treasury cash-close policy ratified here is NOT the generic
+Settings platform, and MUST NOT be described as implementing it.**
+**`FR-PLT-025` [M]'s six-level hierarchy (Platform Default → Country Pack →
+Tenant → Brand → Branch → Terminal) remains NOT IMPLEMENTED** by this narrow
+slice — the ratified policy is **branch-scoped only**.
+**`FR-PLT-026` [M] settings locks remain NOT IMPLEMENTED** by this narrow slice.
+**ADR 0008 D-11 (`org.settings` deferred) is unchanged**, including its binding
+instruction that whatever is eventually built must carry `tenant_id` and a
+scope-aware ownership check from its first migration.
+
+**The Approval Runtime Minimum Resolution — 2026-08-29 is unchanged in every
+respect**, specifically: **P-1 remains RATIFIED and UNCHANGED** —
+`approval_decisions` references `approval_requests` **directly**; **D-12 remains
+BLOCKED**; **D-16's `request_type` ENUMERATION remains OPEN** and **no closed
+vocabulary is ratified here**; **D-13 remains RATIFIED — thresholds are
+domain-owned**; **the asynchronous half of `FR-SEC-032` remains deferred and
+knowingly unmet**; **D-14 A-1 remains unchanged — NO Governance HTTP/API
+surface**; **D-20 remains unchanged — NO Governance read surface**; **D-11
+remains unchanged — no notification implementation**; **`value` remains an
+opaque `JSONB NOT NULL` carrier Governance never parses, with money as base-10
+integer strings of minor units**; **the excluded approver remains an Identity
+USER id, NOT an Employee id**; and **`expires_at` enforcement semantics
+(mandatory, immutable, decision-time validity) remain exactly as ratified**.
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures, the P1A / P1C / P1D carried items,
+the Fire Authorization Ratification, the P1F-2 Completion Economics & Depletion
+Resolution, the FIFO Exhaustion Carry-Forward Ratification and the Approval
+Runtime Minimum Resolution are ALL unchanged — this entry amends none of them.**
+**No numbered decision is added, amended by number, or renumbered.** **No new
+permission code is created.** **No schema is created by this entry.**
+
+**Implementation consequence.** With R-1(a) … R-5 recorded, the accepted design
+gate's **S-3** strategy becomes writable as **migration 33**, Treasury-owned:
+a typed, branch-scoped, **immutable, effective-dated** `treasury.cash_close_policies`
+carrying `count_mode` (`blind` | `open`, `blind` defaulted under `FR-POS-095`),
+a `BIGINT` variance tolerance with **no default**, its currency, a **configured
+positive** approval-expiry duration, `tenant_id`, a branch composite foreign
+key, `ENABLE` + `FORCE` RLS, append-only grants, audit on write
+(`FR-AUD-006` — *"configuration changes"*), `settings.branch.manage` write
+authorization, and a Treasury-private resolver.
+**Migration 33 is NOT created by this entry**, and **no implementation is
+performed by this entry.**
+
+**Status:** **RATIFIED — CLOSED.**
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |
@@ -6300,6 +6530,60 @@ Design Gate is required before any migration.
   *Note: the SB status table of 2026-08-19, D-15's clauses 4/10/11 and all prior analysis are
   **ratified historical text and are deliberately left unedited**; they are superseded forward
   by this entry, in the register's established manner.*
+- **P1G-1 CASH-CLOSE POLICY — RATIFIED 2026-08-30.** Recorded as an **unnumbered ratification
+  entry**, in the established forward-supersession style — **no D-21 is created and the
+  20-decision tally is unchanged**. Five resolutions bind: **R-1(a)** the cash variance
+  tolerance is an **ABSOLUTE MONEY AMOUNT** — `BIGINT` **integer minor units** + **ISO 4217
+  currency**, the policy currency corresponding to the CashSession/branch operational currency
+  used for the comparison, **no floating-point money**, **no percentage tolerance in this
+  phase**, and no hybrid form; a **domain-owned Treasury control threshold** consistent with
+  **D-13** — and **the SRS did NOT select this representation**, `FR-FIN-006`'s *"a configurable
+  tolerance"* being dimensionless, so this clause is **explicit user ratification resolving
+  source silence, not an SRS finding**; **R-2(a)** the threshold test is
+  **`abs(counted − expected) > tolerance`**, so `abs(variance) <` and `abs(variance) =`
+  tolerance are **within** tolerance and only `abs(variance) >` is **beyond** it, with the
+  **strict `>` source-backed** by `FR-FIN-006`'s *"beyond"* and `FR-POS-096`'s *"exceeds"*
+  while the **absolute-value framing is the user-ratified choice**; shortages and overages
+  share **one configured scalar tolerance** and **no separate positive/negative thresholds may
+  be inferred**; `FR-FIN-005`'s signed variance definition is **unchanged** — only the
+  *threshold test* uses the magnitude; **R-3(a)** a CashSession is governed by the policy
+  version **effective at the session's OPEN time**, resolvable **lazily at close** using
+  `cash_session.opened_at` as the `asOf` instant and **never** by the close-time current
+  configuration, so a tolerance **cannot be widened after a drawer is already open**, and
+  **no snapshot column is written at open merely to implement this rule** (the accepted P1D-1
+  open path is **not** modified); **R-4(a)** the synchronous cash-variance `ApprovalRequest`
+  expiry is derived from a **CONFIGURED POSITIVE DURATION on the immutable policy version**
+  (`variance_approval_expiry_seconds INTEGER NOT NULL`, `CHECK > 0`) with **NO database and NO
+  application default** and **no `5m`/`15m`/`30m` constant authorised**, Treasury supplying the
+  **explicit** `expiresAt` — **D-10 E2 is UNCHANGED** (`expires_at` mandatory, explicit,
+  immutable, decision-time validity, no `expired` status, no scheduler); **R-5** the user
+  **ACKNOWLEDGES** the derived consequence that **a branch cannot complete a CashSession close
+  with no valid policy version effective at the governing policy time** — **no default
+  tolerance is invented** (the unconfigured state is the **absence of a version row**), and a
+  holder of the **existing source-named** `settings.branch.manage` (§15.2 *"Branch
+  configuration"*, already seeded per **ADR 0008 D-01**) must configure the branch first, while
+  **`blind` remains independently source-defaulted under `FR-POS-095`** so count-mode reads
+  never fail closed. Two **design constraints** are recorded, **not** as new business
+  requirements: **C-1** the slice **MUST NOT** perform an isolated **`/v1` API-versioning
+  retrofit**, the current routing convention stands, **the global `/v1` gap remains separate and
+  MUST NOT be declared fixed**, and **no route URL is ratified**; **C-2** policy versions
+  **MUST NOT be backdated by the application role** (enforceable by a server-created immutable
+  timestamp outside the application role's column-level `INSERT` grant plus
+  `effective_from >= created_at`), so **a session opened before the first applicable version
+  cannot become eligible via a backdated version**, **no historical configuration may be
+  invented**, and **already-open sessions at rollout are an explicit future
+  implementation/operational decision — never a silent weakening of R-3(a)**.
+  **`FR-PLT-025`'s six-level hierarchy remains NOT IMPLEMENTED and `FR-PLT-026` locks remain
+  NOT IMPLEMENTED by this narrow branch-scoped slice, which is NOT the generic Settings platform
+  and must not be described as implementing it; ADR 0008 D-11 is unchanged.**
+  **P-1 remains RATIFIED and UNCHANGED · D-12 remains BLOCKED · D-16's enumeration remains
+  OPEN · D-13 remains RATIFIED · asynchronous `FR-SEC-032` remains deferred · no Governance HTTP
+  or read surface (D-14 A-1, D-20) · `value` remains an opaque `JSONB` carrier with money as
+  base-10 minor-unit strings · the excluded approver remains an Identity USER id · no new
+  permission code · no schema created · no numbered decision added, amended or renumbered.**
+  **Migration 33 is NOT created by this entry and no implementation is performed by it**; the
+  exact table/column/index names, RLS predicate SQL, resolver interface, route URL and audit
+  action literal remain **Design-Gate/implementation details, NOT ratified here**.
 
 **6 decisions remain fully unratified** (including **D-16**, which must remain OPEN), plus
 D-3's deferred residual, the decision→parent linkage question exposed by D-5, and the

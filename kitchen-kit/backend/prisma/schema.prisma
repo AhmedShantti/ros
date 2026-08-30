@@ -49,16 +49,18 @@ model User {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  credentials            Credential[]
-  sessions               Session[]
-  memberships            Membership[]
-  ownedTenants           Tenant[]             @relation("TenantOwner")
-  passwordResetTokens    PasswordResetToken[]
-  countSessionsStarted   CountSession[]       @relation("CountStartedBy")
-  countSessionsPosted    CountSession[]       @relation("CountPostedBy")
-  wasteRecorded          WasteRecord[]
-  movementsPerformed     StockMovement[]
-  cashMovementsPerformed CashMovement[]
+  credentials              Credential[]
+  sessions                 Session[]
+  memberships              Membership[]
+  ownedTenants             Tenant[]             @relation("TenantOwner")
+  passwordResetTokens      PasswordResetToken[]
+  countSessionsStarted     CountSession[]       @relation("CountStartedBy")
+  countSessionsPosted      CountSession[]       @relation("CountPostedBy")
+  wasteRecorded            WasteRecord[]
+  movementsPerformed       StockMovement[]
+  cashMovementsPerformed   CashMovement[]
+  /// P1G-1 back-relation only (virtual; no DDL impact on this model).
+  cashClosePoliciesCreated CashClosePolicy[]
 
   // Production Spec back-relations (virtual; no DDL impact).
   publishedRecipeVersions RecipeVersion[] @relation("RecipeVersionPublisher")
@@ -218,6 +220,8 @@ model Tenant {
   drawers                   Drawer[]
   cashSessions              CashSession[]
   cashMovements             CashMovement[]
+  /// P1G-1 back-relation only (virtual; no DDL impact on `tenants`).
+  cashClosePolicies         CashClosePolicy[]
   modifierGroups            ModifierGroup[]
   priceLists                PriceList[]
   /// P1E-3 back-relations. Prisma requires both sides of a relation; these add
@@ -630,11 +634,13 @@ model Branch {
   permittedForStaff EmployeeBranch[]
 
   // P1D-1 Workforce / Treasury back-relations (virtual; no DDL impact).
-  shifts        Shift[]
-  drawers       Drawer[]
-  cashSessions  CashSession[]
+  shifts            Shift[]
+  drawers           Drawer[]
+  cashSessions      CashSession[]
   // P1G-0 back-relation only (virtual; no DDL impact on this model).
-  cashMovements CashMovement[]
+  cashMovements     CashMovement[]
+  // P1G-1 back-relation only (virtual; no DDL impact on this model).
+  cashClosePolicies CashClosePolicy[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_branch_code")
@@ -2355,6 +2361,67 @@ model CashMovement {
   @@index([tenantId, cashSessionId])
   @@index([tenantId, branchId, occurredAt])
   @@map("cash_movements")
+  @@schema("treasury")
+}
+
+/// P1G-1 migration 33 — branch-scoped, effective-dated, IMMUTABLE cash-close
+/// policy (FR-FIN-006 tolerance, FR-POS-094/095 count mode, R-4(a) approval
+/// expiry duration). Authority: the 2026-08-30 design gate + the "P1G-1
+/// Cash-Close Policy Ratification — 2026-08-30" register entry.
+///
+/// NOT the generic FR-PLT-025 six-level settings hierarchy and NOT the
+/// FR-PLT-026 lock mechanism — both remain NOT IMPLEMENTED; see the
+/// migration's own `COMMENT ON TABLE`. Branch-scoped only.
+///
+/// Immutable: `ros_app` holds SELECT + a column-level INSERT that excludes
+/// `createdAt` — no UPDATE, no DELETE, no TRUNCATE (the
+/// `governance.approval_decisions` precedent). A new configuration is always
+/// a NEW row, never an edit.
+enum CashCountMode {
+  blind
+  open
+
+  @@schema("treasury")
+}
+
+model CashClosePolicy {
+  id                            String        @id @db.Uuid
+  tenantId                      String        @map("tenant_id") @db.Uuid
+  branchId                      String        @map("branch_id") @db.Uuid
+  /// C-2 anti-backdating: `DEFAULT statement_timestamp()`, identical within
+  /// one INSERT to `createdAt`'s own default (Postgres evaluates
+  /// `statement_timestamp()` once per statement), so an "effective
+  /// immediately" write satisfies `ck_ccp_no_backdating` by equality using
+  /// DATABASE time only.
+  effectiveFrom                 DateTime      @default(dbgenerated("statement_timestamp()")) @map("effective_from") @db.Timestamptz(6)
+  /// FR-POS-095 [M] states the default explicitly — genuine DB `DEFAULT`,
+  /// exact precedent: `BranchKdsConfig.recallWindowSeconds` for FR-KDS-025.
+  countMode                     CashCountMode @default(blind) @map("count_mode")
+  /// R-1(a): absolute money, minor units. NO DEFAULT — FR-FIN-006 names no
+  /// value and none is invented. Absence of a ROW (not a column default) is
+  /// how "unconfigured" is represented (R-5).
+  varianceToleranceMinorUnits   BigInt        @map("variance_tolerance_minor_units")
+  /// R-1(a): the branch's operational currency at the time this version was
+  /// created (BR-CORE-001 — never floating money, never assumed).
+  currency                      String        @db.Char(3)
+  /// R-4(a): configured positive duration. NO DEFAULT — no 5m/15m/30m
+  /// constant is authorised anywhere in this codebase.
+  varianceApprovalExpirySeconds Int           @map("variance_approval_expiry_seconds")
+  /// The Identity USER who created this version. Untenanted global FK,
+  /// mirroring `CashMovement.performedBy` / `StockMovement.performedBy`.
+  createdBy                     String        @map("created_by") @db.Uuid
+  createdAt                     DateTime      @default(dbgenerated("statement_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  createdByUser User   @relation(fields: [createdBy], references: [id])
+
+  @@unique([tenantId, id])
+  /// C-2 / test 21: the deterministic conflict for a concurrent same-branch,
+  /// same-instant race — no advisory lock needed.
+  @@unique([tenantId, branchId, effectiveFrom], map: "uq_ccp_branch_effective_from")
+  @@index([tenantId, branchId, effectiveFrom(sort: Desc)], map: "cash_close_policies_resolve_idx")
+  @@map("cash_close_policies")
   @@schema("treasury")
 }
 

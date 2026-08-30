@@ -43,6 +43,10 @@ export const AUDIT_ACTION = {
   // a different action, mirroring CASH_MOVEMENT_RECORDED's own convention.
   APPROVAL_REQUEST_CREATED: 'APPROVAL_REQUEST_CREATED',
   APPROVAL_DECISION_RECORDED: 'APPROVAL_DECISION_RECORDED',
+  // P1G-1 migration 33 — cash-close policy administration (FR-AUD-006
+  // "configuration changes"). One verb: every write is a NEW immutable
+  // version, never an edit, so there is no separate _UPDATED counterpart.
+  CASH_CLOSE_POLICY_VERSION_CREATED: 'CASH_CLOSE_POLICY_VERSION_CREATED',
   // D-2 (amended) PIN substrate. Security-sensitive state changes only; a PIN
   // value never appears in any payload.
   EMPLOYEE_CREATED: 'EMPLOYEE_CREATED',
@@ -144,6 +148,8 @@ export const AUDIT_ENTITY = {
   SHIFT: 'shift',
   CASH_SESSION: 'cash_session',
   CASH_MOVEMENT: 'cash_movement',
+  // P1G-1 migration 33.
+  CASH_CLOSE_POLICY: 'cash_close_policy',
   APPROVAL_REQUEST: 'approval_request',
   APPROVAL_DECISION: 'approval_decision',
   DRAWER: 'drawer',

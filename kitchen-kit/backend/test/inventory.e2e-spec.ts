@@ -820,7 +820,10 @@ describe('Inventory (e2e)', () => {
       // P1D-A (2026-08-20), which authorises `workforce.shifts`,
       // `treasury.drawers` and `treasury.cash_sessions` — and P1G-0
       // (FR-POS-091), which additionally authorises `treasury.cash_movements`
-      // — and NOTHING else in either schema. The guard is narrowed rather
+      // — and P1G-1 migration 33, which additionally authorises
+      // `treasury.cash_close_policies` (the narrow cash-close policy
+      // substrate, NOT the generic FR-PLT-025 settings hierarchy) —
+      // and NOTHING else in either schema. The guard is narrowed rather
       // than dropped: the assertion below proves neither context quietly
       // grew the rest of itself.
       const p1dTables = await admin.$queryRawUnsafe<{ qualified: string }[]>(
@@ -828,6 +831,7 @@ describe('Inventory (e2e)', () => {
           WHERE schemaname IN ('workforce','treasury') ORDER BY 1`,
       );
       expect(p1dTables.map((t) => t.qualified)).toEqual([
+        'treasury.cash_close_policies',
         'treasury.cash_movements',
         'treasury.cash_sessions',
         'treasury.drawers',

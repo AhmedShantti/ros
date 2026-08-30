@@ -358,6 +358,37 @@
         ],
         "type": "object"
       },
+      "CreateCashClosePolicyDto": {
+        "properties": {
+          "countMode": {
+            "description": "FR-POS-094/095. Omitted = the source-stated default, `blind`.",
+            "enum": [
+              "open",
+              "blind"
+            ],
+            "type": "string"
+          },
+          "effectiveFrom": {
+            "description": "R-3(a)/C-2. Omitted = effective immediately (resolved to DATABASE time,\nnever this process's clock). Supplied = an explicit future activation\ninstant; a past instant is rejected (C-2 - enforced by the DB CHECK, not\nmerely this validator).",
+            "type": "string"
+          },
+          "varianceApprovalExpirySeconds": {
+            "description": "R-4(a): configured positive duration. No default exists anywhere.",
+            "minimum": 1,
+            "type": "number"
+          },
+          "varianceToleranceMinorUnits": {
+            "description": "R-1(a): absolute non-negative minor units, as an exact integer string.\nA JSON number is IEEE-754 and money must never pass through one\n(ADR-008) - mirrors `OpenCashSessionDto.openingFloat` exactly, including\nzero being a VALID tolerance (unlike a positive-amount field).",
+            "pattern": "^\\d{1,18}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "varianceToleranceMinorUnits",
+          "varianceApprovalExpirySeconds"
+        ],
+        "type": "object"
+      },
       "CreateCategoryDto": {
         "properties": {
           "colour": {
@@ -3991,6 +4022,160 @@
         "summary": "Set a terminal's status.",
         "tags": [
           "terminals"
+        ]
+      }
+    },
+    "/branches/{branchId}/cash-close-policy": {
+      "post": {
+        "operationId": "CashClosePolicyController_createPolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCashClosePolicyDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "countMode": {
+                      "enum": [
+                        "blind",
+                        "open"
+                      ],
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code — the branch's own base currency, never client-supplied.",
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "varianceApprovalExpirySeconds": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "varianceToleranceMinorUnits": {
+                      "description": "Non-negative minor-unit tolerance as a decimal string.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The newly created cash-close policy version."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/over-long Idempotency-Key, an invalid varianceToleranceMinorUnits/varianceApprovalExpirySeconds/countMode, or a past effectiveFrom."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown branch."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A cash-close policy version with this exact effective time already exists for this branch, or the Idempotency-Key was already used with a different request body / is still in flight."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a new immutable cash-close policy version for a branch — R-1(a),\nR-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a\nflaky link must not produce a second version.",
+        "tags": [
+          "treasury"
         ]
       }
     },

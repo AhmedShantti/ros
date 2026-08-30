@@ -3,6 +3,7 @@ import {
   CashSession,
   Shift,
 } from '../../generated/prisma/client';
+import { CashClosePolicyRecord } from './cash-close-policy/cash-close-policy.service';
 
 /**
  * Treasury read models.
@@ -39,6 +40,21 @@ export function toCashMovementView(movement: CashMovement) {
     currency: movement.currency,
     reason: movement.reason,
     occurredAt: movement.occurredAt,
+  };
+}
+
+/** P1G-1 — mirrors `toCashSessionView`'s money-as-string discipline exactly. */
+export function toCashClosePolicyView(policy: CashClosePolicyRecord) {
+  return {
+    id: policy.id,
+    branchId: policy.branchId,
+    effectiveFrom: policy.effectiveFrom,
+    countMode: policy.countMode,
+    varianceToleranceMinorUnits: policy.varianceToleranceMinorUnits.toString(),
+    currency: policy.currency,
+    varianceApprovalExpirySeconds: policy.varianceApprovalExpirySeconds,
+    createdBy: policy.createdBy,
+    createdAt: policy.createdAt,
   };
 }
 
