@@ -6311,6 +6311,137 @@ performed by this entry.**
 **Status:** **RATIFIED — CLOSED.**
 
 ---
+## R-6 — Cash Variance Approval Rejection Recovery — RATIFIED 2026-08-30
+
+> **RECORDED 2026-08-30 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **P1A / P1C / P1D**,
+> **Fire Authorization**, **P1F-2 Completion Economics**, **FIFO Exhaustion
+> Carry-Forward**, **Approval Runtime Minimum Resolution** and **P1G-1
+> Cash-Close Policy Ratification** convention.
+>
+> This entry resolves the single narrow item the CashSession Close design
+> track returned as `USER RATIFICATION REQUIRED` across
+> `docs/reports/claude/2026-08-30_P1G1_cashsession-close-final-design-gate.md`,
+> `…-design-acceptance-closure.md`, `…-final-acceptance-closure.md` and
+> `…-migration-compatibility-closure.md`. **Those reports are non-authoritative
+> evidence; this entry is the binding record**, and where they differ this
+> entry governs. It amends no numbered decision, creates no permission code,
+> creates no schema, and does not reopen **P-1**, **D-12**, **D-13**, **D-16**'s
+> enumeration, or **R-1(a)…R-5**. **All historical text is preserved verbatim
+> above and is NOT rewritten**, superseded forward in the register's
+> established manner.
+
+### The question
+
+A CashSession CLOSE may become frozen (`CLOSING`) awaiting a manager's
+synchronous `cash.variance.approve` decision on an above-tolerance variance.
+No source — the SRS, the Approval Runtime ratifications, or the P1G-1
+Cash-Close Policy Ratification — decides what happens to that frozen drawer
+when the manager **explicitly rejects** the request. Left unresolved, the
+state machine has a reachable exit with no defined recovery, which would
+either strand the drawer or require an implementer to invent recovery
+behaviour unilaterally.
+
+### RATIFICATION — R-6 CASH VARIANCE APPROVAL REJECTION RECOVERY (2026-08-30)
+
+**RATIFIED — option R-6(a) is binding, verbatim:**
+
+When a manager **explicitly REJECTS** an above-tolerance CashSession close:
+
+1. The CashSession **remains `CLOSING`**.
+2. The **physical count remains immutable** — the declared count is never
+   re-entered, re-submitted, or altered.
+3. **`closeAttemptId` remains unchanged.**
+4. The immutable `cash_session_close_attempt` **remains authoritative** for
+   every formula term, the policy snapshot, and the declared count.
+5. **Payments remain blocked** on the session.
+6. **Cash movements remain blocked** — pay-in, pay-out, and safe-drop alike.
+7. The CashSession **MUST NOT**: reopen; return to `OPEN`; permit a recount;
+   or replace or delete the close attempt.
+8. The close **MAY be retried**, using a **NEW** `ApprovalRequest` id and a
+   **NEW** `ApprovalDecision` id.
+9. The retry **MAY** use **another qualified manager**, and **MAY** carry a
+   **different variance reason** than the rejected attempt.
+10. **Every rejected `ApprovalRequest` and `ApprovalDecision` remains
+    immutable and auditable in Governance** — nothing about a rejection is
+    ever edited, deleted, or hidden.
+11. A **later APPROVED retry** may transition `CLOSING → CLOSED`.
+12. `cash_sessions.variance_reason` on the **final CLOSED** session is the
+    reason associated with the **APPROVED** close — never a prior rejected
+    attempt's reason.
+13. **No supervisor-override or escalation permission is introduced.**
+14. **D-12 remains BLOCKED** — this entry does not touch escalation
+    semantics in any way.
+
+### Expiry is explicitly OUT OF SCOPE for R-6
+
+**R-6 governs explicit rejection only.** Decision-time approval **expiry is
+NOT a business recovery branch** and carries no ratification here, on the
+following accepted design evidence:
+
+- the Approval Runtime checks expiry **at decision time**, per **D-10 (E2)**,
+  unchanged;
+- the synchronous P1G-1 flow computes `expiresAt` from the **database's own
+  `statement_timestamp()`**, read immediately before request creation — not
+  from `transaction_timestamp()` and not from an application clock;
+- if a decision is attempted after `expires_at` has passed, the Approval
+  Runtime's RLS `WITH CHECK` rejects the INSERT and the accepted
+  implementation **throws**;
+- the **whole finalize transaction rolls back**, taking the just-created
+  `ApprovalRequest` with it;
+- **no expired `ApprovalRequest` survives** — there is no orphan Governance
+  state for a business policy to govern;
+- the CashSession **remains `CLOSING`**, the immutable close attempt remains
+  **untouched**, and a retry creates a **fresh** request with a fresh expiry.
+
+**Expiry is therefore a technical rollback/retry path, not an R-6 business
+state, and `D-10` is NOT amended by this entry.**
+
+### Authority classification
+
+**R-6(a) is USER-RATIFIED business behaviour resolving a source-silent
+operational recovery question. It is NOT an SRS-derived requirement** — no
+FR/BR clause specifies retry-after-rejection semantics for a cash-close
+approval. Its selection is **compatible with**, but not **mandated by**:
+`FR-POS-095` [M] (blind-count integrity — the immutable count is never
+reopened, preserving the control the rejected-option R-6(b) would have
+defeated); `FR-FIN-006` [M] (variance approval — a rejected variance remains
+genuinely unapproved, and the session does not silently close around it);
+`FR-SEC-016` [M] (self-approval prevention — unaffected; every retry is still
+subject to the same excluded-approver conjunct); and `FR-SEC-033` [M]
+(immutable approval decisions — the rejected decision is never revised,
+only superseded by a later, independent one). **None of those requirements
+themselves specifies retry-after-rejection**, and no claim to the contrary is
+made.
+
+### Preservation
+
+**R-1(a), R-2(a), R-3(a), R-4(a) and R-5 are unchanged.** **D-1 … D-20, P-1,
+PL, SB, the P0 closures, the P1A / P1C / P1D carried items, the Fire
+Authorization Ratification, the P1F-2 Completion Economics & Depletion
+Resolution, the FIFO Exhaustion Carry-Forward Ratification, the Approval
+Runtime Minimum Resolution and the P1G-1 Cash-Close Policy Ratification are
+ALL unchanged — this entry amends none of them.** In particular: **D-12
+remains BLOCKED**; **D-16's `request_type` enumeration remains OPEN**; **P-1
+remains RATIFIED and UNCHANGED**; **D-15's narrow one-decision-per-request
+amendment is untouched**; the Approval Runtime's self-approval rules and
+synchronous manager-PIN semantics are untouched; **D-14 A-1 remains
+unchanged — NO Governance HTTP surface**. **No numbered decision is added,
+amended by number, or renumbered. No new permission code is created. No
+schema is created by this entry.**
+
+**Implementation consequence.** With R-6 recorded, the CashSession Close
+design track's sole outstanding `USER RATIFICATION REQUIRED` item is
+resolved. **Migration 34 is NOT created by this entry**, and **no
+implementation is performed by this entry** — a separate, explicitly
+authorised implementation task is required before any product code,
+migration, test, or OpenAPI change.
+
+**Status:** **RATIFIED — CLOSED.**
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |
@@ -6584,6 +6715,31 @@ performed by this entry.**
   **Migration 33 is NOT created by this entry and no implementation is performed by it**; the
   exact table/column/index names, RLS predicate SQL, resolver interface, route URL and audit
   action literal remain **Design-Gate/implementation details, NOT ratified here**.
+- **R-6 — CASH VARIANCE APPROVAL REJECTION RECOVERY — RATIFIED 2026-08-30.** Recorded as an
+  **unnumbered ratification entry**, in the established forward-supersession style — **no D-21
+  is created and the 20-decision tally is unchanged**. **Option R-6(a)** binds: when a manager
+  **explicitly REJECTS** an above-tolerance CashSession close, the session **remains `CLOSING`**,
+  the **physical count remains immutable**, **`closeAttemptId` remains unchanged**, the immutable
+  `cash_session_close_attempt` **remains authoritative**, and **payments and all cash movements
+  (pay-in, pay-out, safe-drop) remain blocked**; the session **MUST NOT** reopen, return to
+  `OPEN`, permit a recount, or replace/delete the close attempt; the close **MAY be retried**
+  with a **NEW** `ApprovalRequest`/`ApprovalDecision` id pair, **MAY** use **another qualified
+  manager**, and **MAY** carry a **different variance reason**; **every rejected request and
+  decision remains immutable and auditable in Governance**; a **later APPROVED retry** may
+  transition `CLOSING → CLOSED`, and the **final** `cash_sessions.variance_reason` is the reason
+  on the **APPROVED** close, never a prior rejected attempt's; **no supervisor-override or
+  escalation permission is introduced**; **D-12 remains BLOCKED**. **Expiry is explicitly OUT OF
+  SCOPE for R-6** — decision-time expiry rolls the whole finalize transaction back (no expired
+  request survives, the session stays `CLOSING`, the attempt is untouched, retry creates a fresh
+  request), so it is a technical rollback/retry path, not a business state, and **`D-10` is NOT
+  amended**. **R-6(a) is user-ratified business behaviour resolving a source-silent operational
+  recovery question — NOT an SRS-derived requirement** — compatible with but not mandated by
+  `FR-POS-095`, `FR-FIN-006`, `FR-SEC-016` and `FR-SEC-033`, none of which itself specifies
+  retry-after-rejection semantics. **R-1(a)…R-5 remain unchanged · P-1 remains RATIFIED and
+  UNCHANGED · D-12 remains BLOCKED · D-16's enumeration remains OPEN · D-15's one-decision-per-
+  request amendment untouched · no Governance HTTP surface (D-14 A-1) · no new permission code ·
+  no schema created · no numbered decision added, amended or renumbered.** **Migration 34 is NOT
+  created by this entry and no implementation is performed by it.**
 
 **6 decisions remain fully unratified** (including **D-16**, which must remain OPEN), plus
 D-3's deferred residual, the decision→parent linkage question exposed by D-5, and the

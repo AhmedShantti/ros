@@ -1,14 +1,17 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuditModule } from '../governance/audit/audit.module';
+import { GovernanceModule } from '../governance/governance.module';
 import { IdentityModule } from '../identity/identity.module';
 import { OrganisationModule } from '../organisation/organisation.module';
+import { SalesModule } from '../sales/sales.module';
 import { WorkforceModule } from '../workforce/workforce.module';
 import { CashClosePolicyController } from './cash-close-policy/cash-close-policy.controller';
 import { CashClosePolicyResolver } from './cash-close-policy/cash-close-policy.resolver';
 import { CashClosePolicyService } from './cash-close-policy/cash-close-policy.service';
 import { CashMovementTotalsQueryService } from './cash-movements/cash-movement-totals.query.service';
 import { CashMovementsService } from './cash-movements/cash-movements.service';
+import { CashSessionCloseService } from './cash-session-close/cash-session-close.service';
 import { CashSessionFactsQueryService } from './cash-sessions/cash-session-facts.query.service';
 import { CashSessionsService } from './cash-sessions/cash-sessions.service';
 import {
@@ -76,6 +79,16 @@ import { TreasuryController } from './treasury.controller';
  * `module-boundaries.spec.ts` allows importing `modules/<other>/contract`
  * and `modules/<other>/<other>.module` unconditionally (SRS §5.4), so this
  * is not a `KNOWN_DEVIATIONS` entry.
+ *
+ * P1G-1 migration 34 adds CashSession Close itself (FR-POS-094/095/096/097,
+ * FR-FIN-004/005/006/007, FR-SEC-016/030/032): three new routes on the
+ * EXISTING `TreasuryController` (`GET .../close-context`, `POST .../close`,
+ * `POST .../close/finalize`), backed by `CashSessionCloseService`
+ * (`cash-session-close/`). `GovernanceModule` is imported for
+ * `APPROVAL_COMMANDS` (the above-tolerance manager decision) and
+ * `SalesModule` for `CASH_SESSION_TENDER_TOTALS_QUERY` (Sales' cash/rounding
+ * totals) — see both docblocks above/there for the resulting circular-import
+ * resolution.
  */
 @Module({
   imports: [
@@ -84,6 +97,15 @@ import { TreasuryController } from './treasury.controller';
     AuditModule,
     WorkforceModule,
     OrganisationModule,
+    // P1G-1 migration 34 — `GovernanceModule` for `APPROVAL_COMMANDS`
+    // (FR-FIN-006's variance approval) and `SalesModule` for
+    // `CASH_SESSION_TENDER_TOTALS_QUERY` (FR-FIN-004/010's cash/rounding
+    // terms). `SalesModule` already imports `TreasuryModule` for
+    // `CASH_SESSION_FACTS_QUERY` (P1F-1) — a genuine circular MODULE import,
+    // resolved with `forwardRef()` on both sides; see `sales.module.ts`'s
+    // docblock. There is no circular PROVIDER dependency.
+    GovernanceModule,
+    forwardRef(() => SalesModule),
   ],
   controllers: [TreasuryController, CashClosePolicyController],
   providers: [
@@ -94,6 +116,7 @@ import { TreasuryController } from './treasury.controller';
     CashMovementTotalsQueryService,
     CashClosePolicyService,
     CashClosePolicyResolver,
+    CashSessionCloseService,
     {
       provide: CASH_SESSION_FACTS_QUERY,
       useExisting: CashSessionFactsQueryService,

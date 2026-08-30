@@ -51,7 +51,10 @@ export interface CashSessionFacts {
    */
   readonly terminalId: string | null;
   readonly currency: string;
-  readonly status: 'open' | 'closed';
+  /** P1G-1 migration 34 adds `closing` — the frozen state pending a manager
+   *  variance decision. Every existing consumer's `status !== 'open'` check
+   *  already rejects it correctly with no logic change. */
+  readonly status: 'open' | 'closing' | 'closed';
 }
 
 export interface CashSessionFactsQuery {

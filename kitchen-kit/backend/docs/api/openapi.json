@@ -1098,6 +1098,48 @@
         ],
         "type": "object"
       },
+      "DeclareCashSessionCloseDto": {
+        "properties": {
+          "closeAttemptId": {
+            "description": "FR-OFF-015 — the device's permanent ULID for this close attempt. REQUIRED.",
+            "type": "string"
+          },
+          "countedTotalMinorUnits": {
+            "description": "Non-negative integer minor units, as an exact string. Zero is valid.",
+            "pattern": "^\\d{1,18}$",
+            "type": "string"
+          },
+          "denominations": {
+            "items": {
+              "$ref": "#/components/schemas/DenominationCountDto"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "closeAttemptId"
+        ],
+        "type": "object"
+      },
+      "DenominationCountDto": {
+        "properties": {
+          "denominationMinorUnits": {
+            "description": "Positive integer minor units, as an exact string (never a JSON number).",
+            "pattern": "^[1-9]\\d{0,17}$",
+            "type": "string"
+          },
+          "quantity": {
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "denominationMinorUnits",
+          "quantity"
+        ],
+        "type": "object"
+      },
       "DispatchTransferDto": {
         "properties": {
           "fromLocationId": {
@@ -1157,6 +1199,54 @@
         "required": [
           "statusCode",
           "message"
+        ],
+        "type": "object"
+      },
+      "FinalizeCashSessionCloseDto": {
+        "properties": {
+          "approvalDecisionId": {
+            "description": "FR-OFF-015 — client-generated permanent id for THIS approval decision.",
+            "type": "string"
+          },
+          "approvalRequestId": {
+            "description": "FR-OFF-015 — client-generated permanent id for THIS approval request.",
+            "type": "string"
+          },
+          "comment": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "type": "string"
+          },
+          "managerEmployeeCode": {
+            "description": "The deciding manager's employee code — mirrors `PinLoginDto`.",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "managerPin": {
+            "description": "FR-SEC-020: 4-8 digits. Never logged, never echoed.",
+            "pattern": "^\\d{4,8}$",
+            "type": "string"
+          },
+          "reason": {
+            "description": "FR-FIN-006 [M] — mandatory above tolerance. Non-blank.",
+            "maxLength": 1000,
+            "pattern": "\\S",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approvalRequestId",
+          "approvalDecisionId",
+          "decision",
+          "reason",
+          "managerEmployeeCode",
+          "managerPin"
         ],
         "type": "object"
       },
@@ -4263,6 +4353,7 @@
                         "status": {
                           "enum": [
                             "open",
+                            "closing",
                             "closed"
                           ],
                           "type": "string"
@@ -4369,6 +4460,435 @@
           }
         ],
         "summary": "Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002.\n\nONE command for the cashier, two records for the model. FR-POS-090\ndescribes a single action (\"open a shift, declaring an opening float\"), and\nthe cashier should not have to know that a shift is a Workforce concept and\na session a Treasury one. They stay distinct in the schema (carried item\nP1D-A); only the command is unified, and both are written in one transaction.\n\n`Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a\nfinancially significant act, and a retry over a flaky link must not produce\na second shift or a second session. The two client ULIDs are independent\nduplicate protection beneath it.",
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
+    "/cash-sessions/{sessionId}/close": {
+      "post": {
+        "operationId": "TreasuryController_declareClose",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareCashSessionCloseDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalRequired": {
+                      "type": "boolean"
+                    },
+                    "cashSessionId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "closeAttemptId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "countMode": {
+                      "enum": [
+                        "blind",
+                        "open"
+                      ],
+                      "type": "string"
+                    },
+                    "countedCashMinorUnits": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "created": {
+                      "description": "False on an idempotent replay of an already-declared attempt.",
+                      "type": "boolean"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code.",
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "expectedCashMinorUnits": {
+                      "description": "Disclosed only in this COMMITTED response — never before the count is durable (FR-POS-095).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "closing",
+                        "closed"
+                      ],
+                      "type": "string"
+                    },
+                    "toleranceMinorUnits": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "varianceMinorUnits": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The committed count declaration — closed immediately if within tolerance, otherwise frozen awaiting a manager decision."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/malformed closeAttemptId, neither countedTotalMinorUnits nor denominations supplied, a denomination-sum mismatch, or a duplicate denomination."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown cash session."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The session is not open, the closeAttemptId already exists with different content (FR-OFF-015), no cash-close policy is configured for this branch as of when the session opened, or the policy currency does not match the session."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Declare the physical cash count — FR-POS-094/096/097 [M].\n\nWithin tolerance, this closes the session in the SAME request. Above\ntolerance, it freezes the session (`open -> closing`) and the disclosed\nfigures in THIS response are the first and only legitimate disclosure —\nFR-POS-095's blind-count control is that expected cash/variance are\nrevealed strictly AFTER the count is durably committed, never before.\n`POST .../close/finalize` is the ONLY way out of `closing` — there is no\nabove-tolerance one-request path (a manager PIN entered before this\nresponse exists could not be an informed decision).",
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
+    "/cash-sessions/{sessionId}/close-context": {
+      "get": {
+        "operationId": "TreasuryController_getCloseContext",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalRequired": {
+                      "description": "Present only once status is closing/closed.",
+                      "type": "boolean"
+                    },
+                    "cashSessionId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "closedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "countMode": {
+                      "enum": [
+                        "blind",
+                        "open"
+                      ],
+                      "type": "string"
+                    },
+                    "countedCashMinorUnits": {
+                      "description": "Present only once status is closing/closed.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code.",
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "expectedCashMinorUnits": {
+                      "description": "Absent while open + blind (FR-POS-095). A PREVIEW only while open + open-mode; authoritative once closing/closed.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "openingFloatMinorUnits": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "open",
+                        "closing",
+                        "closed"
+                      ],
+                      "type": "string"
+                    },
+                    "toleranceMinorUnits": {
+                      "description": "Present whenever a cash-close policy is configured for the branch — in BOTH blind and open mode. Absent only when no policy is configured at all.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "varianceMinorUnits": {
+                      "description": "Present only once status is closing/closed.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The close context for this cash session."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown cash session."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The close context — FR-POS-094/095. Read-only.\n\n`cash.session.close` (own) / `cash.session.close_other` (another\nemployee's) — the SAME own/other split `declareClose`/`finalizeClose`\nenforce, checked here too so a caller cannot probe another employee's\nsession state without holding the right authority.\n\nWhile `open` in BLIND mode (FR-POS-095's default), `toleranceMinorUnits`/\n`expectedCashMinorUnits` are structurally ABSENT from the response —\nnever merely `null` — until a count is durably declared. While `open` in\nopen-count mode, they are a PREVIEW only (not authoritative — the actual\nclose re-resolves everything fresh, under the advisory lock).",
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
+    "/cash-sessions/{sessionId}/close/finalize": {
+      "post": {
+        "operationId": "TreasuryController_finalizeClose",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinalizeCashSessionCloseDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cashSessionId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "description": "R-6(a): an explicit rejection COMMITS and returns 200 with outcome \"rejected\" — never an error. The session remains \"closing\"; a retry with fresh approvalRequestId/approvalDecisionId is expected.",
+                      "enum": [
+                        "closed",
+                        "rejected"
+                      ],
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "closing",
+                        "closed"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The manager decision outcome — \"closed\" (approved) or \"rejected\" (R-6(a); the session remains closing)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/malformed approvalRequestId/approvalDecisionId, an invalid decision, a blank reason, or an otherwise invalid request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid manager PIN, terminal, or employee code."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The manager holds no cash.variance.approve permission, or is the excluded (self-approving) approver."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown cash session."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The session has no pending close awaiting a decision, is already closed under a different approval request, the owning employee has no linked Identity user (self-approval cannot be enforced), the governing cash-close policy could not be re-resolved identically, or the approval request/decision id already exists with different content."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The manager's decision on a frozen (above-tolerance) close — FR-FIN-006\n[M], FR-SEC-016/030/032/033.\n\nThe manager PIN is verified BEFORE the business transaction opens\n(`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/\nlockout counter must survive a later rollback, and never runs at all on\nan idempotent replay). The verified manager's permission set — not the\ncalling cashier's — is what `cash.variance.approve` is checked against,\nby the Approval Runtime itself, never by a route-level permission guard\n(the approver is a different actor than the caller).\n\nR-6(a): an explicit REJECTED decision COMMITS and returns 200 with\n`outcome: \"rejected\"` — never an error. The session stays `closing`; a\nretry supplies FRESH `approvalRequestId`/`approvalDecisionId` values.",
         "tags": [
           "treasury"
         ]

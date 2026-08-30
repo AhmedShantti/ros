@@ -40,6 +40,18 @@ import { PermissionDef } from '../identity/authz/permissions.constants';
  * `PermissionDef` is added below: the permission row already exists, keyed
  * by `code`, and a second def would be a redundant upsert, not a second
  * permission.
+ *
+ * P1G-1 migration 34 (CashSession Close) seeds the SRS's remaining three
+ * cash codes now that each has an executable consumer for the first time:
+ * `cash.session.close` ("Close own shift" — the declaration/finalize routes
+ * when the actor IS the session owner), `cash.session.close_other` ("Close
+ * another user's shift" — the same routes when the actor is NOT the owner),
+ * and `cash.variance.approve` (FR-FIN-006 [M] verbatim — checked by the
+ * Approval Runtime itself, against the PIN-verified manager's resolved
+ * permission set, never by a route-level `@RequirePermission`, since the
+ * approver is a different actor than the caller). `cash.drawer.open_no_sale`
+ * and `cash.day.close` remain deliberately NOT seeded — still no executable
+ * consumer for either.
  */
 export const TREASURY_PERMISSIONS = {
   CASH_SESSION_OPEN: 'cash.session.open',
@@ -48,6 +60,13 @@ export const TREASURY_PERMISSIONS = {
   CASH_SAFEDROP: 'cash.safedrop',
   /** Existing SRS §15.2 code; owned/seeded by Organisation. See docblock. */
   SETTINGS_BRANCH_MANAGE: 'settings.branch.manage',
+  /** P1G-1 migration 34. "Close own shift". */
+  CASH_SESSION_CLOSE: 'cash.session.close',
+  /** P1G-1 migration 34. "Close another user's shift". */
+  CASH_SESSION_CLOSE_OTHER: 'cash.session.close_other',
+  /** P1G-1 migration 34. FR-FIN-006 [M] verbatim — the manager's approval
+   *  authority, checked by the Approval Runtime, never by a route guard. */
+  CASH_VARIANCE_APPROVE: 'cash.variance.approve',
 } as const;
 
 export const TREASURY_PERMISSION_DEFS: PermissionDef[] = [
@@ -70,5 +89,20 @@ export const TREASURY_PERMISSION_DEFS: PermissionDef[] = [
     code: TREASURY_PERMISSIONS.CASH_SAFEDROP,
     module: 'cash',
     description: 'Perform a safe drop',
+  },
+  {
+    code: TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
+    module: 'cash',
+    description: 'Close own shift',
+  },
+  {
+    code: TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
+    module: 'cash',
+    description: "Close another user's shift",
+  },
+  {
+    code: TREASURY_PERMISSIONS.CASH_VARIANCE_APPROVE,
+    module: 'cash',
+    description: 'Approve a variance beyond tolerance',
   },
 ];

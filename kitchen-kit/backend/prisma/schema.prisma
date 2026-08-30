@@ -52,15 +52,18 @@ model User {
   credentials              Credential[]
   sessions                 Session[]
   memberships              Membership[]
-  ownedTenants             Tenant[]             @relation("TenantOwner")
+  ownedTenants             Tenant[]                  @relation("TenantOwner")
   passwordResetTokens      PasswordResetToken[]
-  countSessionsStarted     CountSession[]       @relation("CountStartedBy")
-  countSessionsPosted      CountSession[]       @relation("CountPostedBy")
+  countSessionsStarted     CountSession[]            @relation("CountStartedBy")
+  countSessionsPosted      CountSession[]            @relation("CountPostedBy")
   wasteRecorded            WasteRecord[]
   movementsPerformed       StockMovement[]
   cashMovementsPerformed   CashMovement[]
   /// P1G-1 back-relation only (virtual; no DDL impact on this model).
   cashClosePoliciesCreated CashClosePolicy[]
+  /// P1G-1 migration 34 back-relations only (virtual; no DDL impact).
+  closeAttemptsDeclared    CashSessionCloseAttempt[] @relation("CloseAttemptDeclaredByUser")
+  cashSessionsClosedBy     CashSession[]             @relation("CashSessionClosedByUser")
 
   // Production Spec back-relations (virtual; no DDL impact).
   publishedRecipeVersions RecipeVersion[] @relation("RecipeVersionPublisher")
@@ -222,6 +225,9 @@ model Tenant {
   cashMovements             CashMovement[]
   /// P1G-1 back-relation only (virtual; no DDL impact on `tenants`).
   cashClosePolicies         CashClosePolicy[]
+  /// P1G-1 migration 34 back-relations only (virtual; no DDL impact on `tenants`).
+  cashSessionCloseAttempts  CashSessionCloseAttempt[]
+  cashCountDenominations    CashCountDenomination[]
   modifierGroups            ModifierGroup[]
   priceLists                PriceList[]
   /// P1E-3 back-relations. Prisma requires both sides of a relation; these add
@@ -378,20 +384,22 @@ model Terminal {
   lastSeenAt   DateTime?      @map("last_seen_at") @db.Timestamptz(6)
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// D-2 (amended): FR-SEC-021 cannot be trusted while the terminal's branch is
   /// an unenforced UUID. Composite tenant-safe FK per ADR 0008 D-09 — a terminal
   /// can never reference another tenant's branch.
-  branch          Branch              @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
-  fingerprints    DeviceFingerprint[]
-  sessions        Session[]
+  branch            Branch                    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  fingerprints      DeviceFingerprint[]
+  sessions          Session[]
   // Stations that use this terminal as their KDS display (ADR 0008 D-16).
   // Back-relation only — no column, no behaviour change on `terminals`.
-  displayStations Station[]
+  displayStations   Station[]
   // P1D-1: drawers optionally bound to this terminal. Back-relation only.
-  drawers         Drawer[]
+  drawers           Drawer[]
   // P1F-1: back-relation only — no column, no behaviour change on `terminals`.
-  orderPayments   OrderPayment[]
+  orderPayments     OrderPayment[]
+  // P1G-1 migration 34: back-relation only — no column, no behaviour change.
+  cashCloseAttempts CashSessionCloseAttempt[]
 
   // Prevent duplicate terminal registration within a branch (409 on conflict).
   @@unique([tenantId, branchId, name])
@@ -1663,11 +1671,14 @@ model Employee {
   branches   EmployeeBranch[]
 
   // P1D-1: the employee is the business financial actor (carried item P1D-E).
-  shifts        Shift[]
-  cashSessions  CashSession[]
-  orderPayments OrderPayment[]
+  shifts                Shift[]
+  cashSessions          CashSession[]
+  orderPayments         OrderPayment[]
   // P1G-0 back-relation only (virtual; no DDL impact on this model).
-  cashMovements CashMovement[]
+  cashMovements         CashMovement[]
+  // P1G-1 migration 34 back-relations only (virtual; no DDL impact).
+  closeAttemptsDeclared CashSessionCloseAttempt[] @relation("CloseAttemptDeclaredByEmployee")
+  cashSessionsClosedBy  CashSession[]             @relation("CashSessionClosedByEmployee")
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_employee_code")
@@ -2216,8 +2227,14 @@ model Shift {
   @@schema("workforce")
 }
 
+/// P1G-1 migration 34 adds `closing` — the frozen state between an
+/// above-tolerance immutable count declaration and its manager decision.
+/// `ALTER TYPE ... ADD VALUE` — verified safe in the same migration file as
+/// its use (migration-compatibility-closure report §3: Prisma Migrate 7.9.1
+/// executes migration statements non-transactionally in this environment).
 enum CashSessionStatus {
   open
+  closing
   closed
 
   @@schema("treasury")
@@ -2295,23 +2312,143 @@ model CashSession {
   closedAt     DateTime?         @map("closed_at") @db.Timestamptz(6)
   createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch        Branch         @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  /// P1G-1 migration 34. The anchor: NULL while `open`; the ONE legal
+  /// attempt id while `closing`/a new `closed` (proven relationally —
+  /// `cash_sessions_close_attempt_fkey` below + the attempt's own
+  /// `uq_csca_one_per_session`); NULL on a pre-P1G-1 legacy `closed` row.
+  closeAttemptId     String? @map("close_attempt_id") @db.Uuid
+  /// FR-FIN-005 core close facts. NULL while `open`/`closing`; populated
+  /// EXACTLY ONCE, at `closed`, copied FROM the immutable attempt — never a
+  /// second mutable copy (design acceptance closure §3.2/§3.3).
+  expectedCash       BigInt? @map("expected_cash")
+  countedCash        BigInt? @map("counted_cash")
+  variance           BigInt?
+  /// FR-FIN-006. The reason on the FINAL, APPROVED close — never a prior
+  /// rejected attempt's (R-6(a) clause 12).
+  varianceReason     String? @map("variance_reason")
+  /// Governance reference. Deliberately NO FK — `governance.approval_requests`
+  /// is another module's table (design gate §30); Treasury never queries it
+  /// directly, only through `ApprovalCommands`.
+  approvalRequestId  String? @map("approval_request_id") @db.Uuid
+  closedByUserId     String? @map("closed_by_user_id") @db.Uuid
+  closedByEmployeeId String? @map("closed_by_employee_id") @db.Uuid
+
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch           Branch                    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
   /// Same tenant AND same branch as the session.
-  drawer        Drawer         @relation(fields: [tenantId, branchId, drawerId], references: [tenantId, branchId, id], onDelete: Restrict)
+  drawer           Drawer                    @relation(fields: [tenantId, branchId, drawerId], references: [tenantId, branchId, id], onDelete: Restrict)
   /// Same tenant, branch AND employee as the session - four columns, so a
   /// mismatch is a foreign-key violation rather than a missed service check.
-  shift         Shift          @relation(fields: [tenantId, branchId, employeeId, shiftId], references: [tenantId, branchId, employeeId, id], onDelete: Restrict)
-  employee      Employee       @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
-  payments      OrderPayment[]
+  shift            Shift                     @relation(fields: [tenantId, branchId, employeeId, shiftId], references: [tenantId, branchId, employeeId, id], onDelete: Restrict)
+  employee         Employee                  @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  payments         OrderPayment[]
   // P1G-0 back-relation only (virtual; no DDL impact on this model).
-  cashMovements CashMovement[]
+  cashMovements    CashMovement[]
+  /// P1G-1 — the session -> attempt anchor (three-column FK proving EXACT
+  /// ownership, not merely same-tenancy). `onUpdate: Cascade` mirrors the
+  /// migration; there is no delete path (`onDelete: Restrict`) on either side.
+  closeAttempt     CashSessionCloseAttempt?  @relation("SessionAnchor", fields: [tenantId, id, closeAttemptId], references: [tenantId, cashSessionId, id], onDelete: Restrict, onUpdate: Cascade)
+  /// P1G-1 back-relation only (virtual; no DDL impact on this model) — the
+  /// (tenant_id, branch_id, cash_session_id) FK target the attempt's own
+  /// ownership FK requires.
+  closeAttempts    CashSessionCloseAttempt[] @relation("SessionOwnership")
+  closedByUser     User?                     @relation("CashSessionClosedByUser", fields: [closedByUserId], references: [id], onDelete: Restrict)
+  closedByEmployee Employee?                 @relation("CashSessionClosedByEmployee", fields: [tenantId, closedByEmployeeId], references: [tenantId, id], onDelete: Restrict)
 
   @@unique([tenantId, id])
+  @@unique([tenantId, branchId, id], map: "uq_cs_branch_scoped_id")
   @@index([tenantId, branchId, status])
   @@index([tenantId, shiftId])
   @@index([tenantId, employeeId])
   @@map("cash_sessions")
+  @@schema("treasury")
+}
+
+/// P1G-1 migration 34 — the immutable CashSession close declaration
+/// (FR-POS-094/095/097, FR-FIN-004/005). Client-generated permanent id
+/// (FR-OFF-015) — the cashier's terminal assigns it at physical count
+/// declaration time; the server NEVER reassigns it. Append-only: `ros_app`
+/// holds SELECT + a column-level INSERT that excludes `createdAt`; no
+/// UPDATE, no DELETE. Exactly one per session
+/// (`uq_csca_one_per_session`) — the blind-integrity guarantee.
+model CashSessionCloseAttempt {
+  id            String @id @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  branchId      String @map("branch_id") @db.Uuid
+  cashSessionId String @map("cash_session_id") @db.Uuid
+
+  /// Policy snapshot, pinned at `cash_session.opened_at` (ratified R-3(a)).
+  policyVersionId     String        @map("policy_version_id") @db.Uuid
+  toleranceMinorUnits BigInt        @map("tolerance_minor_units")
+  countMode           CashCountMode @map("count_mode")
+
+  /// FR-FIN-004's eight expected-cash terms.
+  openingFloat            BigInt @map("opening_float")
+  cashSalesTotal          BigInt @map("cash_sales_total")
+  /// Structurally zero at this HEAD — DB-CHECKed (`ck_csca_tips_structurally_zero_p1g1`).
+  cashTipsTotal           BigInt @map("cash_tips_total")
+  payInTotal              BigInt @map("pay_in_total")
+  /// Structurally zero at this HEAD — DB-CHECKed (`ck_csca_refunds_structurally_zero_p1g1`).
+  cashRefundsTotal        BigInt @map("cash_refunds_total")
+  payOutTotal             BigInt @map("pay_out_total")
+  safeDropTotal           BigInt @map("safe_drop_total")
+  cashRoundingAdjustments BigInt @map("cash_rounding_adjustments")
+
+  /// Computed. `ck_csca_formula`/`ck_csca_variance` DB-enforce these against
+  /// the eight terms above — a historical close explains itself with no
+  /// join to current settings (FR-FIN-007).
+  expectedCash     BigInt  @map("expected_cash")
+  countedCash      BigInt  @map("counted_cash")
+  variance         BigInt
+  currency         String  @db.Char(3)
+  /// Ratified R-2(a): `abs(variance) > tolerance`. DB-mirrored overflow-safe.
+  approvalRequired Boolean @map("approval_required")
+
+  declaredByEmployeeId String   @map("declared_by_employee_id") @db.Uuid
+  declaredByUserId     String   @map("declared_by_user_id") @db.Uuid
+  terminalId           String   @map("terminal_id") @db.Uuid
+  /// Device event instant (caller-supplied) — distinct from `createdAt`
+  /// (DB persistence provenance, un-forgeable).
+  declaredAt           DateTime @map("declared_at") @db.Timestamptz(6)
+  createdAt            DateTime @default(dbgenerated("statement_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  tenant             Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// The (tenant_id, branch_id, cash_session_id) target the ownership FK
+  /// proves against — "SessionOwnership" is deliberately the INVERSE
+  /// direction of CashSession's own "SessionAnchor" relation above (Prisma
+  /// requires two distinct named relations between the same two models).
+  session            CashSession             @relation("SessionOwnership", fields: [tenantId, branchId, cashSessionId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Cascade)
+  policy             CashClosePolicy         @relation(fields: [tenantId, branchId, policyVersionId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Cascade)
+  declaredByEmployee Employee                @relation("CloseAttemptDeclaredByEmployee", fields: [tenantId, declaredByEmployeeId], references: [tenantId, id], onDelete: Restrict)
+  declaredByUser     User                    @relation("CloseAttemptDeclaredByUser", fields: [declaredByUserId], references: [id], onDelete: Restrict)
+  terminal           Terminal                @relation(fields: [branchId, terminalId], references: [branchId, id], onDelete: Restrict)
+  denominations      CashCountDenomination[]
+  /// Inverse of CashSession's own `closeAttempt` lookup (Prisma requires
+  /// both sides of the "SessionAnchor" relation to be declared).
+  anchoredSessions   CashSession[]           @relation("SessionAnchor")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, cashSessionId], map: "uq_csca_one_per_session")
+  @@unique([tenantId, cashSessionId, id], map: "uq_csca_session_scoped_id")
+  @@index([tenantId, branchId])
+  @@map("cash_session_close_attempts")
+  @@schema("treasury")
+}
+
+/// P1G-1 migration 34 — denomination-level counting (FR-POS-097). Composite
+/// identity — the row IS its own duplicate-denomination guard, so no
+/// synthetic id exists. Append-only.
+model CashCountDenomination {
+  tenantId               String @map("tenant_id") @db.Uuid
+  closeAttemptId         String @map("close_attempt_id") @db.Uuid
+  denominationMinorUnits BigInt @map("denomination_minor_units")
+  quantity               Int
+
+  tenant  Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  attempt CashSessionCloseAttempt @relation(fields: [tenantId, closeAttemptId], references: [tenantId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([tenantId, closeAttemptId, denominationMinorUnits])
+  @@map("cash_count_denominations")
   @@schema("treasury")
 }
 
@@ -2412,14 +2549,21 @@ model CashClosePolicy {
   createdBy                     String        @map("created_by") @db.Uuid
   createdAt                     DateTime      @default(dbgenerated("statement_timestamp()")) @map("created_at") @db.Timestamptz(6)
 
-  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch        Branch @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
-  createdByUser User   @relation(fields: [createdBy], references: [id])
+  tenant        Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch                    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  createdByUser User                      @relation(fields: [createdBy], references: [id])
+  /// P1G-1 migration 34 back-relation only (virtual; no DDL impact on this
+  /// model) — the (tenant_id, branch_id, id) target the close attempt's own
+  /// policy-ownership FK requires.
+  closeAttempts CashSessionCloseAttempt[]
 
   @@unique([tenantId, id])
   /// C-2 / test 21: the deterministic conflict for a concurrent same-branch,
   /// same-instant race — no advisory lock needed.
   @@unique([tenantId, branchId, effectiveFrom], map: "uq_ccp_branch_effective_from")
+  /// P1G-1 migration 34 — the target the close attempt's policy-ownership FK
+  /// requires (proving the policy belongs to the SAME branch as the attempt).
+  @@unique([tenantId, branchId, id], map: "uq_ccp_branch_scoped_id")
   @@index([tenantId, branchId, effectiveFrom(sort: Desc)], map: "cash_close_policies_resolve_idx")
   @@map("cash_close_policies")
   @@schema("treasury")

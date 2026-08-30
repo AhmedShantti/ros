@@ -164,6 +164,23 @@ export class SalesPaymentService {
           return { order, payment: existing };
         }
 
+        // ── 1.5. CashSession advisory lock — P1G-1 correction. ────────────
+        // BEFORE loading the Order or reading CashSession facts: the EXACT
+        // key `CashMovementsService`/CashSession Close already use
+        // (`hashtext('ros_cash_session')`, `hashtext(cashSessionId)`).
+        // Without this, Payment read CashSession status through an UNLOCKED
+        // SELECT under READ COMMITTED — a genuine race where a close could
+        // compute expected cash and CLOSE the session between this read and
+        // the Payment INSERT below, permanently misstating the recorded
+        // variance (proven in the CashSession Close final design gate §8).
+        // A permanent-id REPLAY (the branch above) never reaches here and
+        // never needs the lock — it mutates nothing.
+        await tx.$executeRawUnsafe(
+          'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
+          'ros_cash_session',
+          input.cashSessionId,
+        );
+
         // ── 2. Load the Order. ──────────────────────────────────────────
         const order = await tx.order.findUnique({
           where: {

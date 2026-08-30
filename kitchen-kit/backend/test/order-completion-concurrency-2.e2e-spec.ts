@@ -240,6 +240,9 @@ describe('Order Completion — the 3 missing concurrency scenarios (P1F-2 accept
   let priceListA: string;
   let taxClassStandard: string;
   let cashSessionA: string;
+  /** Acceptance closure addition — see the `capture` helper's own comment
+   *  for why a SECOND, independent cash session is now required. */
+  let cashSessionB: string;
   let unitKg: string;
   let wasteReasonId: string;
 
@@ -412,6 +415,44 @@ describe('Order Completion — the 3 missing concurrency scenarios (P1F-2 accept
       })
     ).id;
 
+    // Acceptance closure addition — a SECOND, fully independent drawer/shift/
+    // session. See the `capture` helper's own comment for why.
+    const drawerB = await admin.drawer.create({
+      data: {
+        id: newId(),
+        tenantId: tenantA,
+        branchId: branchA,
+        name: 'Closure Drawer B',
+        terminalId: null,
+      },
+    });
+    const shiftB = await admin.shift.create({
+      data: {
+        id: newId(),
+        tenantId: tenantA,
+        branchId: branchA,
+        employeeId: employeeA,
+        status: 'open',
+        openedAt: AT,
+      },
+    });
+    cashSessionB = (
+      await admin.cashSession.create({
+        data: {
+          id: newId(),
+          tenantId: tenantA,
+          branchId: branchA,
+          drawerId: drawerB.id,
+          shiftId: shiftB.id,
+          employeeId: employeeA,
+          openingFloat: 50_000n,
+          currency: 'EGP',
+          status: 'open',
+          openedAt: AT,
+        },
+      })
+    ).id;
+
     unitKg = (
       await admin.uom.create({
         data: {
@@ -556,19 +597,35 @@ describe('Order Completion — the 3 missing concurrency scenarios (P1F-2 accept
     };
   };
 
-  const capture = (order: {
-    id: string;
-    businessDay: Date;
-    grandTotal: bigint;
-    version: number;
-  }) =>
+  /**
+   * `cashSessionId` defaults to `cashSessionA` (every single, non-racing
+   * caller). Acceptance closure correction: P1G-1's `ros_cash_session`
+   * advisory lock (`sales-payment.service.ts` "step 1.5") now acquires
+   * BEFORE this file's own `CASH_SESSION_FACTS_QUERY` barrier stub is ever
+   * reached — a genuine race between two calls sharing ONE session would
+   * now serialize at the lock before either could reach the barrier
+   * concurrently, deadlocking the barrier itself rather than exercising the
+   * race this file exists to prove. Both racing call sites below pass an
+   * explicit, INDEPENDENT session for the second party
+   * (`cashSessionB`) — orthogonal to the stock-consumption/CAS races these
+   * tests actually verify.
+   */
+  const capture = (
+    order: {
+      id: string;
+      businessDay: Date;
+      grandTotal: bigint;
+      version: number;
+    },
+    cashSessionId: string = cashSessionA,
+  ) =>
     paymentService.capture(tenantA, userA, {
       orderId: order.id,
       businessDay: order.businessDay,
       expectedVersion: order.version,
       tender: 'cash',
       amountMinor: order.grandTotal,
-      cashSessionId: cashSessionA,
+      cashSessionId,
       employeeId: employeeA,
       terminalId: terminalA,
       tenderedAmountMinor: order.grandTotal,
@@ -635,7 +692,7 @@ describe('Order Completion — the 3 missing concurrency scenarios (P1F-2 accept
         try {
           const results = await Promise.allSettled([
             capture(orderA),
-            capture(orderB),
+            capture(orderB, cashSessionB),
           ]);
           const fulfilled = results.filter((r) => r.status === 'fulfilled');
           expect(fulfilled).toHaveLength(2); // independent orders/versions -> both settle
@@ -875,7 +932,7 @@ describe('Order Completion — the 3 missing concurrency scenarios (P1F-2 accept
         try {
           const results = await Promise.allSettled([
             capture(orderA),
-            capture(orderB),
+            capture(orderB, cashSessionB),
           ]);
           // No deadlock: both succeed. A Postgres deadlock would show up as
           // a rejection carrying error code 40P01 on whichever loser lost

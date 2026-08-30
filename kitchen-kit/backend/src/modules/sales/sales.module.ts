@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { CatalogueModule } from '../catalogue/catalogue.module';
 import { AuditModule } from '../governance/audit/audit.module';
@@ -8,6 +8,8 @@ import { LocalisationModule } from '../localisation/localisation.module';
 import { OrganisationModule } from '../organisation/organisation.module';
 import { ProductionModule } from '../production/production.module';
 import { TreasuryModule } from '../treasury/treasury.module';
+import { CashSessionTenderTotalsQueryService } from './orders/cash-session-tender-totals.query.service';
+import { CASH_SESSION_TENDER_TOTALS_QUERY } from './contract';
 import { OrderLinesService } from './orders/order-lines.service';
 import { OrdersController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
@@ -53,6 +55,21 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
  *
  * STILL UNEXPOSED: refund — it must drive fiscal documents and drawer
  * attribution; neither exists, and a state flip would misrepresent both.
+ *
+ * P1G-1 migration 34 makes this edge BIDIRECTIONAL: CashSession Close (in
+ * Treasury) needs Sales' cash/rounding tender totals (FR-FIN-004/010),
+ * published as `CASH_SESSION_TENDER_TOTALS_QUERY` in `sales/contract`
+ * (Sales' first published QUERY). `TreasuryModule` now also imports
+ * `SalesModule` — a genuine module-level circular import, resolved with
+ * NestJS's own `forwardRef()` on BOTH sides (there is no circular PROVIDER
+ * dependency: `SalesPaymentService` depends on Treasury's
+ * `CASH_SESSION_FACTS_QUERY` token, and a future Treasury close service
+ * depends on this module's `CASH_SESSION_TENDER_TOTALS_QUERY` token — two
+ * distinct tokens, never a class depending on itself through the cycle).
+ * This is the smallest correct NestJS resolution for two modules that must
+ * consume each other's published `contract/`; the contract design itself
+ * (Sales owns tender totals, Treasury only ever reaches them through
+ * `sales/contract`) is unchanged.
  */
 @Module({
   imports: [
@@ -63,8 +80,9 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
     OrganisationModule,
     ProductionModule,
     // P1F-1 — the FIRST sales->treasury edge, consumed only through
-    // `treasury/contract`'s `CASH_SESSION_FACTS_QUERY`.
-    TreasuryModule,
+    // `treasury/contract`'s `CASH_SESSION_FACTS_QUERY`. P1G-1 makes the
+    // edge bidirectional (see the module docblock) — `forwardRef` required.
+    forwardRef(() => TreasuryModule),
     // P1F-2 — the FIRST sales->inventory edge, consumed only through
     // `inventory/contract`'s `SALE_DEPLETION_COMMAND`.
     InventoryModule,
@@ -75,10 +93,15 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
     OrderLinesService,
     SalesFireService,
     SalesPaymentService,
+    CashSessionTenderTotalsQueryService,
+    {
+      provide: CASH_SESSION_TENDER_TOTALS_QUERY,
+      useExisting: CashSessionTenderTotalsQueryService,
+    },
     // Domain errors are plain Errors so the pure layers stay free of HTTP; this
     // maps them onto the Problem Details statuses SRS 26 specifies.
     { provide: APP_FILTER, useClass: SalesDomainExceptionFilter },
   ],
-  exports: [OrdersService, OrderLinesService],
+  exports: [OrdersService, OrderLinesService, CASH_SESSION_TENDER_TOTALS_QUERY],
 })
 export class SalesModule {}
