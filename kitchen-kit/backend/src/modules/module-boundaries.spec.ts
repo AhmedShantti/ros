@@ -1182,6 +1182,93 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
   });
 
   /**
+   * Minimum Operational Reporting (RPT-R1/R2/R3, governance register
+   * "Minimum Operational Reporting Ratification — 2026-08-31"), acceptance
+   * correction §7 (Correction E): `reporting`'s own controller-bearing
+   * module reaches the SAME cross-cutting HTTP/auth plumbing every other
+   * controller-bearing module reaches through `identity/contract`, and its
+   * daily-trading facts come ONLY from Sales/Treasury/Organisation/
+   * Localisation's own published `contract/` tokens
+   * (`DAILY_TRADING_SALES_QUERY`, `DAILY_CASH_RECONCILIATION_QUERY`,
+   * `BRANCH_CURRENCY_QUERY`/`BRANCH_REPORTING_SCOPE_QUERY`,
+   * `TAX_CLASS_LABELS_QUERY`), plus each owning module's `${module}.module`
+   * for DI composition. `KNOWN_DEVIATIONS` growth for `reporting` is ZERO —
+   * no new allow-list key of any kind, for any module.
+   */
+  it('Reporting adds ZERO new module-boundary deviations — no private Identity, Sales, Treasury, Organisation, or Localisation path', () => {
+    for (const key of [
+      'reporting->identity',
+      'reporting->sales',
+      'reporting->treasury',
+      'reporting->organisation',
+      'reporting->localisation',
+      'reporting->governance',
+      'reporting->catalogue',
+      'reporting->inventory',
+      'reporting->kitchen',
+      'reporting->production',
+      'reporting->workforce',
+    ]) {
+      expect(KNOWN_DEVIATIONS[key]).toBeUndefined();
+    }
+    expect(violations.filter((v) => v.importer === 'reporting')).toEqual([]);
+  });
+
+  it('Reporting consumes HTTP/auth plumbing only through identity/contract (no identity/auth, identity/authz, or identity/context import)', () => {
+    for (const file of [
+      'reporting/reporting.controller.ts',
+      'reporting/reporting.permissions.ts',
+      'reporting/reporting.module.ts',
+      'reporting/daily-trading-report.service.ts',
+    ]) {
+      const source = readFileSync(join(MODULES_ROOT, file), 'utf8');
+      const importLines = source
+        .split('\n')
+        .filter((line) => /^\s*import\b/.test(line));
+      expect(
+        importLines.some(
+          (line) =>
+            line.includes('identity/auth/') ||
+            line.includes('identity/authz/') ||
+            line.includes('identity/context/'),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it('Reporting owns no Prisma model and no migration', () => {
+    // Reporting's own transaction handle carries `tx.$queryRaw` for
+    // `transaction_timestamp()` (§29) and nothing else — no `tx.<model>.`
+    // delegate call of any kind lives under this directory.
+    const DIRECT_MODEL_CALL_RE =
+      /\btx\s*\.\s*[a-zA-Z]+\s*\.\s*(findMany|findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|create|createMany|update|updateMany|upsert|delete|deleteMany|count|aggregate|groupBy)\s*\(/;
+    const reportingDir = join(MODULES_ROOT, 'reporting');
+    const offending = walk(reportingDir)
+      .filter((f) => DIRECT_MODEL_CALL_RE.test(readFileSync(f, 'utf8')))
+      .map((f) => relative(MODULES_ROOT, f));
+    expect(offending).toEqual([]);
+
+    const schema = readFileSync(
+      resolve(MODULES_ROOT, '..', '..', 'prisma', 'schema.prisma'),
+      'utf8',
+    );
+    expect(schema).not.toMatch(/@@schema\("reporting"\)/);
+
+    const migrationsDir = resolve(
+      MODULES_ROOT,
+      '..',
+      '..',
+      'prisma',
+      'migrations',
+    );
+    expect(
+      readdirSync(migrationsDir, { withFileTypes: true }).filter((e) =>
+        e.isDirectory(),
+      ).length,
+    ).toBe(34);
+  });
+
+  /**
    * The general rule: every cross-module import is either a published contract
    * or an explicitly recorded pre-existing path.
    */

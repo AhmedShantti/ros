@@ -14378,6 +14378,60 @@ paths:
       summary: SRS §26.3 — publish. Demotes the incumbent, promotes the target, one txn.
       tags:
         - production
+  /reports/branches/{branchId}/daily-trading/{businessDay}:
+    get:
+      description: Financially-correct, read-only, query-time aggregation over the transactional primary — NOT a read replica, NOT a rollup, NOT a cache (FR-RPT-001/002/003/005 remain NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial (AND). Refused (403) unless the caller's tenant has EXACTLY ONE active branch and the supplied branchId equals it. A future businessDay is 400, never an all-zeros OPEN report. Cash Reconciliation is WHOLE_SESSION scope and PARTIAL (zero-payment/movement-only sessions are not attributable to a business day and are not listed; no day-level variance/expected/counted/movement total is ever emitted). Tax is broken down by class only, never by rate. Money is a decimal (minor-unit) string on the wire, never a JSON number. tenderTotals.completedExcessCapturedTotal (acceptance correction, 2026-08-31) is captured payment value above a completed order’s grand total — P1F-2 permits paidTotal > grandTotal on completion; this term is reconciliation-only, with no revenue/tax/tip/discount/ refund/rounding/variance disposition inferred, and it makes tenderGrandTotal === grossSales + unsettledCapturedTotal + completedExcessCapturedTotal hold exactly.
+      operationId: ReportingController_getDailyTradingReport
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: businessDay
+          required: true
+          schema:
+            pattern: ^\d{4}-\d{2}-\d{2}$
+            type: string
+      responses:
+        '200':
+          description: 'The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Malformed branchId/businessDay, any query parameter, or businessDay is after the branch's current business day ("Future business days are not supported.").
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid bearer token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: A PIN/POS session; no active tenant context; missing either report.view.sales or report.view.financial; the tenant has zero or more than one active branch; or branchId is visible in the tenant but is not that single active branch.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: branchId is unknown or belongs to another tenant — byte-identical response for both, so a caller cannot learn a foreign branch exists.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: More than one transaction currency was observed for this business day, a contributing cash session's currency disagrees with the report's currency, or an internal cash-reconciliation invariant was violated. No partial financial total is ever returned on a 409.
+      security:
+        - bearer: []
+      summary: 'Branch daily-trading report (Internal-MVP: dashboard-only, one tenant, exactly one active branch).'
+      tags:
+        - reporting
   /substitute-groups:
     get:
       operationId: ProductionController_listGroups

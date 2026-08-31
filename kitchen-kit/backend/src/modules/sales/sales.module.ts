@@ -9,7 +9,11 @@ import { OrganisationModule } from '../organisation/organisation.module';
 import { ProductionModule } from '../production/production.module';
 import { TreasuryModule } from '../treasury/treasury.module';
 import { CashSessionTenderTotalsQueryService } from './orders/cash-session-tender-totals.query.service';
-import { CASH_SESSION_TENDER_TOTALS_QUERY } from './contract';
+import { DailyTradingSalesQueryService } from './orders/daily-trading-sales.query.service';
+import {
+  CASH_SESSION_TENDER_TOTALS_QUERY,
+  DAILY_TRADING_SALES_QUERY,
+} from './contract';
 import { OrderLinesService } from './orders/order-lines.service';
 import { OrdersController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
@@ -72,6 +76,13 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
  * consume each other's published `contract/`; the contract design itself
  * (Sales owns tender totals, Treasury only ever reaches them through
  * `sales/contract`) is unchanged.
+ *
+ * Minimum Operational Reporting (RPT-R1/R2/R3, governance register
+ * "Minimum Operational Reporting Ratification — 2026-08-31") adds Sales'
+ * SECOND published `contract/` query, `DAILY_TRADING_SALES_QUERY` — the
+ * completed-sales/tender/tax-by-class/session-span facts the `reporting`
+ * module's daily-trading route composes. `reporting` imports ONLY this
+ * token and `SalesModule` for DI composition, never a private Sales path.
  */
 @Module({
   imports: [
@@ -107,10 +118,22 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
       provide: CASH_SESSION_TENDER_TOTALS_QUERY,
       useExisting: CashSessionTenderTotalsQueryService,
     },
+    // Minimum Operational Reporting (RPT-R1/R2/R3) — Sales' SECOND published
+    // `contract/` query, consumed only by the `reporting` module.
+    DailyTradingSalesQueryService,
+    {
+      provide: DAILY_TRADING_SALES_QUERY,
+      useExisting: DailyTradingSalesQueryService,
+    },
     // Domain errors are plain Errors so the pure layers stay free of HTTP; this
     // maps them onto the Problem Details statuses SRS 26 specifies.
     { provide: APP_FILTER, useClass: SalesDomainExceptionFilter },
   ],
-  exports: [OrdersService, OrderLinesService, CASH_SESSION_TENDER_TOTALS_QUERY],
+  exports: [
+    OrdersService,
+    OrderLinesService,
+    CASH_SESSION_TENDER_TOTALS_QUERY,
+    DAILY_TRADING_SALES_QUERY,
+  ],
 })
 export class SalesModule {}

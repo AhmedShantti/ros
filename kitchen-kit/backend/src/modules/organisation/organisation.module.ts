@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { BranchCurrencyQueryService } from './branches/branch-currency.query.service';
+import { BranchReportingScopeQueryService } from './branches/branch-reporting-scope.query.service';
 import { BranchesService } from './branches/branches.service';
 import { BrandsService } from './brands/brands.service';
 import { CentralKitchensService } from './central-kitchens/central-kitchens.service';
 import {
   BRANCH_CURRENCY_QUERY,
+  BRANCH_REPORTING_SCOPE_QUERY,
   KDS_BRANCH_CONFIG_QUERY,
   ROUTING_CONFIG_QUERY,
   STATION_DISPLAY_BINDING_QUERY,
@@ -63,6 +65,14 @@ import { WarehousesService } from './warehouses/warehouses.service';
       provide: KDS_BRANCH_CONFIG_QUERY,
       useExisting: KdsBranchConfigQueryService,
     },
+    // Minimum Operational Reporting (RPT-R1/R2/R3) — the Internal-MVP
+    // single-active-branch fail-closed assertion, consumed only by the
+    // `reporting` module. NOT branch-aware RBAC; D-2 untouched.
+    BranchReportingScopeQueryService,
+    {
+      provide: BRANCH_REPORTING_SCOPE_QUERY,
+      useExisting: BranchReportingScopeQueryService,
+    },
   ],
   exports: [
     LocationsService,
@@ -80,6 +90,7 @@ import { WarehousesService } from './warehouses/warehouses.service';
     BRANCH_CURRENCY_QUERY,
     STATION_DISPLAY_BINDING_QUERY,
     KDS_BRANCH_CONFIG_QUERY,
+    BRANCH_REPORTING_SCOPE_QUERY,
   ],
 })
 export class OrganisationModule {}

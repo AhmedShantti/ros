@@ -13,7 +13,7 @@ import {
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
 import { CountryPackService } from '../../localisation/country-pack/country-pack.service';
-import { cutoverMinutes, resolveBusinessDay } from './business-day';
+import { cutoverLookup, resolveBusinessDay } from './business-day';
 import {
   DEFAULT_BLOCK_SIZE,
   formatOrderNumber,
@@ -90,22 +90,6 @@ export class OrdersService {
     private readonly audit: AuditService,
     private readonly countryPacks: CountryPackService,
   ) {}
-
-  /**
-   * FR-FIN-024 — the branch's business-day boundary for a local weekday.
-   *
-   * `org.operating_hours` holds one cutover per weekday; a branch with no row
-   * for that weekday uses `00:00`, the column default.
-   */
-  private static cutoverLookup(
-    hours: readonly { dayOfWeek: number; businessDayCutover: Date }[],
-  ): (weekdayIndex: number) => number {
-    const byWeekday = new Map<number, number>();
-    for (const row of hours) {
-      byWeekday.set(row.dayOfWeek, cutoverMinutes(row.businessDayCutover));
-    }
-    return (weekdayIndex) => byWeekday.get(weekdayIndex) ?? 0;
-  }
 
   /**
    * Reserve the next order number for a terminal on a business day.
@@ -240,7 +224,7 @@ export class OrdersService {
         const businessDay = resolveBusinessDay(
           at,
           branch.timezone,
-          OrdersService.cutoverLookup(branch.operatingHours),
+          cutoverLookup(branch.operatingHours),
         );
 
         // FR-LOC-021: the pack version in force for this branch at this instant.
