@@ -35,6 +35,8 @@ const IDEMPOTENT_ROUTES: Array<{ method: string; path: string }> = [
   { method: 'post', path: '/orders' },
   { method: 'post', path: '/orders/{businessDay}/{id}/lines' },
   { method: 'post', path: '/cash-sessions' },
+  // KDS-R12 — recall is not naturally idempotent (recall_count increments).
+  { method: 'post', path: '/kds/tickets/{ticketId}/recall' },
 ];
 
 // Endpoints that genuinely require `If-Match` — see `orders.controller.ts`'s
@@ -251,19 +253,25 @@ describe('OpenAPI document (e2e)', () => {
    * P1E-6 — explicit Fire is now real and ratified ("Fire Authorization
    * Ratification — 2026-08-24"), so it is EXPECTED to be documented — but
    * only that ONE exact route. Automatic/configurable Fire (the other half
-   * of FR-POS-035), Completion, refund, and KDS bump/recall remain
-   * unimplemented and must still be absent.
+   * of FR-POS-035), Completion, and refund remain unimplemented and must
+   * still be absent.
    *
    * P1F-1 — explicit partial CASH / manual-external-card Payment capture is
    * now real too, so it joins Fire as an EXPECTED, single, exact route.
-   * Completion, refund, KDS bump/recall, and any integrated-terminal or
-   * PaymentAttempt route remain unimplemented non-goals and must still be
-   * absent — the forbidden-pattern check below no longer includes
-   * `/payments?\b/`, since that would now also match the real, accepted
-   * Payment route; it is replaced with precise integrated-terminal/
-   * PaymentAttempt patterns instead.
+   * Completion, refund, and any integrated-terminal or PaymentAttempt route
+   * remain unimplemented non-goals and must still be absent — the
+   * forbidden-pattern check below no longer includes `/payments?\b/`, since
+   * that would now also match the real, accepted Payment route; it is
+   * replaced with precise integrated-terminal/PaymentAttempt patterns
+   * instead.
+   *
+   * KDS operator lifecycle (KDS-R11/KDS-R12, ratified 2026-08-30) makes
+   * bump/bump-all/recall real and ratified too — `bump`/`recall` are
+   * REMOVED from `forbidden` and asserted as the exact six-route KDS
+   * surface instead. `/serve` (FR-KDS-013 `[S]`, deferred) and any
+   * cancellation/analytics/sort-configuration route remain absent.
    */
-  it('documents explicit Fire and Payment (and only those routes), and does not document Completion, refund, integrated-terminal, PaymentAttempt, or KDS bump/recall endpoints', () => {
+  it('documents explicit Fire, Payment, and the KDS operator lifecycle (and only those routes), and does not document Completion, refund, integrated-terminal, PaymentAttempt, serve, or cancellation endpoints', () => {
     const paths = Object.keys(doc.paths);
     const fireMatches = paths.filter((p) => /\/fire\b/i.test(p));
     expect(fireMatches).toEqual(['/orders/{businessDay}/{id}/fire']);
@@ -271,11 +279,23 @@ describe('OpenAPI document (e2e)', () => {
     const paymentMatches = paths.filter((p) => /\/payments?\b/i.test(p));
     expect(paymentMatches).toEqual(['/orders/{businessDay}/{id}/payments']);
 
+    const kdsMatches = paths.filter((p) => p.startsWith('/kds')).sort();
+    expect(kdsMatches).toEqual(
+      [
+        '/kds/stations/{stationId}/queue',
+        '/kds/stations/{stationId}/tickets/view',
+        '/kds/tickets/{ticketId}/bump-all',
+        '/kds/tickets/{ticketId}/lines/{lineId}/bump',
+        '/kds/tickets/{ticketId}/lines/{lineId}/start',
+        '/kds/tickets/{ticketId}/recall',
+      ].sort(),
+    );
+
     const forbidden = [
       /\/complete\b/i,
       /\/refunds?\b/i,
-      /\bbump\b/i,
-      /\brecall\b/i,
+      /\/serve\b/i,
+      /\/cancel/i,
       /payment[-_]?attempts?/i,
       /terminals?\/(session|authoriz|capture)/i,
     ];
@@ -286,7 +306,7 @@ describe('OpenAPI document (e2e)', () => {
     }
   });
 
-  it('does not expose the Kitchen module (no controller exists there)', () => {
+  it('does not expose a /kitchen surface — Kitchen routes live under /kds only', () => {
     for (const p of Object.keys(doc.paths)) {
       expect(p.toLowerCase().startsWith('/kitchen')).toBe(false);
     }

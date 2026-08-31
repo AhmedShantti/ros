@@ -15,6 +15,8 @@ import { OrdersController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
 import { SalesFireService } from './orders/sales-fire.service';
 import { SalesPaymentService } from './orders/sales-payment.service';
+import { TicketBumpedHandler } from './orders/ticket-bumped.handler';
+import { TicketRecalledHandler } from './orders/ticket-recalled.handler';
 import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
 
 /**
@@ -93,6 +95,13 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
     OrderLinesService,
     SalesFireService,
     SalesPaymentService,
+    // KDS operator lifecycle (KDS-R11/KDS-R12) — PRIVATE subscribers, never
+    // exported, discovered purely via `@DomainEventHandler` metadata
+    // (`DomainEventHandlerRegistry`'s `DiscoveryService` scan), exactly the
+    // `OrderLineFiredHandler` precedent in the opposite direction. Import
+    // ONLY `kitchen/contract` — never a Kitchen private path or table.
+    TicketBumpedHandler,
+    TicketRecalledHandler,
     CashSessionTenderTotalsQueryService,
     {
       provide: CASH_SESSION_TENDER_TOTALS_QUERY,

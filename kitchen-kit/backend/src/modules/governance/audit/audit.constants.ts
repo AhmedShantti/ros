@@ -163,6 +163,20 @@ export const AUDIT_ACTION = {
   SUBSTITUTE_GROUP_UPDATED: 'SUBSTITUTE_GROUP_UPDATED',
   // P1F-2 — D-17-07 resolution: the modifier -> recipe-effect replacement API.
   MODIFIER_RECIPE_EFFECTS_REPLACED: 'MODIFIER_RECIPE_EFFECTS_REPLACED',
+
+  // KDS operator lifecycle (KDS-R11/KDS-R12, ratified 2026-08-30). Same
+  // <ENTITY>_<PAST_TENSE> convention. FR-AUD-001 acceptance correction:
+  // first-viewed IS a state-changing operation (a write-once persisted
+  // stamp) and so IS audited — one entry per newly-viewed Ticket, never a
+  // replay. Bump-all is ONE operator action -> ONE entry (metadata carries
+  // the affected line ids), mirroring CASH_MOVEMENT_RECORDED's own
+  // one-verb-many-instances convention; a per-line echo would be exactly the
+  // audit noise that convention already rejects.
+  TICKET_VIEWED: 'TICKET_VIEWED',
+  TICKET_LINE_STARTED: 'TICKET_LINE_STARTED',
+  TICKET_LINE_BUMPED: 'TICKET_LINE_BUMPED',
+  TICKET_BUMPED: 'TICKET_BUMPED',
+  TICKET_RECALLED: 'TICKET_RECALLED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -221,4 +235,8 @@ export const AUDIT_ENTITY = {
   RECIPE: 'recipe',
   RECIPE_VERSION: 'recipe_version',
   SUBSTITUTE_GROUP: 'substitute_group',
+
+  // KDS operator lifecycle entities.
+  TICKET: 'ticket',
+  TICKET_LINE: 'ticket_line',
 } as const;

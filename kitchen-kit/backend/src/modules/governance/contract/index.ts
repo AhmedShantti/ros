@@ -7,3 +7,4 @@
  */
 export * from './approval.contract';
 export * from './approval.errors';
+export * from './audit';

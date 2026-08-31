@@ -55,15 +55,21 @@ export class PrismaService
   async withAuthContext<T>(
     scope: AuthScope,
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
+    options?: { isolationLevel?: Prisma.TransactionIsolationLevel },
   ): Promise<T> {
-    return this.$transaction(async (tx) => {
-      await tx.$queryRawUnsafe(
-        "SELECT set_config('app.user_id', $1, true), set_config('app.tenant_id', $2, true)",
-        scope.userId ?? '',
-        scope.tenantId ?? '',
-      );
-      return fn(tx);
-    });
+    return this.$transaction(
+      async (tx) => {
+        await tx.$queryRawUnsafe(
+          "SELECT set_config('app.user_id', $1, true), set_config('app.tenant_id', $2, true)",
+          scope.userId ?? '',
+          scope.tenantId ?? '',
+        );
+        return fn(tx);
+      },
+      options?.isolationLevel
+        ? { isolationLevel: options.isolationLevel }
+        : undefined,
+    );
   }
 
   async onModuleInit(): Promise<void> {

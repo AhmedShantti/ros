@@ -6442,6 +6442,256 @@ migration, test, or OpenAPI change.
 **Status:** **RATIFIED — CLOSED.**
 
 ---
+## KDS MVP Operator Lifecycle Ratification — 2026-08-30
+
+> **RECORDED 2026-08-30 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry carrying **two independently
+> identifiable limbs**, matching the **P1A / P1C / P1D** carried-item,
+> **Fire Authorization**, **P1F-2 Completion Economics**, **FIFO Exhaustion
+> Carry-Forward**, **Approval Runtime Minimum Resolution**, **P1G-1 Cash-Close
+> Policy** and **R-6** convention.
+>
+> **Limb identifiers.** These continue the **`KDS-R<n>`** series established by
+> the P1E-2 KDS routing design closure (`KDS-R1 … KDS-R10`, of which `KDS-R9`
+> is cited in `prisma/schema.prisma`'s `StationRoutingRule` docblock), and
+> therefore begin at **KDS-R11**. The ratified cash series `R-1(a) … R-6` is
+> deliberately **not** continued, and **`R-7` is deliberately NOT reused**:
+> that label is already taken by a **D-20 option** (*"Defer to Appendix C"*) in
+> **precisely this subject area** — permission-catalogue source silence — and
+> reusing it would make the record ambiguous exactly where it must be clearest.
+>
+> Occasioned by
+> `docs/reports/claude/2026-08-30_KDS_operator-lifecycle-final-design-gate.md`
+> and
+> `docs/reports/claude/2026-08-30_KDS_operator-lifecycle-design-gate-acceptance-correction.md`,
+> **the correction superseding the gate where they differ**. **Those reports are
+> non-authoritative evidence; this entry is the binding record**, and where they
+> differ this entry governs. The user was **neutral between the tabled options**
+> and expressly delegated selection to the architecture recommendation,
+> optimizing for **scalability, long-term sustainability, maintainability and
+> operational simplicity**; both selected recommendations were **Option A**.
+>
+> This entry amends **no numbered decision**, creates **no schema**, and does not
+> reopen **P-1**, **D-2**, **D-12**, **D-13**, **D-16**'s enumeration, **D-20**,
+> or **R-1(a) … R-6**. **All historical text is preserved verbatim above and is
+> NOT rewritten**, superseded forward in the register's established manner.
+
+### The questions
+
+Two — and only two — items in the KDS MVP operator-lifecycle design track
+returned `USER RATIFICATION REQUIRED`.
+
+1. **No KDS permission code is derivable from source.** SRS **§15.2** contains
+   no `kds.*` code, and states that the complete catalogue *"is maintained in
+   **Appendix C**"* — **Appendix C is absent from the delivered SRS**. Yet
+   **ACT-09** ("Kitchen Staff | One station | KDS") requires Kitchen Staff to
+   operate the KDS, **FR-KDS-024** `[M]` requires bump item / bump all,
+   **FR-KDS-025** `[M]` requires recall, and this repository's convention is
+   that every route is permission-guarded. **An executable KDS surface therefore
+   cannot exist without an explicitly ratified permission code.**
+2. **The cross-module consequence of recall is source-silent.** §5.5.4 requires
+   `ticket.bumped` (Kitchen Ops → Sales) and **UC-POS-01 step 7** requires Sales
+   to move the relevant order lines to READY when Kitchen completes them.
+   **FR-KDS-025** then requires recall of an already-bumped ticket. The SRS
+   never states what becomes of the Sales line whose READY state was caused by
+   the bump now being withdrawn. Left unresolved, Kitchen would restore the
+   ticket to active work while Sales continued to report the order line as
+   READY — a divergence that reaches front-of-house.
+
+### RATIFICATION — KDS-R11: THE `kds.operate` PERMISSION (2026-08-30)
+
+**RATIFIED — binding:**
+
+1. **A new permission code is introduced: `kds.operate`**, described as
+   *"Operate a kitchen display station"*.
+2. **It authorises exactly this capability surface**, and nothing else:
+   station queue read · first-viewed acknowledgement · item start · bump item ·
+   bump all · ticket recall.
+3. **It is an explicit user-authorized exception to the repository's
+   zero-invented-permission-code discipline**, and is the **third** such
+   exception on record, following **`pos.order.fire`** (Fire Authorization
+   Ratification — 2026-08-24) and **`pos.payment.capture`** (CARRIED ITEM
+   P1D-F). The discipline itself is **unchanged and remains in force** for every
+   other code.
+4. **The coarse grain is deliberate**, selected for operational simplicity and
+   long-term maintainability. **The following codes are NOT authorized by this
+   entry and MUST NOT be created**: `kds.view`, `kds.ticket.view`,
+   `kds.ticket.start`, `kds.ticket.bump`, `kds.ticket.recall`,
+   `kds.ticket.serve`, `kds.expedite`.
+5. **Reads sit behind `kds.operate`.** No separate KDS read code is created —
+   consistent with the existing `pos.order.create` operational-read precedent,
+   which likewise declined to invent a read code §15.2 does not supply.
+6. **`kds.operate` does NOT represent station authorization**, and must never be
+   relied on for it. Station scope is a separate, independently enforced
+   concern — see the consequence note below.
+7. **No other permission is broadened.** Every existing code keeps its exact
+   pre-ratification scope; this limb authorises the KDS operator surface alone.
+8. **Should Appendix C ever be supplied and name this capability differently**,
+   the code is remapped by the route **ADR 0008 D-01** already provides — the
+   same remap path the Catalogue `.read` codes record verbatim
+   (*"PROVISIONAL: if Appendix C names them differently, remap per D-01"*).
+   Recording that route does not make this ratification provisional.
+
+#### Consequence note — station authorization is NOT this permission
+
+Recorded as a **binding constraint on implementation**, not as a separate
+business decision (it is engineering mechanics derived from **ACT-09**, ratified
+**ADR 0008 D-16**, and existing session/terminal substrate):
+
+- an **active, registered KDS-type terminal** is required;
+- **exactly one** operative station binding must resolve;
+- **zero** bindings ⇒ **denied**;
+- **more than one** binding ⇒ **denied** as unsupported/misconfigured for this
+  slice;
+- the supplied `stationId` **must equal** the terminal-derived station;
+- an ordinary **POS or dashboard surface cannot operate the KDS** merely by
+  holding `kds.operate`.
+
+**D-2's branch-scoped RBAC deferral is UNCHANGED and is not reopened** — station
+scope here is a terminal-binding fact under **FR-SEC-021** / **FR-SEC-028**, not
+a new RBAC scoping tier.
+
+#### Binding constraints on implementation (mirroring the Fire Authorization Ratification)
+
+- **Do NOT hardcode role-name strings.** Authorization is permission-based.
+- The permission **CODE** is added exactly as every other business permission
+  code in this repository is added: an entry in the owning module's
+  `<MODULE>_PERMISSIONS` / `<MODULE>_PERMISSION_DEFS`, persisted through the
+  existing `PermissionsService.upsert`/`upsertMany` mechanism — **code-driven,
+  not migration-driven**. **No migration creates this permission.**
+- Per the repository's standing rule that a permission is seeded only where an
+  executable consumer exists, `kds.operate` is seeded **by the slice that
+  creates the KDS routes**, not before.
+- **FR-SEC-012** `[M]` requires a plain-language description; the description in
+  clause 1 is that text.
+
+### RATIFICATION — KDS-R12: THE `ticket.recalled` DOMAIN EVENT (2026-08-30)
+
+**RATIFIED — binding:**
+
+1. **A new internal domain event is introduced: `ticket.recalled`.**
+   **Publisher: Kitchen Ops. Principal subscriber: Sales.**
+2. It is recorded as an **EXTENSION of SRS §5.5.4 — "Event Catalogue (Core
+   Subset)"**, whose own title declares the catalogue non-exhaustive.
+   **The SRS does NOT define `ticket.recalled`, and no claim to the contrary is
+   made** — verified: the string occurs nowhere in the delivered SRS, and
+   nowhere in this register before this entry.
+3. **Business semantics.** When Kitchen **successfully recalls** a previously
+   bumped ticket:
+   - Kitchen publishes `ticket.recalled`;
+   - **Sales consumes it inside the SAME UnitOfWork transaction** as the Kitchen
+     recall, consistent with **§5.5.2**;
+   - Sales reverts **exactly** the affected order lines whose READY state is
+     being withdrawn;
+   - the eligible Sales transition is **`ready → fired`**;
+   - **`ready_at` is cleared** on those reverted lines.
+4. **Sales MUST NOT regress a line that is already `served`, `voided` or
+   `comped`.**
+5. **Module ownership is preserved.** Kitchen owns the Kitchen lifecycle and
+   Kitchen tables; Sales owns Sales order and order-line state. **No direct
+   cross-module table query is authorized in either direction.** Communication
+   remains through published `contract/` surfaces and domain events, per
+   **§5.2.3**.
+6. **No schema change is authorized by this limb.** The Sales columns it writes
+   (`sales.order_lines.state`, `sales.order_lines.ready_at`) already exist.
+7. **`ticket.bumped` is unchanged in publisher and subscribers** (§5.5.4:
+   Kitchen Ops → Sales, Analytics). This limb adds a compensating event; it does
+   not alter, replace, or reinterpret `ticket.bumped`.
+
+### Future standard-role intent — RECORDED, NOT IMPLEMENTED
+
+Recorded **only** so a future role-seeding implementation does not have to
+rediscover the decision:
+
+`kds.operate` is intended for **Kitchen Staff · Head Chef · Branch Manager ·
+Shift Supervisor · Owner**, and for **no other standard role**. **Auditor
+explicitly does NOT receive it**, because `kds.operate` carries **write**
+authority and the Auditor role is read-only.
+
+**This entry does NOT authorize implementation of FR-SEC-010 standard-role
+seeding.** **No existing role row and no existing role semantics are modified by
+this entry.** As the Fire Authorization Ratification already records, **ROS has
+no system-defined "standard role" persistence mechanism**; this mapping is
+therefore a **POLICY for whoever creates or administers a tenant's equivalent
+roles**, not a migration and not a hardcoded seed of specific role rows.
+
+### What is expressly NOT ratified by this entry
+
+- **The SERIALIZABLE + bounded-retry concurrency mechanism** for the KDS
+  bump / bump-all / recall Unit of Work. It is an **engineering correctness
+  mechanism**, not a business or governance choice, and is **not ratified as
+  one**. It introduces no `SELECT FOR UPDATE`, no new advisory lock, no reliance
+  on `AuditService`'s tenant-wide advisory lock, no `sales.orders.version`
+  coupling, and **no migration** — so §24.6.4's confinement of pessimistic
+  locking is untouched.
+- **The first-viewed audit entry.** **FR-AUD-001** `[M]` already decides it: a
+  persisted first-viewed acknowledgement is a state-changing operation and is
+  therefore audited (one entry per newly-first-viewed Ticket; affected lines as
+  metadata; a zero-row replay writes no entry). This is **requirement
+  compliance, not a discretionary governance choice**.
+- **Any schema, migration, table, column, index, route URL, DTO, audit action
+  literal or event payload field.** All remain **design/implementation details,
+  NOT ratified here**.
+- **`served` / Expediter behaviour (FR-KDS-013 `[S]`), sorting beyond FIFO,
+  colour thresholds, FR-KDS-041/042 analytics, the post-fire cancellation path
+  (`order.line.voided`), offline KDS (NFR-REL-002), peer discovery
+  (NFR-REL-003), and the FR-SEC-026 8-hour KDS session TTL** — all remain
+  **DEFERRED and NOT authorized**.
+
+### Authority classification
+
+**KDS-R11 and KDS-R12 are USER-RATIFIED decisions resolving source silence.
+Neither is an SRS-derived requirement, and neither is presented as one.**
+
+- **KDS-R11** is *compatible with, but not mandated by*, **ACT-09**,
+  **FR-KDS-024** `[M]`, **FR-KDS-025** `[M]`, **FR-SEC-001** `[M]` and
+  **FR-SEC-011** `[M]`. **§15.2 supplies no `kds.*` code and Appendix C is
+  absent**, so the code name is **not source-determined**.
+- **KDS-R12** is *compatible with, but not mandated by*, **§5.5.4**,
+  **UC-POS-01 step 7** and **FR-KDS-025** `[M]`. **The SRS specifies no
+  recall consequence for Sales.**
+
+**D-20 is NOT reopened, contradicted, or amended.** D-20's *"permission-code
+decision DEFERRED, not invented"* is scoped to a **Governance approval-read**
+code (`governance.approval.read`) for a surface **D-14 A-1 removed** — there was
+no route needing a code, so deferral cost nothing. **KDS has the opposite
+posture**: `[M]` requirements demand an executable, permission-guarded surface,
+so deferral is not available and the register's own established remedy — an
+explicitly user-authorized code, as for `pos.order.fire` and
+`pos.payment.capture` — applies instead. **D-20's own R-1 … R-7 option labels
+remain what they always were: options that were NOT introduced.**
+
+### Preservation
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures, the P1A / P1C / P1D carried items,
+the Fire Authorization Ratification, the P1F-2 Completion Economics & Depletion
+Resolution, the FIFO Exhaustion Carry-Forward Ratification, the Approval Runtime
+Minimum Resolution, the P1G-1 Cash-Close Policy Ratification and R-1(a) … R-6
+are ALL unchanged — this entry amends none of them.** In particular: **D-2's
+branch-scoped RBAC defer remains in force**; **D-12 remains BLOCKED**;
+**D-16's `request_type` enumeration remains OPEN**; **D-13 remains RATIFIED**;
+**D-14 A-1 and D-20 remain unchanged — NO Governance HTTP or read surface**;
+**P-1 remains RATIFIED and UNCHANGED**; the P1E-2 KDS routing decisions
+**KDS-R1 … KDS-R10** and the P1E-4/P1E-5 Ticket lifecycle and Kitchen ownership
+decisions are **unchanged and not reopened**; **§5.5.4's `ticket.bumped`
+publisher and subscribers are unchanged**. **No numbered decision is added,
+amended by number, or renumbered. No schema is created by this entry.**
+
+### Implementation consequence
+
+With **KDS-R11** and **KDS-R12** recorded, the KDS MVP operator-lifecycle design
+track has **no outstanding `USER RATIFICATION REQUIRED` item**, and the slice is
+**GOVERNANCE-UNBLOCKED**.
+
+**No migration is created by this entry, and no implementation is performed by
+it.** A separate, explicitly authorised implementation task is required before
+any product code, migration, permission seeding, test, or OpenAPI change.
+
+**Status:** **RATIFIED — CLOSED.**
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |
@@ -6740,6 +6990,55 @@ migration, test, or OpenAPI change.
   request amendment untouched · no Governance HTTP surface (D-14 A-1) · no new permission code ·
   no schema created · no numbered decision added, amended or renumbered.** **Migration 34 is NOT
   created by this entry and no implementation is performed by it.**
+- **KDS MVP OPERATOR LIFECYCLE — RATIFIED 2026-08-30.** Recorded as an **unnumbered ratification
+  entry with two independently identifiable limbs**, in the established forward-supersession
+  style — **no D-21 is created and the 20-decision tally is unchanged**. Limb ids continue the
+  **P1E-2 `KDS-R<n>` series** (`KDS-R1 … KDS-R10` are taken) and therefore begin at **KDS-R11**;
+  **`R-7` is deliberately NOT reused**, that label being a **D-20 option** (*"Defer to Appendix
+  C"*) in the same subject area. **KDS-R11** authorises a new permission code **`kds.operate`** —
+  *"Operate a kitchen display station"* — covering **station queue read · first-viewed
+  acknowledgement · item start · bump item · bump all · ticket recall**, as the **third explicit
+  user-authorized exception** to the zero-invented-codes discipline after **`pos.order.fire`** and
+  **`pos.payment.capture`**; the **coarse grain is deliberate** and **`kds.view`,
+  `kds.ticket.view`, `kds.ticket.start`, `kds.ticket.bump`, `kds.ticket.recall`,
+  `kds.ticket.serve` and `kds.expedite` are NOT authorized**; reads sit behind `kds.operate` on
+  the `pos.order.create` operational-read precedent; **`kds.operate` does NOT represent station
+  authorization**, which is separately enforced fail-closed by **active registered KDS-terminal
+  binding resolving to exactly ONE operative station** (zero ⇒ denied · more than one ⇒ denied as
+  unsupported · supplied `stationId` must equal the terminal-derived station · a POS/dashboard
+  surface cannot operate KDS merely by holding the code), with **D-2's branch-scoped RBAC defer
+  UNCHANGED**; the code is added **code-driven, not migration-driven**, via
+  `<MODULE>_PERMISSION_DEFS` + `PermissionsService.upsertMany`, seeded only by the slice that
+  creates the routes. **KDS-R12** authorises a new internal domain event **`ticket.recalled`**,
+  **publisher Kitchen Ops, principal subscriber Sales**, recorded as an **EXTENSION of §5.5.4
+  "Event Catalogue (Core Subset)"** — **the SRS does NOT define it and no claim to the contrary is
+  made**; on a successful recall Sales consumes it **inside the same UnitOfWork transaction** and
+  reverts exactly the affected lines **`ready → fired`**, **clearing `ready_at`**, and **MUST NOT
+  regress `served`, `voided` or `comped` lines**; **no direct cross-module table query is
+  authorized** in either direction and **`ticket.bumped`'s publisher/subscribers are unchanged**.
+  **FUTURE ROLE INTENT ONLY** (recorded, **NOT implemented**): `kds.operate` for **Kitchen Staff ·
+  Head Chef · Branch Manager · Shift Supervisor · Owner**, and **NOT Auditor** (it carries write
+  authority) — **FR-SEC-010 standard-role seeding is NOT authorized and no role row or role
+  semantic is modified**. Expressly **NOT ratified**: the **SERIALIZABLE + bounded-retry**
+  concurrency mechanism (an **engineering correctness mechanism**, introducing no
+  `SELECT FOR UPDATE`, no new advisory lock, no reliance on `AuditService`'s tenant-wide advisory
+  lock, no `sales.orders.version` coupling, **no migration** — §24.6.4 untouched) and the
+  **first-viewed `TICKET_VIEWED` audit entry** (**FR-AUD-001 already decides it** — requirement
+  compliance, not a discretionary choice). **`served`/Expediter (FR-KDS-013), sorting beyond FIFO,
+  colour thresholds, FR-KDS-041/042 analytics, the post-fire `order.line.voided` path, offline KDS
+  (NFR-REL-002), peer discovery (NFR-REL-003) and the FR-SEC-026 8-hour KDS TTL all remain
+  DEFERRED and NOT authorized.** **D-20 is NOT reopened** — its deferral concerned a
+  **Governance approval-read** code for a surface **D-14 A-1 had removed**, where deferral cost
+  nothing; KDS has `[M]` requirements demanding an executable permission-guarded surface, so the
+  register's own remedy for that posture applies instead. **P-1 remains RATIFIED and UNCHANGED ·
+  D-2's RBAC defer in force · D-12 remains BLOCKED · D-16's enumeration remains OPEN · D-13
+  remains RATIFIED · no Governance HTTP or read surface (D-14 A-1, D-20) · KDS-R1 … KDS-R10 and
+  the P1E-4/P1E-5 Ticket-lifecycle and Kitchen-ownership decisions unchanged · R-1(a) … R-6
+  unchanged · no schema created · no numbered decision added, amended or renumbered.** **No
+  migration is created by this entry and no implementation is performed by it**; exact
+  table/column names, route URLs, DTOs, audit action literals and event payload fields remain
+  **implementation details, NOT ratified here**. **The KDS MVP operator-lifecycle slice is
+  GOVERNANCE-UNBLOCKED.**
 
 **6 decisions remain fully unratified** (including **D-16**, which must remain OPEN), plus
 D-3's deferred residual, the decision→parent linkage question exposed by D-5, and the

@@ -56,6 +56,19 @@ export interface TicketLineModifierSnapshotInput {
 }
 
 /**
+ * KDS acceptance correction (2026-08-31), Blocker C — `wasCreated`
+ * distinguishes a genuinely NEW line (this call's own `INSERT` won) from an
+ * idempotent replay (the row already existed, header-verified unchanged).
+ * `OrderLineFiredHandler` uses this to decide whether an AMENDMENT fire into
+ * an existing Ticket needs to reactivate that Ticket's aggregate — a replay
+ * of the SAME fired line must never do so.
+ */
+export interface GetOrCreateTicketLineResult {
+  readonly line: TicketLine;
+  readonly wasCreated: boolean;
+}
+
+/**
  * Private Kitchen persistence — the ONLY code in this repository that writes
  * `kitchen.tickets` / `ticket_fire_batches` / `ticket_lines` /
  * `ticket_line_modifiers`. Every method is idempotent: replaying the same
@@ -243,7 +256,7 @@ export class TicketPersistenceService {
   async getOrCreateTicketLine(
     tx: Prisma.TransactionClient,
     input: GetOrCreateTicketLineInput,
-  ): Promise<TicketLine> {
+  ): Promise<GetOrCreateTicketLineResult> {
     const id = newId();
     const inserted = await tx.$queryRaw<TicketLine[]>`
       INSERT INTO "kitchen"."ticket_lines" (
@@ -275,7 +288,7 @@ export class TicketPersistenceService {
         "bumped_by" AS "bumpedBy"
     `;
     if (inserted.length > 0) {
-      return inserted[0];
+      return { line: inserted[0], wasCreated: true };
     }
 
     const existingRows = await tx.$queryRaw<TicketLine[]>`
@@ -323,7 +336,7 @@ export class TicketPersistenceService {
           'content than the incoming event. Refusing to overwrite.',
       );
     }
-    return existing;
+    return { line: existing, wasCreated: false };
   }
 
   async ensureTicketLineModifier(

@@ -415,7 +415,7 @@ describe('Kitchen Ticket persistence — real Postgres concurrency (P1E-5A)', ()
       [0, 1].map(() =>
         prisma.withAuthContext({ tenantId: tenantA }, async (tx) => {
           await arrive();
-          const line = await ticketPersistence.getOrCreateTicketLine(
+          const { line } = await ticketPersistence.getOrCreateTicketLine(
             tx,
             lineInput,
           );
@@ -476,7 +476,7 @@ describe('Kitchen Ticket persistence — real Postgres concurrency (P1E-5A)', ()
           fireBatchId: newId(),
           firedAt: new Date(),
         });
-        const line = await ticketPersistence.getOrCreateTicketLine(tx, {
+        const { line } = await ticketPersistence.getOrCreateTicketLine(tx, {
           tenantId: tenantA,
           ticketId: ticket.id,
           fireBatchRowId: batch.id,
