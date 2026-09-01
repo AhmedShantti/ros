@@ -483,4 +483,148 @@ describe('OpenAPI document (e2e)', () => {
     }
     expect(orphaned).toEqual([]);
   });
+
+  /**
+   * Full API-contract schema-completeness sweep (API schema audit,
+   * 2026-09-01) — derives the operation inventory FROM THE DOCUMENT itself
+   * (`doc.paths`), not a hardcoded route list, so a future route added
+   * without a real schema fails here automatically.
+   *
+   * Exactly the routes below genuinely return no body at runtime (every
+   * handler's return type is `Promise<void>`, verified against source —
+   * see the audit report's bodyless-allowlist table). Every other
+   * documented 2xx JSON-implying response must carry a concrete
+   * `application/json` schema.
+   */
+  const BODYLESS_ALLOWLIST = new Set([
+    'POST /auth/logout 204',
+    'POST /auth/memberships/{membershipId}/roles 204',
+    'DELETE /auth/memberships/{membershipId}/roles/{roleId} 204',
+    'POST /auth/password/change 204',
+    'POST /auth/password/reset 204',
+    'POST /auth/roles/{roleId}/permissions 204',
+    'POST /auth/terminals/{terminalId}/fingerprints 204',
+    'POST /catalogue/items/{itemId}/modifier-groups 204',
+    'POST /catalogue/items/{itemId}/placements 204',
+    'DELETE /catalogue/items/{itemId}/placements/{categoryId} 204',
+    'POST /catalogue/menus/{menuId}/branches 204',
+    'DELETE /catalogue/menus/{menuId}/branches/{branchId} 204',
+  ]);
+
+  function isEmptySchema(schema: SchemaNode | undefined): boolean {
+    return !schema || Object.keys(schema).length === 0;
+  }
+
+  /** A bare `{type:'object'}` is only acceptable when it documents WHY the
+   * shape is genuinely opaque (a JSON column, e.g. localized-name/address/
+   * theme blobs) — a `description` is the repository's existing signal for
+   * that (see `schema-helpers.ts` consumers across catalogue/organisation/
+   * inventory/kitchen). Anything else must declare `properties`, `$ref`,
+   * `items`, or a `oneOf`/`allOf`/`anyOf`. */
+  function isUnderspecifiedObject(schema: SchemaNode): boolean {
+    if (schema.$ref) return false;
+    const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+    if (type !== 'object') return false;
+    if (schema.properties) return false;
+    if ('oneOf' in schema || 'allOf' in schema || 'anyOf' in schema)
+      return false;
+    if ('additionalProperties' in schema) return false;
+    return !schema.description;
+  }
+
+  function isUntypedArraySchema(schema: SchemaNode): boolean {
+    const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+    if (type !== 'array') return false;
+    return isEmptySchema(schema.items);
+  }
+
+  it('every documented 2xx response is either the verified bodyless allowlist or carries a concrete JSON schema', () => {
+    const violations: string[] = [];
+    for (const [p, ops] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(ops)) {
+        if (!HTTP_METHODS.includes(method)) continue;
+        for (const [status, response] of Object.entries(op.responses ?? {})) {
+          if (!status.startsWith('2')) continue;
+          const key = `${method.toUpperCase()} ${p} ${status}`;
+          const content = response.content;
+          if (BODYLESS_ALLOWLIST.has(key)) {
+            continue;
+          }
+          if (!content || !content['application/json']) {
+            violations.push(`${key}: no application/json content`);
+            continue;
+          }
+          const schema = content['application/json'].schema;
+          if (isEmptySchema(schema)) {
+            violations.push(`${key}: empty schema`);
+            continue;
+          }
+          if (schema && isUnderspecifiedObject(schema)) {
+            violations.push(`${key}: untyped object with no properties`);
+          }
+          if (schema && isUntypedArraySchema(schema)) {
+            violations.push(`${key}: array with no typed items`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('every allowlisted bodyless route is genuinely 204 and carries no content', () => {
+    for (const key of BODYLESS_ALLOWLIST) {
+      const [method, p, status] = key.split(' ');
+      expect(status).toBe('204');
+      const response =
+        doc.paths[p]?.[method.toLowerCase()]?.responses?.[status];
+      expect(response).toBeDefined();
+      expect(response?.content).toBeUndefined();
+    }
+  });
+
+  it('every write operation (POST/PUT/PATCH) that declares a requestBody gives it a concrete application/json schema', () => {
+    const violations: string[] = [];
+    for (const [p, ops] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(ops)) {
+        if (!['post', 'put', 'patch'].includes(method)) continue;
+        const rb = op.requestBody as
+          { content?: Record<string, { schema?: SchemaNode }> } | undefined;
+        if (!rb) continue;
+        const key = `${method.toUpperCase()} ${p}`;
+        const aj = rb.content?.['application/json'];
+        if (!aj) {
+          violations.push(`${key}: requestBody has no application/json`);
+          continue;
+        }
+        if (isEmptySchema(aj.schema)) {
+          violations.push(`${key}: empty request schema`);
+          continue;
+        }
+        if (aj.schema && isUnderspecifiedObject(aj.schema)) {
+          violations.push(`${key}: untyped request object`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('every operation carries a concrete schema for its documented 400/401/403/404/409/422 error responses', () => {
+    const ERROR_STATUSES = ['400', '401', '403', '404', '409', '422'];
+    const violations: string[] = [];
+    for (const [p, ops] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(ops)) {
+        if (!HTTP_METHODS.includes(method)) continue;
+        for (const status of ERROR_STATUSES) {
+          const response = op.responses?.[status];
+          if (!response) continue;
+          const schema = response.content?.['application/json']?.schema;
+          const key = `${method.toUpperCase()} ${p} ${status}`;
+          if (isEmptySchema(schema)) {
+            violations.push(`${key}: empty error schema`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
 });

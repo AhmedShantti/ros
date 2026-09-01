@@ -22,6 +22,13 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Idempotent } from '../../../common/idempotency/idempotent.decorator';
+import {
+  businessDaySchema,
+  isoDateTimeSchema,
+  moneyStringSchema,
+  nullable,
+  uuidSchema,
+} from '../../../common/openapi/schema-helpers';
 import { CurrentPrincipal } from '../../identity/auth/decorators/current-principal.decorator';
 import { AllowPosSession } from '../../identity/auth/decorators/pos-session.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
@@ -60,6 +67,176 @@ import { TREASURY_PERMISSIONS } from '../treasury.permissions';
  * exactly mirroring `SETTINGS_BRANCH_MANAGE`'s own precedent, so this file
  * introduces no new `treasury->reporting` module edge.
  */
+
+// Shape verified against `day-close.service.ts`'s `DayCloseView` — not
+// against the Prisma schema or the SRS.
+const dayCloseViewSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    branchId: uuidSchema(),
+    businessDay: businessDaySchema(),
+    zNumber: { type: 'string' },
+    dataAsOf: isoDateTimeSchema(),
+    closedAt: isoDateTimeSchema(),
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+    salesSummary: {
+      type: 'object',
+      properties: {
+        grossSales: moneyStringSchema(),
+        discounts: moneyStringSchema(),
+        refunds: moneyStringSchema(),
+        taxTotal: moneyStringSchema(),
+        netSales: moneyStringSchema(),
+        completedOrderCount: { type: 'integer' },
+        averageOrderValue: nullable(moneyStringSchema()),
+      },
+    },
+    tenderTotals: {
+      type: 'object',
+      properties: {
+        cash: {
+          type: 'object',
+          properties: {
+            amountTotal: moneyStringSchema(),
+            roundingAdjustmentTotal: moneyStringSchema(),
+            paymentCount: { type: 'integer' },
+          },
+        },
+        manualExternalCard: {
+          type: 'object',
+          properties: {
+            amountTotal: moneyStringSchema(),
+            paymentCount: { type: 'integer' },
+          },
+        },
+        unsettledCapturedTotal: moneyStringSchema(),
+        completedExcessCapturedTotal: moneyStringSchema(
+          'Captured payment value above a completed order’s grand total. Reconciliation-only.',
+        ),
+      },
+    },
+    taxByClass: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          taxClassId: uuidSchema(),
+          taxAmount: moneyStringSchema(),
+          netAmount: moneyStringSchema(),
+          grossAmount: moneyStringSchema(),
+          lineCount: { type: 'integer' },
+        },
+      },
+    },
+    salesByOrderType: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          orderType: { type: 'string' },
+          grossSales: moneyStringSchema(),
+          netSales: moneyStringSchema(),
+          orderCount: { type: 'integer' },
+        },
+      },
+    },
+    voidAndCompSummary: {
+      type: 'object',
+      properties: {
+        voidedLineCount: { type: 'integer' },
+        voidedLineValue: moneyStringSchema(),
+        compLineCount: { type: 'integer' },
+        compLineValue: moneyStringSchema(),
+      },
+    },
+    cashReconciliation: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string', enum: ['WHOLE_SESSION'] },
+        sessionCount: { type: 'integer' },
+        varianceOwnerSessionCount: { type: 'integer' },
+        varianceTotal: moneyStringSchema(),
+        sessions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              cashSessionId: uuidSchema(),
+              isVarianceOwner: { type: 'boolean' },
+              businessDayCount: { type: 'integer' },
+              dayScoped: {
+                type: 'object',
+                properties: {
+                  cashSalesTotal: moneyStringSchema(),
+                  cashRoundingAdjustments: moneyStringSchema(),
+                  manualExternalCardTotal: moneyStringSchema(),
+                  paymentCount: { type: 'integer' },
+                },
+              },
+              wholeSession: {
+                type: 'object',
+                properties: {
+                  openingFloat: moneyStringSchema(),
+                  expectedCash: moneyStringSchema(),
+                  countedCash: moneyStringSchema(),
+                  variance: moneyStringSchema(),
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    closedBy: {
+      type: 'object',
+      properties: {
+        userId: uuidSchema(),
+        employeeId: nullable(uuidSchema()),
+      },
+    },
+    scope: {
+      type: 'object',
+      properties: {
+        notImplemented: { type: 'array', items: { type: 'string' } },
+        partial: { type: 'array', items: { type: 'string' } },
+        notes: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  },
+};
+
+// Shape verified against `day-close.service.ts`'s `DayClosePostResult`
+// discriminated union. Flattened with per-outcome presence notes, following
+// the same established convention as `treasury.controller.ts`'s
+// `declareCloseResponseSchema`/`finalizeCloseResponseSchema` (a real
+// discriminator property — `outcome` — documented via `enum` plus per-field
+// "present only when" descriptions, rather than `oneOf`, for consistency
+// with that sibling Treasury response).
+const dayClosePostResultSchema = {
+  type: 'object',
+  properties: {
+    outcome: {
+      type: 'string',
+      enum: ['ACTIVATED', 'CLOSED'],
+      description:
+        'ACTIVATED on the branch’s first ever DayClose request (no day sealed, dayClose absent). CLOSED once a real close is performed (dayClose present, the full Z snapshot).',
+    },
+    branchId: uuidSchema(),
+    businessDay: businessDaySchema(),
+    activationBusinessDay: businessDaySchema(),
+    firstEligibleBusinessDay: businessDaySchema(),
+    dayClose: {
+      ...dayCloseViewSchema,
+      description: 'Present only when outcome is CLOSED.',
+    },
+  },
+};
+
 @ApiTags('treasury')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token.' })
@@ -95,6 +272,7 @@ export class DayCloseController {
   @ApiOkResponse({
     description:
       'ACTIVATED (no day sealed) or CLOSED (with the Z snapshot). Never 409 for a successful activation.',
+    schema: dayClosePostResultSchema,
   })
   @ApiBadRequestResponse({
     description: 'Future business days are not supported.',
@@ -137,7 +315,10 @@ export class DayCloseController {
       'Requires `report.view.financial` (DC-R3); NOT `cash.day.close` ' +
       '(a write authority) and NOT `report.view.sales`.',
   })
-  @ApiOkResponse({ description: 'The persisted Z snapshot.' })
+  @ApiOkResponse({
+    description: 'The persisted Z snapshot.',
+    schema: dayCloseViewSchema,
+  })
   @ApiNotFoundResponse({
     description:
       'Branch unknown/foreign, or no DayClose exists for that business day.',

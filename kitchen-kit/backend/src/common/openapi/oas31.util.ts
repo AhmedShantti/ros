@@ -61,6 +61,55 @@ const ERROR_RESPONSE_SCHEMA = {
   },
 };
 
+/**
+ * Path parameters `@nestjs/swagger`'s CLI plugin infers directly from the
+ * `@Param()`-bound TypeScript parameter type — always the bare `string` (or,
+ * for a `ParseIntPipe`-backed param, `number`) Express hands the framework,
+ * which carries no notion of the identifier's real wire shape. Response
+ * bodies for the exact same identifiers already carry an accurate `format`
+ * via `uuidSchema()`/`businessDaySchema()`
+ * (`src/common/openapi/schema-helpers.ts`); this closes the same gap for
+ * path parameters.
+ *
+ * The name lists below are the exhaustive, manually-verified set of every
+ * path parameter name that actually occurs in the current route surface
+ * (see the API schema audit report) — not a blind `endsWith('Id')`
+ * heuristic. Every name in `UUID_PATH_PARAM_NAMES` is a ULID-as-UUID
+ * identifier, the same convention `uuidSchema()` already documents for
+ * response bodies (a ULID-as-UUID carries no RFC-4122 version nibble,
+ * which is exactly why request-body DTOs validate it with `@Matches` rather
+ * than `@IsUUID()` — see e.g. `kitchen.dto.ts` — but the OpenAPI `format`
+ * keyword is a non-enforced annotation, and applying it here only makes
+ * path parameters consistent with the identical convention already shipped
+ * for response bodies, not a new judgement call).
+ */
+const UUID_PATH_PARAM_NAMES = new Set([
+  'branchId',
+  'brandId',
+  'categoryId',
+  'centralKitchenId',
+  'groupId',
+  'id',
+  'itemId',
+  'lineId',
+  'membershipId',
+  'menuId',
+  'modifierId',
+  'priceListId',
+  'recipeId',
+  'roleId',
+  'ruleId',
+  'sessionId',
+  'stationId',
+  'tableId',
+  'terminalId',
+  'ticketId',
+  'variantId',
+  'warehouseId',
+]);
+
+const UUID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
+
 type JsonRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -145,7 +194,43 @@ function fillErrorResponseSchemas(document: JsonRecord): void {
 }
 
 /**
- * Apply both OpenAPI-3.1 corrections to a document already built by
+ * `businessDay` path parameters already carry the correct `^\d{4}-\d{2}-\d{2}$`
+ * `pattern` (from each route's own path-params DTO, e.g.
+ * `DayCloseParamsDto`) — only the `format: date` annotation is missing.
+ * `version` (Production recipe version, `ParseIntPipe`-backed) is inferred
+ * by the CLI plugin as the looser `number`; `integer` is the accurate
+ * primitive for a value Express/Nest never hands back with a fractional
+ * part.
+ */
+function enrichPathParameterSchemas(document: JsonRecord): void {
+  const paths = isRecord(document.paths) ? document.paths : {};
+  for (const ops of Object.values(paths)) {
+    if (!isRecord(ops)) continue;
+    for (const op of Object.values(ops)) {
+      if (!isRecord(op) || !Array.isArray(op.parameters)) continue;
+      for (const param of op.parameters) {
+        if (!isRecord(param) || param.in !== 'path') continue;
+        const name = param.name;
+        const schema = isRecord(param.schema) ? param.schema : undefined;
+        if (!schema || schema.format) continue;
+
+        if (typeof name === 'string' && UUID_PATH_PARAM_NAMES.has(name)) {
+          if (schema.type === 'string') {
+            schema.format = 'uuid';
+            schema.example = UUID_EXAMPLE;
+          }
+        } else if (name === 'businessDay' && schema.type === 'string') {
+          schema.format = 'date';
+        } else if (name === 'version' && schema.type === 'number') {
+          schema.type = 'integer';
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Apply all OpenAPI-3.1 corrections to a document already built by
  * `SwaggerModule.createDocument`. Call this on both the live `/docs` UI
  * document (`main.ts`) and the standalone generator so the two never
  * disagree.
@@ -155,5 +240,6 @@ export function finalizeOpenApiDocument(
 ): OpenAPIObject {
   const record = document as unknown as JsonRecord;
   fillErrorResponseSchemas(record);
+  enrichPathParameterSchemas(record);
   return nullableToJsonSchema2020(record) as OpenAPIObject;
 }
