@@ -1265,7 +1265,7 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
       readdirSync(migrationsDir, { withFileTypes: true }).filter((e) =>
         e.isDirectory(),
       ).length,
-    ).toBe(34);
+    ).toBe(35);
   });
 
   /**

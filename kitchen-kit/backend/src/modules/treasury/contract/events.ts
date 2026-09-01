@@ -37,7 +37,8 @@ import { DomainEventEnvelope } from '../../../common/domain-events/domain-event.
  * `actorId`, `actorType`, `correlationId`, `causationId`, `idempotencyKey`
  * — none of those is repeated here.
  */
-export const CASH_VARIANCE_DETECTED_EVENT_TYPE = 'cash.variance.detected' as const;
+export const CASH_VARIANCE_DETECTED_EVENT_TYPE =
+  'cash.variance.detected' as const;
 export const CASH_VARIANCE_DETECTED_EVENT_VERSION = 1;
 
 export interface CashVarianceDetectedPayload {
@@ -79,4 +80,63 @@ export interface CashVarianceDetectedPayload {
 export type CashVarianceDetectedEvent = DomainEventEnvelope<
   typeof CASH_VARIANCE_DETECTED_EVENT_TYPE,
   CashVarianceDetectedPayload
+>;
+
+/**
+ * Migration 35 — DayClose. SRS §5.5.4's event catalogue lists `day.closed`,
+ * publisher Treasury, principal subscribers Analytics, Fiscal, Reporting.
+ * Exactly one event; no second event is invented.
+ *
+ * Published AFTER the DayClose row and its children are durably persisted
+ * inside the SAME UnitOfWork, before commit (§5.5.2) — never on the
+ * activation-only `ACTIVATED` outcome (no day was sealed), never on an
+ * idempotent replay (no new fact to announce, mirroring
+ * `cash.variance.detected`'s own replay discipline), never leaked from a
+ * rolled-back attempt (`UnitOfWork`'s fresh per-attempt event collector).
+ *
+ * No synchronous call to any external system — SRS §5.5.3 makes the
+ * transactional outbox mandatory (`FR-PLT-041`) for that kind of effect,
+ * and no outbox exists in this repository. This event establishes the
+ * FUTURE integration point only; every external-effect limb of
+ * `FR-FIN-026` remains NOT IMPLEMENTED (DC-R1).
+ *
+ * Payload mirrors `CashVarianceDetectedPayload`'s own convention — money as
+ * base-10 minor-unit strings (ADR-008), the §5.5.4 envelope supplying
+ * `tenantId`/`branchId`/`actorId`/`actorType`/`correlationId`/
+ * `causationId`/`idempotencyKey`. No `cashSessionId` list, no per-session
+ * internals — the event announces the sealed FACT, not Treasury's table
+ * structure.
+ */
+export const DAY_CLOSED_EVENT_TYPE = 'day.closed' as const;
+export const DAY_CLOSED_EVENT_VERSION = 1;
+
+export interface DayClosedPayload {
+  readonly dayCloseId: string;
+  /** ISO date (`YYYY-MM-DD`). */
+  readonly businessDay: string;
+  readonly zNumber: string;
+  readonly currency: string;
+  /** ISO-8601. */
+  readonly dataAsOf: string;
+  readonly grossSalesMinorUnits: string;
+  readonly discountsMinorUnits: string;
+  readonly refundsMinorUnits: string;
+  readonly taxTotalMinorUnits: string;
+  readonly netSalesMinorUnits: string;
+  readonly completedOrderCount: number;
+  readonly averageOrderValueMinorUnits: string | null;
+  readonly tenderTotals: readonly {
+    readonly tender: 'cash' | 'manual_external_card';
+    readonly amountMinorUnits: string;
+    readonly paymentCount: number;
+  }[];
+  readonly sessionCount: number;
+  readonly varianceTotalMinorUnits: string;
+  readonly closedByUserId: string;
+  readonly closedByEmployeeId: string | null;
+}
+
+export type DayClosedEvent = DomainEventEnvelope<
+  typeof DAY_CLOSED_EVENT_TYPE,
+  DayClosedPayload
 >;

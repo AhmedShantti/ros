@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,8 @@ import {
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
 import { CountryPackService } from '../../localisation/country-pack/country-pack.service';
+import { DAY_CLOSE_STATE_QUERY } from '../../treasury/contract';
+import type { DayCloseStateQuery } from '../../treasury/contract';
 import { cutoverLookup, resolveBusinessDay } from './business-day';
 import {
   DEFAULT_BLOCK_SIZE,
@@ -89,6 +92,17 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly countryPacks: CountryPackService,
+    /**
+     * Migration 35 (DayClose) — the shared Order-create/DayClose cutover
+     * fence's Order-create side (pre-ratification final correction §4.4,
+     * "Option B"). Consumed inside THIS transaction, immediately after
+     * `allocateOrderNumber` acquires the existing
+     * `ros_order_number(branchId, businessDay)` advisory lock and BEFORE the
+     * `Order` `INSERT` — never a second lock namespace, never a private
+     * Treasury table query.
+     */
+    @Inject(DAY_CLOSE_STATE_QUERY)
+    private readonly dayCloseState: DayCloseStateQuery,
   ) {}
 
   /**
@@ -240,6 +254,22 @@ export class OrdersService {
           terminal.id,
           businessDay,
         );
+
+        // Migration 35 (DayClose) cutover fence, checked AFTER the
+        // advisory-lock acquisition above and BEFORE the INSERT below — the
+        // pre-ratification final correction §4.4 "Option B" half of the
+        // shared fence. A day sealed while this transaction was blocked on
+        // the lock is now visible; a day that seals AFTER this check either
+        // blocks on the same lock (if DayClose has not yet started) or has
+        // already lost the race for it (both interleavings proved safe).
+        const dayClosed = await this.dayCloseState.isClosed(tx, {
+          tenantId,
+          branchId: branch.id,
+          businessDay,
+        });
+        if (dayClosed) {
+          throw new ConflictException('That business day is closed.');
+        }
 
         const order = await tx.order.create({
           data: {

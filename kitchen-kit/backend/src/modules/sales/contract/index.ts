@@ -13,3 +13,4 @@
 export * from './events';
 export * from './cash-session-tender-totals.query';
 export * from './daily-trading-sales.query';
+export * from './day-close-sales-facts.query';

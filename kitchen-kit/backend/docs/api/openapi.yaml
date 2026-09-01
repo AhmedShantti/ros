@@ -1102,6 +1102,9 @@ components:
       required:
         - categoryId
       type: object
+    PostDayCloseDto:
+      properties: {}
+      type: object
     PostMovementDto:
       properties:
         locationId:
@@ -2975,6 +2978,113 @@ paths:
         Create a new immutable cash-close policy version for a branch — R-1(a),
         R-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a
         flaky link must not produce a second version.
+      tags:
+        - treasury
+  /branches/{branchId}/day-closes/{businessDay}:
+    get:
+      description: Returns the persisted immutable snapshot, byte-stable forever — never recomputed, never manufactured for a pre-activation date. Requires `report.view.financial` (DC-R3); NOT `cash.day.close` (a write authority) and NOT `report.view.sales`.
+      operationId: DayCloseController_get
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: businessDay
+          required: true
+          schema:
+            pattern: ^\d{4}-\d{2}-\d{2}$
+            type: string
+      responses:
+        '200':
+          description: The persisted Z snapshot.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing the required permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Branch unknown/foreign, or no DayClose exists for that business day.
+      security:
+        - bearer: []
+      summary: Retrieve a historical DayClose / Z (persisted records only).
+      tags:
+        - treasury
+    post:
+      description: 'The FIRST request for a branch ACTIVATES it: commits a durable, audited, idempotent `outcome: "ACTIVATED"` and never throws. A later request, once `activationBusinessDay < businessDay < currentBusinessDay`, performs a real close and returns `outcome: "CLOSED"` with the full Z snapshot. Internal-MVP: FR-FIN-022/026 remain PARTIAL — see the response’s own `scope` block.'
+      operationId: DayCloseController_post
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: businessDay
+          required: true
+          schema:
+            pattern: ^\d{4}-\d{2}-\d{2}$
+            type: string
+        - description: 'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).'
+          in: header
+          name: idempotency-key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostDayCloseDto'
+        required: true
+      responses:
+        '200':
+          description: ACTIVATED (no day sealed) or CLOSED (with the Z snapshot). Never 409 for a successful activation.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Future business days are not supported.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing the required permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Branch unknown or in another tenant.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The current business day cannot yet be closed; the target day is outside the DayClose activation epoch; the day is already closed; open orders or open/closing cash sessions block the close; or a transient Z-number allocation collision could not be resolved after several attempts.
+      security:
+        - bearer: []
+      summary: Close a business day, or — on the branch’s first ever DayClose request — activate the branch’s DayClose epoch.
       tags:
         - treasury
   /cash-sessions:

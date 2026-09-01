@@ -1109,7 +1109,12 @@ describe('Cash session open (e2e)', () => {
       // about Treasury's own boundary, which is what this test guards.
       expect(treasury.filter((p) => p.includes('payment'))).toHaveLength(0);
       expect(paths.filter((p) => p.includes('refund'))).toHaveLength(0);
-      expect(paths.filter((p) => p.includes('day-close'))).toHaveLength(0);
+      // Migration 35 (DayClose, DC-R1/R2/R3) legitimately introduces
+      // `/branches/:branchId/day-closes/:businessDay` (POST + GET) — a
+      // Treasury route, but not under `/cash-sessions` (this test's own
+      // `treasury` scope above), so it does not affect the assertions this
+      // test actually guards. The prior "no day-close route anywhere" guard
+      // is dropped, not narrowed, now that the slice is implemented.
     });
 
     it('creates no payment table in the treasury schema, and no PaymentAttempt table anywhere', async () => {
@@ -1138,7 +1143,11 @@ describe('Cash session open (e2e)', () => {
       // narrow cash-close policy substrate, NOT the generic FR-PLT-025
       // settings hierarchy. P1G-1 migration 34 adds
       // treasury.cash_session_close_attempts and
-      // treasury.cash_count_denominations (CashSession Close itself).
+      // treasury.cash_count_denominations (CashSession Close itself), plus
+      // migration 35 (DayClose, DC-R1/R2/R3): treasury.day_closes,
+      // treasury.day_close_activations, treasury.day_close_sessions,
+      // treasury.day_close_tax_class_totals and
+      // treasury.day_close_order_type_totals.
       const rows = await admin.$queryRawUnsafe<
         { schemaname: string; tablename: string }[]
       >(
@@ -1151,6 +1160,11 @@ describe('Cash session open (e2e)', () => {
         'treasury.cash_movements',
         'treasury.cash_session_close_attempts',
         'treasury.cash_sessions',
+        'treasury.day_close_activations',
+        'treasury.day_close_order_type_totals',
+        'treasury.day_close_sessions',
+        'treasury.day_close_tax_class_totals',
+        'treasury.day_closes',
         'treasury.drawers',
         'workforce.shifts',
       ]);

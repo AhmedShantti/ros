@@ -71,6 +71,14 @@ export const AUDIT_ACTION = {
   // audited write in this module); CASH_SESSION_CLOSED remains the
   // separate, later fact that the session actually closed.
   CASH_VARIANCE_DECLARED: 'CASH_VARIANCE_DECLARED',
+  // Migration 35 — DayClose. Two DISTINCT verbs for two distinct durable
+  // state changes (activation-mechanic final correction §7): activating a
+  // branch's DayClose epoch (the FIRST POST for a branch — a durable,
+  // committed, audited outcome, never a disguised failure) and sealing a
+  // business day (a real close). Never conflated into one verb — an
+  // activation writes no DayClose row, and a close never re-activates.
+  DAY_CLOSE_ACTIVATED: 'DAY_CLOSE_ACTIVATED',
+  DAY_CLOSED: 'DAY_CLOSED',
   // D-2 (amended) PIN substrate. Security-sensitive state changes only; a PIN
   // value never appears in any payload.
   EMPLOYEE_CREATED: 'EMPLOYEE_CREATED',
@@ -188,6 +196,9 @@ export const AUDIT_ENTITY = {
   CASH_MOVEMENT: 'cash_movement',
   // P1G-1 migration 33.
   CASH_CLOSE_POLICY: 'cash_close_policy',
+  // Migration 35 — DayClose.
+  DAY_CLOSE: 'day_close',
+  DAY_CLOSE_ACTIVATION: 'day_close_activation',
   APPROVAL_REQUEST: 'approval_request',
   APPROVAL_DECISION: 'approval_decision',
   DRAWER: 'drawer',

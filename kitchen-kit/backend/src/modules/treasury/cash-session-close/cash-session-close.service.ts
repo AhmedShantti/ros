@@ -62,8 +62,14 @@ import {
 } from '../../governance/contract';
 import type { ApprovalCommands } from '../../governance/contract';
 import type { VerifiedTerminalPrincipal } from '../../identity/contract';
-import { CASH_SESSION_TENDER_TOTALS_QUERY } from '../../sales/contract';
-import type { CashSessionTenderTotalsQuery } from '../../sales/contract';
+import {
+  CASH_SESSION_TENDER_TOTALS_QUERY,
+  DAILY_TRADING_SALES_QUERY,
+} from '../../sales/contract';
+import type {
+  CashSessionTenderTotalsQuery,
+  DailyTradingSalesQuery,
+} from '../../sales/contract';
 import { CashClosePolicyResolver } from '../cash-close-policy/cash-close-policy.resolver';
 import {
   CASH_MOVEMENT_TOTALS_QUERY,
@@ -121,6 +127,15 @@ export class CashSessionCloseService {
     private readonly tenderTotals: CashSessionTenderTotalsQuery,
     @Inject(APPROVAL_COMMANDS)
     private readonly approvals: ApprovalCommands,
+    /**
+     * Migration 35 (DayClose, DC-R2) — `currentBusinessDay` is the SAME
+     * authoritative `resolveBusinessDay`/`cutoverLookup` implementation
+     * Order creation and Reporting already share. Used ONLY to derive
+     * `closed_business_day` at the CLOSED transition, from the live clock,
+     * inside this SAME transaction — NEVER re-derived historically.
+     */
+    @Inject(DAILY_TRADING_SALES_QUERY)
+    private readonly businessDayQuery: DailyTradingSalesQuery,
   ) {}
 
   // ============================================================ CONTEXT ===
@@ -170,7 +185,10 @@ export class CashSessionCloseService {
           currency: session.currency,
           openingFloatMinorUnits: session.openingFloat.toString(),
           ...(policy
-            ? { toleranceMinorUnits: policy.varianceToleranceMinorUnits.toString() }
+            ? {
+                toleranceMinorUnits:
+                  policy.varianceToleranceMinorUnits.toString(),
+              }
             : {}),
         };
         if (countMode !== 'open') {
@@ -179,7 +197,10 @@ export class CashSessionCloseService {
           return base;
         }
         const facts = await this.computeExpectedCash(tx, tenantId, session);
-        return { ...base, expectedCashMinorUnits: facts.expectedCash.toString() };
+        return {
+          ...base,
+          expectedCashMinorUnits: facts.expectedCash.toString(),
+        };
       }
 
       // `closing` / `closed` — the attempt is committed; disclosure already
@@ -345,7 +366,13 @@ export class CashSessionCloseService {
           actorId: actorUserId,
           entityId: session.id,
           terminalId: actor.terminalId,
-          metadata: this.varianceAuditMetadata(session.id, attempt, facts, policy.policyVersionId, actor.employeeId),
+          metadata: this.varianceAuditMetadata(
+            session.id,
+            attempt,
+            facts,
+            policy.policyVersionId,
+            actor.employeeId,
+          ),
         });
 
         // ── SRS §5.5.4 `cash.variance.detected` (Treasury -> Governance,
@@ -370,7 +397,8 @@ export class CashSessionCloseService {
           cashRefundsTotalMinorUnits: CASH_REFUNDS_TOTAL.toString(),
           payOutTotalMinorUnits: facts.payOutTotal.toString(),
           safeDropTotalMinorUnits: facts.safeDropTotal.toString(),
-          cashRoundingAdjustmentsMinorUnits: facts.cashRoundingAdjustments.toString(),
+          cashRoundingAdjustmentsMinorUnits:
+            facts.cashRoundingAdjustments.toString(),
           expectedCashMinorUnits: attempt.expectedCash.toString(),
           countedCashMinorUnits: attempt.countedCash.toString(),
           varianceMinorUnits: attempt.variance.toString(),
@@ -404,6 +432,11 @@ export class CashSessionCloseService {
 
         // Within tolerance — the ONE-REQUEST fast path. Close now.
         const closedAt = new Date();
+        const closedBusinessDay =
+          await this.businessDayQuery.currentBusinessDay(tx, {
+            tenantId,
+            branchId: session.branchId,
+          });
         await tx.$executeRaw`
           UPDATE "treasury"."cash_sessions"
           SET "close_attempt_id" = ${input.closeAttemptId}::uuid,
@@ -413,7 +446,8 @@ export class CashSessionCloseService {
               "variance" = ${attempt.variance},
               "closed_at" = ${closedAt}::timestamptz,
               "closed_by_user_id" = ${actorUserId}::uuid,
-              "closed_by_employee_id" = ${actor.employeeId}::uuid
+              "closed_by_employee_id" = ${actor.employeeId}::uuid,
+              "closed_business_day" = ${closedBusinessDay}::date
           WHERE "tenant_id" = ${tenantId}::uuid AND "id" = ${session.id}::uuid
         `;
         const updated = await this.loadSession(tx, session.id);
@@ -582,6 +616,11 @@ export class CashSessionCloseService {
 
         // ── APPROVED — close now, from the immutable attempt. ─────────────
         const closedAt = new Date();
+        const closedBusinessDay =
+          await this.businessDayQuery.currentBusinessDay(tx, {
+            tenantId,
+            branchId: session.branchId,
+          });
         await tx.$executeRaw`
           UPDATE "treasury"."cash_sessions"
           SET "status" = 'closed'::"treasury"."CashSessionStatus",
@@ -592,7 +631,8 @@ export class CashSessionCloseService {
               "approval_request_id" = ${input.approvalRequestId}::uuid,
               "closed_at" = ${closedAt}::timestamptz,
               "closed_by_user_id" = ${actorUserId}::uuid,
-              "closed_by_employee_id" = ${actor.employeeId}::uuid
+              "closed_by_employee_id" = ${actor.employeeId}::uuid,
+              "closed_business_day" = ${closedBusinessDay}::date
           WHERE "tenant_id" = ${tenantId}::uuid AND "id" = ${session.id}::uuid
         `;
         const closedSession = await this.loadSession(tx, session.id);
@@ -644,6 +684,7 @@ export class CashSessionCloseService {
         approvalRequestId: true,
         closedByUserId: true,
         closedByEmployeeId: true,
+        closedBusinessDay: true,
       },
     });
     if (!session) throw new NotFoundException('Cash session not found.');
@@ -712,7 +753,10 @@ export class CashSessionCloseService {
   /** FR-POS-097: total OR denominations OR both (matching, no duplicates). */
   private resolveCountedTotal(
     countedTotalMinorUnits: string | undefined,
-    denominations: readonly { denominationMinorUnits: bigint; quantity: number }[],
+    denominations: readonly {
+      denominationMinorUnits: bigint;
+      quantity: number;
+    }[],
   ): bigint {
     const explicit =
       countedTotalMinorUnits !== undefined
@@ -739,7 +783,9 @@ export class CashSessionCloseService {
   }
 
   private parseDenominations(
-    input: readonly { denominationMinorUnits: string; quantity: number }[] | undefined,
+    input:
+      | readonly { denominationMinorUnits: string; quantity: number }[]
+      | undefined,
   ): { denominationMinorUnits: bigint; quantity: number }[] {
     if (!input) return [];
     const seen = new Set<string>();
@@ -872,7 +918,8 @@ export class CashSessionCloseService {
       cashRefundsTotalMinorUnits: CASH_REFUNDS_TOTAL.toString(),
       payOutTotalMinorUnits: facts.payOutTotal.toString(),
       safeDropTotalMinorUnits: facts.safeDropTotal.toString(),
-      cashRoundingAdjustmentsMinorUnits: facts.cashRoundingAdjustments.toString(),
+      cashRoundingAdjustmentsMinorUnits:
+        facts.cashRoundingAdjustments.toString(),
       expectedCashMinorUnits: attempt.expectedCash.toString(),
       countedCashMinorUnits: attempt.countedCash.toString(),
       varianceMinorUnits: attempt.variance.toString(),

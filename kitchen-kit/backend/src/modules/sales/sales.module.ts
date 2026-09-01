@@ -10,9 +10,11 @@ import { ProductionModule } from '../production/production.module';
 import { TreasuryModule } from '../treasury/treasury.module';
 import { CashSessionTenderTotalsQueryService } from './orders/cash-session-tender-totals.query.service';
 import { DailyTradingSalesQueryService } from './orders/daily-trading-sales.query.service';
+import { DayCloseSalesFactsQueryService } from './orders/day-close-sales-facts.query.service';
 import {
   CASH_SESSION_TENDER_TOTALS_QUERY,
   DAILY_TRADING_SALES_QUERY,
+  DAY_CLOSE_SALES_FACTS_QUERY,
 } from './contract';
 import { OrderLinesService } from './orders/order-lines.service';
 import { OrdersController } from './orders/orders.controller';
@@ -125,6 +127,13 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
       provide: DAILY_TRADING_SALES_QUERY,
       useExisting: DailyTradingSalesQueryService,
     },
+    // Migration 35 (DayClose) — Sales' THIRD published `contract/` query,
+    // consumed only by Treasury's `day-close/day-close.service.ts`.
+    DayCloseSalesFactsQueryService,
+    {
+      provide: DAY_CLOSE_SALES_FACTS_QUERY,
+      useExisting: DayCloseSalesFactsQueryService,
+    },
     // Domain errors are plain Errors so the pure layers stay free of HTTP; this
     // maps them onto the Problem Details statuses SRS 26 specifies.
     { provide: APP_FILTER, useClass: SalesDomainExceptionFilter },
@@ -134,6 +143,7 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
     OrderLinesService,
     CASH_SESSION_TENDER_TOTALS_QUERY,
     DAILY_TRADING_SALES_QUERY,
+    DAY_CLOSE_SALES_FACTS_QUERY,
   ],
 })
 export class SalesModule {}
