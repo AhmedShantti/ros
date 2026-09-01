@@ -2439,6 +2439,8 @@
             "name": "membershipId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -2508,6 +2510,8 @@
             "name": "membershipId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -2516,6 +2520,8 @@
             "name": "roleId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -3210,6 +3216,8 @@
             "name": "roleId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -3950,6 +3958,8 @@
             "name": "terminalId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -4019,6 +4029,8 @@
             "name": "terminalId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -4145,6 +4157,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -4300,6 +4314,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -4308,6 +4324,7 @@
             "name": "businessDay",
             "required": true,
             "schema": {
+              "format": "date",
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string"
             }
@@ -4315,6 +4332,369 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "businessDay": {
+                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                      "example": "2026-08-23",
+                      "format": "date",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "type": "string"
+                    },
+                    "cashReconciliation": {
+                      "properties": {
+                        "scope": {
+                          "enum": [
+                            "WHOLE_SESSION"
+                          ],
+                          "type": "string"
+                        },
+                        "sessionCount": {
+                          "type": "integer"
+                        },
+                        "sessions": {
+                          "items": {
+                            "properties": {
+                              "businessDayCount": {
+                                "type": "integer"
+                              },
+                              "cashSessionId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "dayScoped": {
+                                "properties": {
+                                  "cashRoundingAdjustments": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "cashSalesTotal": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "manualExternalCardTotal": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "paymentCount": {
+                                    "type": "integer"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "isVarianceOwner": {
+                                "type": "boolean"
+                              },
+                              "wholeSession": {
+                                "properties": {
+                                  "countedCash": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "expectedCash": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "openingFloat": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "variance": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "varianceOwnerSessionCount": {
+                          "type": "integer"
+                        },
+                        "varianceTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "closedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "closedBy": {
+                      "properties": {
+                        "employeeId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "userId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code.",
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "dataAsOf": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "salesByOrderType": {
+                      "items": {
+                        "properties": {
+                          "grossSales": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "netSales": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "orderCount": {
+                            "type": "integer"
+                          },
+                          "orderType": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "salesSummary": {
+                      "properties": {
+                        "averageOrderValue": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "completedOrderCount": {
+                          "type": "integer"
+                        },
+                        "discounts": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "grossSales": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "netSales": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "refunds": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "taxTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "scope": {
+                      "properties": {
+                        "notImplemented": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "notes": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "partial": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "taxByClass": {
+                      "items": {
+                        "properties": {
+                          "grossAmount": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "lineCount": {
+                            "type": "integer"
+                          },
+                          "netAmount": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "taxAmount": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "taxClassId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "tenderTotals": {
+                      "properties": {
+                        "cash": {
+                          "properties": {
+                            "amountTotal": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            },
+                            "paymentCount": {
+                              "type": "integer"
+                            },
+                            "roundingAdjustmentTotal": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "completedExcessCapturedTotal": {
+                          "description": "Captured payment value above a completed order’s grand total. Reconciliation-only.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "manualExternalCard": {
+                          "properties": {
+                            "amountTotal": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            },
+                            "paymentCount": {
+                              "type": "integer"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "unsettledCapturedTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "voidAndCompSummary": {
+                      "properties": {
+                        "compLineCount": {
+                          "type": "integer"
+                        },
+                        "compLineValue": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "voidedLineCount": {
+                          "type": "integer"
+                        },
+                        "voidedLineValue": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "zNumber": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
             "description": "The persisted Z snapshot."
           },
           "401": {
@@ -4367,6 +4747,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -4375,6 +4757,7 @@
             "name": "businessDay",
             "required": true,
             "schema": {
+              "format": "date",
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string"
             }
@@ -4401,6 +4784,462 @@
         },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "description": "The branch’s first ever DayClose request: commits and activates the DayClose epoch. No day is sealed; there is no `dayClose` snapshot.",
+                      "properties": {
+                        "activationBusinessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "firstEligibleBusinessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "outcome": {
+                          "const": "ACTIVATED",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "outcome",
+                        "branchId",
+                        "businessDay",
+                        "activationBusinessDay",
+                        "firstEligibleBusinessDay"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "description": "A real close was performed: the target business day is sealed and the full Z snapshot is returned.",
+                      "properties": {
+                        "activationBusinessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "dayClose": {
+                          "properties": {
+                            "branchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "businessDay": {
+                              "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                              "example": "2026-08-23",
+                              "format": "date",
+                              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                              "type": "string"
+                            },
+                            "cashReconciliation": {
+                              "properties": {
+                                "scope": {
+                                  "enum": [
+                                    "WHOLE_SESSION"
+                                  ],
+                                  "type": "string"
+                                },
+                                "sessionCount": {
+                                  "type": "integer"
+                                },
+                                "sessions": {
+                                  "items": {
+                                    "properties": {
+                                      "businessDayCount": {
+                                        "type": "integer"
+                                      },
+                                      "cashSessionId": {
+                                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                        "format": "uuid",
+                                        "type": "string"
+                                      },
+                                      "dayScoped": {
+                                        "properties": {
+                                          "cashRoundingAdjustments": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "cashSalesTotal": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "manualExternalCardTotal": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "paymentCount": {
+                                            "type": "integer"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "isVarianceOwner": {
+                                        "type": "boolean"
+                                      },
+                                      "wholeSession": {
+                                        "properties": {
+                                          "countedCash": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "expectedCash": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "openingFloat": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "variance": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      }
+                                    },
+                                    "type": "object"
+                                  },
+                                  "type": "array"
+                                },
+                                "varianceOwnerSessionCount": {
+                                  "type": "integer"
+                                },
+                                "varianceTotal": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "closedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "closedBy": {
+                              "properties": {
+                                "employeeId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "userId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "currency": {
+                              "description": "ISO 4217 currency code.",
+                              "example": "AED",
+                              "type": "string"
+                            },
+                            "dataAsOf": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "salesByOrderType": {
+                              "items": {
+                                "properties": {
+                                  "grossSales": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "netSales": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "orderCount": {
+                                    "type": "integer"
+                                  },
+                                  "orderType": {
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "salesSummary": {
+                              "properties": {
+                                "averageOrderValue": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "completedOrderCount": {
+                                  "type": "integer"
+                                },
+                                "discounts": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "grossSales": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "netSales": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "refunds": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "taxTotal": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "scope": {
+                              "properties": {
+                                "notImplemented": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "notes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "partial": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "taxByClass": {
+                              "items": {
+                                "properties": {
+                                  "grossAmount": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "lineCount": {
+                                    "type": "integer"
+                                  },
+                                  "netAmount": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "taxAmount": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "taxClassId": {
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                    "format": "uuid",
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "tenderTotals": {
+                              "properties": {
+                                "cash": {
+                                  "properties": {
+                                    "amountTotal": {
+                                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                      "example": "1250",
+                                      "pattern": "^-?\\d+$",
+                                      "type": "string"
+                                    },
+                                    "paymentCount": {
+                                      "type": "integer"
+                                    },
+                                    "roundingAdjustmentTotal": {
+                                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                      "example": "1250",
+                                      "pattern": "^-?\\d+$",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "completedExcessCapturedTotal": {
+                                  "description": "Captured payment value above a completed order’s grand total. Reconciliation-only.",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "manualExternalCard": {
+                                  "properties": {
+                                    "amountTotal": {
+                                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                      "example": "1250",
+                                      "pattern": "^-?\\d+$",
+                                      "type": "string"
+                                    },
+                                    "paymentCount": {
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "unsettledCapturedTotal": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "voidAndCompSummary": {
+                              "properties": {
+                                "compLineCount": {
+                                  "type": "integer"
+                                },
+                                "compLineValue": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "voidedLineCount": {
+                                  "type": "integer"
+                                },
+                                "voidedLineValue": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "zNumber": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "firstEligibleBusinessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "outcome": {
+                          "const": "CLOSED",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "outcome",
+                        "branchId",
+                        "businessDay",
+                        "activationBusinessDay",
+                        "firstEligibleBusinessDay",
+                        "dayClose"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
             "description": "ACTIVATED (no day sealed) or CLOSED (with the Z snapshot). Never 409 for a successful activation."
           },
           "400": {
@@ -4670,6 +5509,8 @@
             "name": "sessionId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -4837,6 +5678,8 @@
             "name": "sessionId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -4972,6 +5815,8 @@
             "name": "sessionId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -5099,6 +5944,8 @@
             "name": "sessionId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -5253,6 +6100,8 @@
             "name": "sessionId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -5407,6 +6256,8 @@
             "name": "sessionId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -5835,6 +6686,8 @@
             "name": "ruleId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -5982,6 +6835,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -6089,6 +6944,8 @@
             "name": "categoryId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -6574,6 +7431,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -6723,6 +7582,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -6884,6 +7745,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -6963,6 +7826,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -7041,6 +7906,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -7120,6 +7987,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -7128,6 +7997,8 @@
             "name": "categoryId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -7186,6 +8057,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -7348,6 +8221,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -7448,6 +8323,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -7740,6 +8617,8 @@
             "name": "menuId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -7838,6 +8717,8 @@
             "name": "menuId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -7948,6 +8829,8 @@
             "name": "menuId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -8005,6 +8888,8 @@
             "name": "menuId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -8084,6 +8969,8 @@
             "name": "menuId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -8092,6 +8979,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -8150,6 +9039,8 @@
             "name": "menuId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -8250,6 +9141,8 @@
             "name": "menuId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -8359,6 +9252,8 @@
             "name": "menuId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -8637,6 +9532,8 @@
             "name": "groupId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -8749,6 +9646,8 @@
             "name": "groupId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -8888,6 +9787,8 @@
             "name": "groupId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -9303,6 +10204,8 @@
             "name": "priceListId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -9430,6 +10333,8 @@
             "name": "priceListId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -9524,6 +10429,8 @@
             "name": "priceListId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -9638,6 +10545,8 @@
             "name": "variantId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -9791,6 +10700,8 @@
             "name": "lineId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -10008,6 +10919,8 @@
             "name": "sessionId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -10115,6 +11028,8 @@
             "name": "sessionId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -10587,6 +11502,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -10726,6 +11643,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -10886,6 +11805,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -11024,6 +11945,8 @@
             "name": "itemId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -12104,6 +13027,8 @@
             "name": "stationId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -12121,6 +13046,251 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cancelledLineVisibilitySeconds": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "recallWindowSeconds": {
+                      "type": "integer"
+                    },
+                    "tickets": {
+                      "items": {
+                        "properties": {
+                          "bumpedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "businessDay": {
+                            "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                            "example": "2026-08-23",
+                            "format": "date",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                            "type": "string"
+                          },
+                          "elapsedSeconds": {
+                            "description": "Server-computed at response time — never a client value.",
+                            "type": "integer"
+                          },
+                          "firstViewedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "lines": {
+                            "items": {
+                              "properties": {
+                                "bumpedAt": {
+                                  "example": "2026-08-23T14:30:00.000Z",
+                                  "format": "date-time",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "cancelledAt": {
+                                  "example": "2026-08-23T14:30:00.000Z",
+                                  "format": "date-time",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "course": {
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
+                                "firstViewedAt": {
+                                  "example": "2026-08-23T14:30:00.000Z",
+                                  "format": "date-time",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "id": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                },
+                                "itemNameSnapshot": {
+                                  "description": "Opaque localized-name object, as stored at Fire time.",
+                                  "type": "object"
+                                },
+                                "modifiers": {
+                                  "items": {
+                                    "properties": {
+                                      "id": {
+                                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                        "format": "uuid",
+                                        "type": "string"
+                                      },
+                                      "kind": {
+                                        "enum": [
+                                          "addition",
+                                          "removal",
+                                          "substitution"
+                                        ],
+                                        "type": "string"
+                                      },
+                                      "nameSnapshot": {
+                                        "description": "Opaque localized-name object, as stored at Fire time.",
+                                        "type": "object"
+                                      },
+                                      "quantity": {
+                                        "type": "integer"
+                                      }
+                                    },
+                                    "type": "object"
+                                  },
+                                  "type": "array"
+                                },
+                                "orderLineId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                },
+                                "preparationNotes": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "quantity": {
+                                  "description": "DECIMAL(12,3) rendered as a string, never a JS number.",
+                                  "example": "2",
+                                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                                  "type": "string"
+                                },
+                                "readyAt": {
+                                  "example": "2026-08-23T14:30:00.000Z",
+                                  "format": "date-time",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "recalledAt": {
+                                  "example": "2026-08-23T14:30:00.000Z",
+                                  "format": "date-time",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "sequence": {
+                                  "type": "integer"
+                                },
+                                "startedAt": {
+                                  "example": "2026-08-23T14:30:00.000Z",
+                                  "format": "date-time",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "orderId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "orderNumber": {
+                            "type": "string"
+                          },
+                          "orderType": {
+                            "type": "string"
+                          },
+                          "readyAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "recallCount": {
+                            "type": "integer"
+                          },
+                          "recalledAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "routedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "serviceReference": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "startedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "stationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "targetReadyAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
             "description": "The station queue and branch KDS config facts."
           },
           "401": {
@@ -12164,6 +13334,8 @@
             "name": "stationId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -12189,6 +13361,19 @@
         },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "acknowledged": {
+                      "description": "Count of newly-acknowledged tickets on this station.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
             "description": "Count of newly-acknowledged tickets."
           },
           "403": {
@@ -12222,12 +13407,255 @@
             "name": "ticketId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "bumpedLineIds": {
+                      "items": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "ticket": {
+                      "properties": {
+                        "bumpedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "elapsedSeconds": {
+                          "description": "Server-computed at response time — never a client value.",
+                          "type": "integer"
+                        },
+                        "firstViewedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "lines": {
+                          "items": {
+                            "properties": {
+                              "bumpedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "cancelledAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "course": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "firstViewedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "id": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "itemNameSnapshot": {
+                                "description": "Opaque localized-name object, as stored at Fire time.",
+                                "type": "object"
+                              },
+                              "modifiers": {
+                                "items": {
+                                  "properties": {
+                                    "id": {
+                                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                      "format": "uuid",
+                                      "type": "string"
+                                    },
+                                    "kind": {
+                                      "enum": [
+                                        "addition",
+                                        "removal",
+                                        "substitution"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "nameSnapshot": {
+                                      "description": "Opaque localized-name object, as stored at Fire time.",
+                                      "type": "object"
+                                    },
+                                    "quantity": {
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "orderLineId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "preparationNotes": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "quantity": {
+                                "description": "DECIMAL(12,3) rendered as a string, never a JS number.",
+                                "example": "2",
+                                "pattern": "^-?\\d+(\\.\\d+)?$",
+                                "type": "string"
+                              },
+                              "readyAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "recalledAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "sequence": {
+                                "type": "integer"
+                              },
+                              "startedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "orderId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "orderNumber": {
+                          "type": "string"
+                        },
+                        "orderType": {
+                          "type": "string"
+                        },
+                        "readyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "recallCount": {
+                          "type": "integer"
+                        },
+                        "recalledAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "routedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "serviceReference": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "startedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "stationId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "targetReadyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
             "description": "The updated ticket and the ids of lines this action bumped."
           },
           "403": {
@@ -12281,6 +13709,8 @@
             "name": "ticketId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -12289,12 +13719,366 @@
             "name": "lineId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "line": {
+                      "properties": {
+                        "bumpedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cancelledAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "course": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "firstViewedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "itemNameSnapshot": {
+                          "description": "Opaque localized-name object, as stored at Fire time.",
+                          "type": "object"
+                        },
+                        "modifiers": {
+                          "items": {
+                            "properties": {
+                              "id": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "kind": {
+                                "enum": [
+                                  "addition",
+                                  "removal",
+                                  "substitution"
+                                ],
+                                "type": "string"
+                              },
+                              "nameSnapshot": {
+                                "description": "Opaque localized-name object, as stored at Fire time.",
+                                "type": "object"
+                              },
+                              "quantity": {
+                                "type": "integer"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "orderLineId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "preparationNotes": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity": {
+                          "description": "DECIMAL(12,3) rendered as a string, never a JS number.",
+                          "example": "2",
+                          "pattern": "^-?\\d+(\\.\\d+)?$",
+                          "type": "string"
+                        },
+                        "readyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "recalledAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sequence": {
+                          "type": "integer"
+                        },
+                        "startedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ticket": {
+                      "properties": {
+                        "bumpedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "elapsedSeconds": {
+                          "description": "Server-computed at response time — never a client value.",
+                          "type": "integer"
+                        },
+                        "firstViewedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "lines": {
+                          "items": {
+                            "properties": {
+                              "bumpedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "cancelledAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "course": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "firstViewedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "id": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "itemNameSnapshot": {
+                                "description": "Opaque localized-name object, as stored at Fire time.",
+                                "type": "object"
+                              },
+                              "modifiers": {
+                                "items": {
+                                  "properties": {
+                                    "id": {
+                                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                      "format": "uuid",
+                                      "type": "string"
+                                    },
+                                    "kind": {
+                                      "enum": [
+                                        "addition",
+                                        "removal",
+                                        "substitution"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "nameSnapshot": {
+                                      "description": "Opaque localized-name object, as stored at Fire time.",
+                                      "type": "object"
+                                    },
+                                    "quantity": {
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "orderLineId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "preparationNotes": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "quantity": {
+                                "description": "DECIMAL(12,3) rendered as a string, never a JS number.",
+                                "example": "2",
+                                "pattern": "^-?\\d+(\\.\\d+)?$",
+                                "type": "string"
+                              },
+                              "readyAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "recalledAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "sequence": {
+                                "type": "integer"
+                              },
+                              "startedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "orderId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "orderNumber": {
+                          "type": "string"
+                        },
+                        "orderType": {
+                          "type": "string"
+                        },
+                        "readyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "recallCount": {
+                          "type": "integer"
+                        },
+                        "recalledAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "routedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "serviceReference": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "startedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "stationId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "targetReadyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
             "description": "The updated ticket and line."
           },
           "403": {
@@ -12358,6 +14142,8 @@
             "name": "ticketId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -12366,12 +14152,366 @@
             "name": "lineId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "line": {
+                      "properties": {
+                        "bumpedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cancelledAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "course": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "firstViewedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "itemNameSnapshot": {
+                          "description": "Opaque localized-name object, as stored at Fire time.",
+                          "type": "object"
+                        },
+                        "modifiers": {
+                          "items": {
+                            "properties": {
+                              "id": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "kind": {
+                                "enum": [
+                                  "addition",
+                                  "removal",
+                                  "substitution"
+                                ],
+                                "type": "string"
+                              },
+                              "nameSnapshot": {
+                                "description": "Opaque localized-name object, as stored at Fire time.",
+                                "type": "object"
+                              },
+                              "quantity": {
+                                "type": "integer"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "orderLineId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "preparationNotes": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity": {
+                          "description": "DECIMAL(12,3) rendered as a string, never a JS number.",
+                          "example": "2",
+                          "pattern": "^-?\\d+(\\.\\d+)?$",
+                          "type": "string"
+                        },
+                        "readyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "recalledAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sequence": {
+                          "type": "integer"
+                        },
+                        "startedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ticket": {
+                      "properties": {
+                        "bumpedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "elapsedSeconds": {
+                          "description": "Server-computed at response time — never a client value.",
+                          "type": "integer"
+                        },
+                        "firstViewedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "lines": {
+                          "items": {
+                            "properties": {
+                              "bumpedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "cancelledAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "course": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "firstViewedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "id": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "itemNameSnapshot": {
+                                "description": "Opaque localized-name object, as stored at Fire time.",
+                                "type": "object"
+                              },
+                              "modifiers": {
+                                "items": {
+                                  "properties": {
+                                    "id": {
+                                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                      "format": "uuid",
+                                      "type": "string"
+                                    },
+                                    "kind": {
+                                      "enum": [
+                                        "addition",
+                                        "removal",
+                                        "substitution"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "nameSnapshot": {
+                                      "description": "Opaque localized-name object, as stored at Fire time.",
+                                      "type": "object"
+                                    },
+                                    "quantity": {
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "orderLineId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "preparationNotes": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "quantity": {
+                                "description": "DECIMAL(12,3) rendered as a string, never a JS number.",
+                                "example": "2",
+                                "pattern": "^-?\\d+(\\.\\d+)?$",
+                                "type": "string"
+                              },
+                              "readyAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "recalledAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "sequence": {
+                                "type": "integer"
+                              },
+                              "startedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "orderId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "orderNumber": {
+                          "type": "string"
+                        },
+                        "orderType": {
+                          "type": "string"
+                        },
+                        "readyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "recallCount": {
+                          "type": "integer"
+                        },
+                        "recalledAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "routedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "serviceReference": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "startedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "stationId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "targetReadyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
             "description": "The updated ticket and line."
           },
           "403": {
@@ -12425,6 +14565,8 @@
             "name": "ticketId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -12440,6 +14582,239 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "ticket": {
+                      "properties": {
+                        "bumpedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "elapsedSeconds": {
+                          "description": "Server-computed at response time — never a client value.",
+                          "type": "integer"
+                        },
+                        "firstViewedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "lines": {
+                          "items": {
+                            "properties": {
+                              "bumpedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "cancelledAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "course": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "firstViewedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "id": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "itemNameSnapshot": {
+                                "description": "Opaque localized-name object, as stored at Fire time.",
+                                "type": "object"
+                              },
+                              "modifiers": {
+                                "items": {
+                                  "properties": {
+                                    "id": {
+                                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                      "format": "uuid",
+                                      "type": "string"
+                                    },
+                                    "kind": {
+                                      "enum": [
+                                        "addition",
+                                        "removal",
+                                        "substitution"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "nameSnapshot": {
+                                      "description": "Opaque localized-name object, as stored at Fire time.",
+                                      "type": "object"
+                                    },
+                                    "quantity": {
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "orderLineId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "preparationNotes": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "quantity": {
+                                "description": "DECIMAL(12,3) rendered as a string, never a JS number.",
+                                "example": "2",
+                                "pattern": "^-?\\d+(\\.\\d+)?$",
+                                "type": "string"
+                              },
+                              "readyAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "recalledAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "sequence": {
+                                "type": "integer"
+                              },
+                              "startedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "orderId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "orderNumber": {
+                          "type": "string"
+                        },
+                        "orderType": {
+                          "type": "string"
+                        },
+                        "readyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "recallCount": {
+                          "type": "integer"
+                        },
+                        "recalledAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "routedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "serviceReference": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "startedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "stationId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "targetReadyAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
             "description": "The recalled ticket."
           },
           "403": {
@@ -12503,6 +14878,8 @@
             "name": "modifierId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -12637,6 +15014,8 @@
             "name": "modifierId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -13783,6 +16162,8 @@
             "name": "id",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -13792,6 +16173,7 @@
             "name": "businessDay",
             "required": true,
             "schema": {
+              "format": "date",
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string"
             }
@@ -14244,6 +16626,8 @@
             "name": "id",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -14253,6 +16637,7 @@
             "name": "businessDay",
             "required": true,
             "schema": {
+              "format": "date",
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string"
             }
@@ -14753,6 +17138,8 @@
             "name": "id",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -14762,6 +17149,7 @@
             "name": "businessDay",
             "required": true,
             "schema": {
+              "format": "date",
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string"
             }
@@ -15445,6 +17833,8 @@
             "name": "id",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -15453,6 +17843,7 @@
             "name": "businessDay",
             "required": true,
             "schema": {
+              "format": "date",
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string"
             }
@@ -15462,6 +17853,8 @@
             "name": "lineId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -16135,6 +18528,8 @@
             "name": "id",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -16144,6 +18539,7 @@
             "name": "businessDay",
             "required": true,
             "schema": {
+              "format": "date",
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string"
             }
@@ -17001,6 +19397,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -17114,6 +19512,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -17239,6 +19639,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -17365,6 +19767,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -17466,6 +19870,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -17586,6 +19992,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -17678,6 +20086,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -17789,6 +20199,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -17899,6 +20311,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -18038,6 +20452,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -18142,6 +20558,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -18265,6 +20683,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -18391,6 +20811,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -18484,6 +20906,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -18755,6 +21179,8 @@
             "name": "brandId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -18841,6 +21267,8 @@
             "name": "brandId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -19102,6 +21530,8 @@
             "name": "centralKitchenId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -19180,6 +21610,8 @@
             "name": "centralKitchenId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -19280,6 +21712,8 @@
             "name": "stationId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -19381,6 +21815,8 @@
             "name": "stationId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -19504,6 +21940,8 @@
             "name": "tableId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -19801,6 +22239,8 @@
             "name": "warehouseId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -19895,6 +22335,8 @@
             "name": "warehouseId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -20391,6 +22833,8 @@
             "name": "recipeId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -20624,6 +23068,8 @@
             "name": "recipeId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -20867,6 +23313,8 @@
             "name": "recipeId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -20875,7 +23323,7 @@
             "name": "version",
             "required": true,
             "schema": {
-              "type": "number"
+              "type": "integer"
             }
           }
         ],
@@ -21131,6 +23579,8 @@
             "name": "recipeId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -21139,7 +23589,7 @@
             "name": "version",
             "required": true,
             "schema": {
-              "type": "number"
+              "type": "integer"
             }
           }
         ],
@@ -21381,6 +23831,8 @@
             "name": "branchId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           },
@@ -21389,6 +23841,7 @@
             "name": "businessDay",
             "required": true,
             "schema": {
+              "format": "date",
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string"
             }
@@ -21396,6 +23849,425 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchCurrentBusinessDay": {
+                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                      "example": "2026-08-23",
+                      "format": "date",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "type": "string"
+                    },
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "businessDay": {
+                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                      "example": "2026-08-23",
+                      "format": "date",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "type": "string"
+                    },
+                    "cashReconciliation": {
+                      "properties": {
+                        "closedSessionCount": {
+                          "type": "integer"
+                        },
+                        "contributingSessionCount": {
+                          "type": "integer"
+                        },
+                        "scope": {
+                          "enum": [
+                            "WHOLE_SESSION"
+                          ],
+                          "type": "string"
+                        },
+                        "sessions": {
+                          "items": {
+                            "properties": {
+                              "businessDayCount": {
+                                "type": "integer"
+                              },
+                              "cashSessionId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "closedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "countedCash": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "currency": {
+                                "description": "ISO 4217 currency code.",
+                                "example": "AED",
+                                "type": "string"
+                              },
+                              "drawerId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "employeeId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "expectedCash": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "isFinalised": {
+                                "type": "boolean"
+                              },
+                              "openedAt": {
+                                "example": "2026-08-23T14:30:00.000Z",
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              "openingFloat": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "payInTotal": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "payOutTotal": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "safeDropTotal": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "spansMultipleBusinessDays": {
+                                "type": "boolean"
+                              },
+                              "status": {
+                                "enum": [
+                                  "open",
+                                  "closing",
+                                  "closed"
+                                ],
+                                "type": "string"
+                              },
+                              "tenderTotalsForThisBusinessDay": {
+                                "properties": {
+                                  "cashRoundingAdjustments": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "cashSalesTotal": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "manualExternalCardTotal": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "paymentCount": {
+                                    "type": "integer"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "variance": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "spanningSessionCount": {
+                          "type": "integer"
+                        },
+                        "unclosedSessionCount": {
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code.",
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "currencySource": {
+                      "enum": [
+                        "TRANSACTION",
+                        "BRANCH_FALLBACK"
+                      ],
+                      "type": "string"
+                    },
+                    "dataAsOf": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "openOrderCount": {
+                      "type": "integer"
+                    },
+                    "periodStatus": {
+                      "enum": [
+                        "OPEN",
+                        "UNSEALED",
+                        "SETTLED"
+                      ],
+                      "type": "string"
+                    },
+                    "salesSummary": {
+                      "properties": {
+                        "averageOrderValue": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "completedOrderCount": {
+                          "type": "integer"
+                        },
+                        "discounts": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "grossSales": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "netSales": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "refunds": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "taxTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "unsettledCapturedTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "scope": {
+                      "properties": {
+                        "cashReconciliationScope": {
+                          "type": "string"
+                        },
+                        "lineExclusions": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "notes": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "salesPopulation": {
+                          "type": "string"
+                        },
+                        "tenderPopulation": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "taxSummary": {
+                      "properties": {
+                        "byClass": {
+                          "items": {
+                            "properties": {
+                              "countryPackCode": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "grossAmount": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "lineCount": {
+                                "type": "integer"
+                              },
+                              "netAmount": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "taxAmount": {
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250",
+                                "pattern": "^-?\\d+$",
+                                "type": "string"
+                              },
+                              "taxClassCode": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "taxClassId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "taxTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "tenderTotals": {
+                      "properties": {
+                        "cash": {
+                          "properties": {
+                            "amountTotal": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            },
+                            "paymentCount": {
+                              "type": "integer"
+                            },
+                            "roundingAdjustmentTotal": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "cashDrawerContribution": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "completedExcessCapturedTotal": {
+                          "description": "Captured payment value above a completed order’s grand total. Reconciliation-only — no revenue/tax/tip/discount/refund/rounding/variance disposition is inferred.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "manualExternalCard": {
+                          "properties": {
+                            "amountTotal": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            },
+                            "paymentCount": {
+                              "type": "integer"
+                            },
+                            "roundingAdjustmentTotal": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "paymentCount": {
+                          "type": "integer"
+                        },
+                        "tenderGrandTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "unclosedContributingSessionCount": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
             "description": "The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover."
           },
           "400": {
@@ -21632,6 +24504,8 @@
             "name": "groupId",
             "required": true,
             "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
               "type": "string"
             }
           }

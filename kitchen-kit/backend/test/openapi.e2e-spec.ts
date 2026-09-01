@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import * as yaml from 'js-yaml';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
+import { classifyPathParamName } from './../src/common/openapi/oas31.util';
 
 /**
  * Mechanical checks that the generated OpenAPI document
@@ -482,5 +483,420 @@ describe('OpenAPI document (e2e)', () => {
       }
     }
     expect(orphaned).toEqual([]);
+  });
+
+  /**
+   * Full API-contract schema-completeness sweep (API schema audit,
+   * 2026-09-01) — derives the operation inventory FROM THE DOCUMENT itself
+   * (`doc.paths`), not a hardcoded route list, so a future route added
+   * without a real schema fails here automatically.
+   *
+   * Exactly the routes below genuinely return no body at runtime (every
+   * handler's return type is `Promise<void>`, verified against source —
+   * see the audit report's bodyless-allowlist table). Every other
+   * documented 2xx JSON-implying response must carry a concrete
+   * `application/json` schema.
+   */
+  const BODYLESS_ALLOWLIST = new Set([
+    'POST /auth/logout 204',
+    'POST /auth/memberships/{membershipId}/roles 204',
+    'DELETE /auth/memberships/{membershipId}/roles/{roleId} 204',
+    'POST /auth/password/change 204',
+    'POST /auth/password/reset 204',
+    'POST /auth/roles/{roleId}/permissions 204',
+    'POST /auth/terminals/{terminalId}/fingerprints 204',
+    'POST /catalogue/items/{itemId}/modifier-groups 204',
+    'POST /catalogue/items/{itemId}/placements 204',
+    'DELETE /catalogue/items/{itemId}/placements/{categoryId} 204',
+    'POST /catalogue/menus/{menuId}/branches 204',
+    'DELETE /catalogue/menus/{menuId}/branches/{branchId} 204',
+  ]);
+
+  function isEmptySchema(schema: SchemaNode | undefined): boolean {
+    return !schema || Object.keys(schema).length === 0;
+  }
+
+  /**
+   * Applied ONLY to a top-level operation response/request schema — never
+   * recursed into nested properties. A bare `{type:'object'}` is NEVER
+   * acceptable here, description or not: an earlier version of this check
+   * exempted `{type:'object', description:'...'}`, mirroring the
+   * repository's real, deliberate convention for genuinely opaque NESTED
+   * JSON columns (localized-name/address/theme blobs — see
+   * `schema-helpers.ts` consumers across catalogue/organisation/inventory/
+   * kitchen) — but applied at the TOP level that exemption is a loophole: a
+   * future entire response could ship as `{type:'object', description:
+   * '...'}` and pass on prose alone. This check never walks into nested
+   * properties (so the repository's real nested opaque-JSON fields are
+   * untouched and not re-flagged — they were never subject to this rule to
+   * begin with), and the current, audited API surface has ZERO genuinely
+   * opaque TOP-LEVEL responses — `TOP_LEVEL_OPAQUE_ALLOWLIST` stays empty
+   * unless one is deliberately added with a named, reviewed reason.
+   */
+  const TOP_LEVEL_OPAQUE_ALLOWLIST = new Set<string>([]);
+
+  function isUnderspecifiedObject(schema: SchemaNode, key?: string): boolean {
+    if (schema.$ref) return false;
+    const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+    if (type !== 'object') return false;
+    if (schema.properties) return false;
+    if ('oneOf' in schema || 'allOf' in schema || 'anyOf' in schema)
+      return false;
+    if ('additionalProperties' in schema) return false;
+    if (key && TOP_LEVEL_OPAQUE_ALLOWLIST.has(key)) return false;
+    return true;
+  }
+
+  function isUntypedArraySchema(schema: SchemaNode): boolean {
+    const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+    if (type !== 'array') return false;
+    return isEmptySchema(schema.items);
+  }
+
+  it('every documented 2xx response is either the verified bodyless allowlist or carries a concrete JSON schema', () => {
+    const violations: string[] = [];
+    for (const [p, ops] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(ops)) {
+        if (!HTTP_METHODS.includes(method)) continue;
+        for (const [status, response] of Object.entries(op.responses ?? {})) {
+          if (!status.startsWith('2')) continue;
+          const key = `${method.toUpperCase()} ${p} ${status}`;
+          const content = response.content;
+          if (BODYLESS_ALLOWLIST.has(key)) {
+            continue;
+          }
+          if (!content || !content['application/json']) {
+            violations.push(`${key}: no application/json content`);
+            continue;
+          }
+          const schema = content['application/json'].schema;
+          if (isEmptySchema(schema)) {
+            violations.push(`${key}: empty schema`);
+            continue;
+          }
+          if (schema && isUnderspecifiedObject(schema, key)) {
+            violations.push(`${key}: untyped object with no properties`);
+          }
+          if (schema && isUntypedArraySchema(schema)) {
+            violations.push(`${key}: array with no typed items`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('every allowlisted bodyless route is genuinely 204 and carries no content', () => {
+    for (const key of BODYLESS_ALLOWLIST) {
+      const [method, p, status] = key.split(' ');
+      expect(status).toBe('204');
+      const response =
+        doc.paths[p]?.[method.toLowerCase()]?.responses?.[status];
+      expect(response).toBeDefined();
+      expect(response?.content).toBeUndefined();
+    }
+  });
+
+  it('every write operation (POST/PUT/PATCH) that declares a requestBody gives it a concrete application/json schema', () => {
+    const violations: string[] = [];
+    for (const [p, ops] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(ops)) {
+        if (!['post', 'put', 'patch'].includes(method)) continue;
+        const rb = op.requestBody as
+          { content?: Record<string, { schema?: SchemaNode }> } | undefined;
+        if (!rb) continue;
+        const key = `${method.toUpperCase()} ${p}`;
+        const aj = rb.content?.['application/json'];
+        if (!aj) {
+          violations.push(`${key}: requestBody has no application/json`);
+          continue;
+        }
+        if (isEmptySchema(aj.schema)) {
+          violations.push(`${key}: empty request schema`);
+          continue;
+        }
+        if (aj.schema && isUnderspecifiedObject(aj.schema, key)) {
+          violations.push(`${key}: untyped request object`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('every operation carries a concrete schema for its documented 400/401/403/404/409/422 error responses', () => {
+    const ERROR_STATUSES = ['400', '401', '403', '404', '409', '422'];
+    const violations: string[] = [];
+    for (const [p, ops] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(ops)) {
+        if (!HTTP_METHODS.includes(method)) continue;
+        for (const status of ERROR_STATUSES) {
+          const response = op.responses?.[status];
+          if (!response) continue;
+          const schema = response.content?.['application/json']?.schema;
+          const key = `${method.toUpperCase()} ${p} ${status}`;
+          if (isEmptySchema(schema)) {
+            violations.push(`${key}: empty error schema`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  /**
+   * DayClose POST union contract (API final acceptance correction,
+   * 2026-09-01) — `POST /branches/{branchId}/day-closes/{businessDay}`'s
+   * 200 response is a REAL discriminated union (`DayClosePostResult` in
+   * `day-close.service.ts`), not one object with optional fields. These
+   * tests assert the OpenAPI schema is a genuine `oneOf` of two concrete,
+   * mutually-exclusive branches, and that representative example payloads
+   * validate/reject exactly as the union's structure demands.
+   */
+  describe('DayClose POST — discriminated union contract', () => {
+    const DAY_CLOSE_POST_SCHEMA_PATH =
+      '/branches/{branchId}/day-closes/{businessDay}';
+
+    function dayCloseSchema(): SchemaNode {
+      const schema = responseSchema(DAY_CLOSE_POST_SCHEMA_PATH, 'post', '200');
+      if (!schema) throw new Error('DayClose POST 200 schema missing');
+      return schema;
+    }
+
+    it('the 200 schema is a oneOf with exactly 2 concrete variants', () => {
+      const schema = dayCloseSchema();
+      expect(Array.isArray(schema.oneOf)).toBe(true);
+      const variants = schema.oneOf as SchemaNode[];
+      expect(variants).toHaveLength(2);
+      for (const variant of variants) {
+        expect(variant.type).toBe('object');
+        expect(Object.keys(variant.properties ?? {}).length).toBeGreaterThan(0);
+      }
+    });
+
+    function variantByOutcome(outcome: 'ACTIVATED' | 'CLOSED'): SchemaNode {
+      const variants = dayCloseSchema().oneOf as SchemaNode[];
+      const variant = variants.find(
+        (v) => v.properties?.outcome?.const === outcome,
+      );
+      if (!variant) throw new Error(`no variant with outcome const ${outcome}`);
+      return variant;
+    }
+
+    it('the ACTIVATED variant requires outcome + activation fields, and forbids dayClose', () => {
+      const variant = variantByOutcome('ACTIVATED');
+      expect(variant.required).toEqual(
+        expect.arrayContaining([
+          'outcome',
+          'branchId',
+          'businessDay',
+          'activationBusinessDay',
+          'firstEligibleBusinessDay',
+        ]),
+      );
+      expect(variant.properties?.outcome?.const).toBe('ACTIVATED');
+      expect(variant.properties?.dayClose).toBeUndefined();
+      expect(variant.additionalProperties).toBe(false);
+    });
+
+    it('the CLOSED variant requires outcome + the closed payload (dayClose)', () => {
+      const variant = variantByOutcome('CLOSED');
+      expect(variant.required).toEqual(
+        expect.arrayContaining([
+          'outcome',
+          'branchId',
+          'businessDay',
+          'activationBusinessDay',
+          'firstEligibleBusinessDay',
+          'dayClose',
+        ]),
+      );
+      expect(variant.properties?.outcome?.const).toBe('CLOSED');
+      expect(variant.properties?.dayClose).toBeDefined();
+      expect(variant.additionalProperties).toBe(false);
+    });
+
+    /**
+     * A tiny, purpose-built structural validator for exactly the JSON
+     * Schema subset the two DayClose variants use (`type`, `const`,
+     * `required`, `properties`, `additionalProperties`) — not a general
+     * JSON Schema engine. Deliberately self-contained rather than pulling
+     * in an undeclared transitive `ajv` (present in `node_modules` only as
+     * a dependency of `@seriousme/openapi-schema-validator`, not a direct
+     * project dependency) for a two-flat-object union this small.
+     */
+    function satisfiesFlatObjectSchema(
+      value: Record<string, unknown>,
+      schema: SchemaNode,
+    ): boolean {
+      for (const req of schema.required ?? []) {
+        if (!(req in value)) return false;
+      }
+      const properties = schema.properties ?? {};
+      if (schema.additionalProperties === false) {
+        for (const key of Object.keys(value)) {
+          if (!(key in properties)) return false;
+        }
+      }
+      const outcomeConst = properties.outcome?.const;
+      if (outcomeConst !== undefined && value.outcome !== outcomeConst) {
+        return false;
+      }
+      return true;
+    }
+
+    function matchesUnion(value: Record<string, unknown>): boolean {
+      const variants = dayCloseSchema().oneOf as SchemaNode[];
+      const matches = variants.filter((v) =>
+        satisfiesFlatObjectSchema(value, v),
+      );
+      return matches.length === 1;
+    }
+
+    it('a valid ACTIVATED payload matches exactly one union branch', () => {
+      expect(
+        matchesUnion({
+          outcome: 'ACTIVATED',
+          branchId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+          businessDay: '2026-09-01',
+          activationBusinessDay: '2026-09-01',
+          firstEligibleBusinessDay: '2026-09-02',
+        }),
+      ).toBe(true);
+    });
+
+    it('a valid CLOSED payload matches exactly one union branch', () => {
+      expect(
+        matchesUnion({
+          outcome: 'CLOSED',
+          branchId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+          businessDay: '2026-09-01',
+          activationBusinessDay: '2026-08-30',
+          firstEligibleBusinessDay: '2026-08-31',
+          dayClose: { id: '3fa85f64-5717-4562-b3fc-2c963f66afa6' },
+        }),
+      ).toBe(true);
+    });
+
+    it('ACTIVATED fields plus outcome CLOSED (missing dayClose) is rejected by both branches', () => {
+      expect(
+        matchesUnion({
+          outcome: 'CLOSED',
+          branchId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+          businessDay: '2026-09-01',
+          activationBusinessDay: '2026-09-01',
+          firstEligibleBusinessDay: '2026-09-02',
+        }),
+      ).toBe(false);
+    });
+
+    it('CLOSED payload (with dayClose) plus outcome ACTIVATED is rejected by both branches', () => {
+      expect(
+        matchesUnion({
+          outcome: 'ACTIVATED',
+          branchId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+          businessDay: '2026-09-01',
+          activationBusinessDay: '2026-08-30',
+          firstEligibleBusinessDay: '2026-08-31',
+          dayClose: { id: '3fa85f64-5717-4562-b3fc-2c963f66afa6' },
+        }),
+      ).toBe(false);
+    });
+
+    it('an unknown outcome value is rejected by both branches', () => {
+      expect(
+        matchesUnion({
+          outcome: 'PENDING',
+          branchId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+          businessDay: '2026-09-01',
+          activationBusinessDay: '2026-09-01',
+          firstEligibleBusinessDay: '2026-09-02',
+        }),
+      ).toBe(false);
+    });
+  });
+
+  /**
+   * Exhaustive path-parameter format test (API final acceptance
+   * correction, 2026-09-01) — derives EVERY path parameter from `doc.paths`
+   * globally (not the 106 instances the audit happened to find affected),
+   * and checks each against `classifyPathParamName` — the SAME pure
+   * mapping `src/common/openapi/oas31.util.ts`'s `enrichPathParameterSchemas`
+   * uses to write the document, imported directly rather than duplicated,
+   * so the post-processor and this test cannot silently drift apart.
+   */
+  describe('path parameters — exhaustive format/type contract', () => {
+    it('every {placeholder} in every path has exactly one matching in:path parameter, none optional', () => {
+      const violations: string[] = [];
+      for (const [p, ops] of Object.entries(doc.paths)) {
+        const placeholders = [...p.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]);
+        for (const [method, op] of Object.entries(ops)) {
+          if (!HTTP_METHODS.includes(method)) continue;
+          const pathParams = (op.parameters ?? []).filter(
+            (param) => param.in === 'path',
+          );
+          for (const name of placeholders) {
+            const matches = pathParams.filter((param) => param.name === name);
+            if (matches.length !== 1) {
+              violations.push(
+                `${method.toUpperCase()} ${p}: {${name}} has ${matches.length} matching parameter definitions (expected 1)`,
+              );
+              continue;
+            }
+            if (matches[0].required !== true) {
+              violations.push(
+                `${method.toUpperCase()} ${p}: {${name}} is not required`,
+              );
+            }
+          }
+        }
+      }
+      expect(violations).toEqual([]);
+    });
+
+    it('every path parameter classified uuid/businessDay/version carries the exact expected type+format', () => {
+      const violations: string[] = [];
+      for (const [p, ops] of Object.entries(doc.paths)) {
+        for (const [method, op] of Object.entries(ops)) {
+          if (!HTTP_METHODS.includes(method)) continue;
+          for (const param of op.parameters ?? []) {
+            if (param.in !== 'path') continue;
+            const kind = classifyPathParamName(param.name);
+            if (!kind) continue;
+            const key = `${method.toUpperCase()} ${p} {${param.name}}`;
+            const schema = (param as unknown as { schema?: SchemaNode }).schema;
+            if (!schema) {
+              violations.push(`${key}: no schema`);
+              continue;
+            }
+            if (kind === 'uuid') {
+              if (schema.type !== 'string' || schema.format !== 'uuid') {
+                violations.push(
+                  `${key}: expected {type:'string',format:'uuid'}, got ${JSON.stringify(
+                    { type: schema.type, format: schema.format },
+                  )}`,
+                );
+              }
+            } else if (kind === 'businessDay') {
+              if (schema.type !== 'string' || schema.format !== 'date') {
+                violations.push(
+                  `${key}: expected {type:'string',format:'date'}, got ${JSON.stringify(
+                    { type: schema.type, format: schema.format },
+                  )}`,
+                );
+              }
+            } else if (kind === 'version') {
+              if (schema.type !== 'integer') {
+                violations.push(
+                  `${key}: expected {type:'integer'}, got ${JSON.stringify({
+                    type: schema.type,
+                  })}`,
+                );
+              }
+            }
+          }
+        }
+      }
+      expect(violations).toEqual([]);
+    });
   });
 });

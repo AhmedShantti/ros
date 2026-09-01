@@ -25,6 +25,11 @@ import {
 } from '@nestjs/swagger';
 import { Idempotent } from '../../common/idempotency/idempotent.decorator';
 import {
+  isoDateTimeSchema,
+  nullable,
+  uuidSchema,
+} from '../../common/openapi/schema-helpers';
+import {
   AllowPosSession,
   CurrentPrincipal,
   JwtAuthGuard,
@@ -63,11 +68,133 @@ import type { KdsBranchConfigQuery } from '../organisation/contract';
  * route (cancellation arrives by event, never by a KDS command), any
  * analytics route, any per-station sort-configuration route.
  *
+ * Response shapes below are verified against `ticket-reader.types.ts`
+ * (`TicketCardDto`/`TicketCardLineDto`/`TicketCardModifierDto`/
+ * `StationQueueDto`) and `kds-operations.service.ts`'s own per-method return
+ * types — not against the Prisma schema or the SRS.
+ *
  * Guard chain: `JwtAuthGuard` (401) -> `TenantContextGuard` (403) ->
  * `PermissionGuard` (`kds.operate`, 403) -> `KdsStationGuard` (terminal +
  * exactly-one-station, 403 — acceptance correction §3.3/§4). `@AllowPosSession`
  * opts every route in for PIN-issued sessions, exactly as Sales/Treasury do.
  */
+const ticketCardModifierSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    nameSnapshot: {
+      type: 'object',
+      description: 'Opaque localized-name object, as stored at Fire time.',
+    },
+    kind: { type: 'string', enum: ['addition', 'removal', 'substitution'] },
+    quantity: { type: 'integer' },
+  },
+};
+
+const ticketCardLineSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    orderLineId: uuidSchema(),
+    itemNameSnapshot: {
+      type: 'object',
+      description: 'Opaque localized-name object, as stored at Fire time.',
+    },
+    quantity: {
+      type: 'string',
+      pattern: '^-?\\d+(\\.\\d+)?$',
+      description: 'DECIMAL(12,3) rendered as a string, never a JS number.',
+      example: '2',
+    },
+    course: nullable({ type: 'integer' }),
+    sequence: { type: 'integer' },
+    preparationNotes: nullable({ type: 'string' }),
+    status: { type: 'string' },
+    firstViewedAt: nullable(isoDateTimeSchema()),
+    startedAt: nullable(isoDateTimeSchema()),
+    readyAt: nullable(isoDateTimeSchema()),
+    bumpedAt: nullable(isoDateTimeSchema()),
+    recalledAt: nullable(isoDateTimeSchema()),
+    cancelledAt: nullable(isoDateTimeSchema()),
+    modifiers: { type: 'array', items: ticketCardModifierSchema },
+  },
+};
+
+const ticketCardSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    stationId: uuidSchema(),
+    orderId: uuidSchema(),
+    businessDay: {
+      type: 'string',
+      format: 'date',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+      description: 'Business-day partition key (YYYY-MM-DD), not a timestamp.',
+      example: '2026-08-23',
+    },
+    orderNumber: { type: 'string' },
+    orderType: { type: 'string' },
+    serviceReference: nullable({ type: 'string' }),
+    routedAt: isoDateTimeSchema(),
+    elapsedSeconds: {
+      type: 'integer',
+      description: 'Server-computed at response time — never a client value.',
+    },
+    targetReadyAt: nullable(isoDateTimeSchema()),
+    status: { type: 'string' },
+    firstViewedAt: nullable(isoDateTimeSchema()),
+    startedAt: nullable(isoDateTimeSchema()),
+    readyAt: nullable(isoDateTimeSchema()),
+    bumpedAt: nullable(isoDateTimeSchema()),
+    recalledAt: nullable(isoDateTimeSchema()),
+    recallCount: { type: 'integer' },
+    lines: { type: 'array', items: ticketCardLineSchema },
+  },
+};
+
+const stationQueueSchema = {
+  type: 'object',
+  properties: {
+    tickets: { type: 'array', items: ticketCardSchema },
+    recallWindowSeconds: { type: 'integer' },
+    cancelledLineVisibilitySeconds: nullable({ type: 'integer' }),
+  },
+};
+
+const acknowledgeViewedResultSchema = {
+  type: 'object',
+  properties: {
+    acknowledged: {
+      type: 'integer',
+      description: 'Count of newly-acknowledged tickets on this station.',
+    },
+  },
+};
+
+const ticketAndLineResultSchema = {
+  type: 'object',
+  properties: {
+    ticket: ticketCardSchema,
+    line: ticketCardLineSchema,
+  },
+};
+
+const bumpAllResultSchema = {
+  type: 'object',
+  properties: {
+    ticket: ticketCardSchema,
+    bumpedLineIds: { type: 'array', items: uuidSchema() },
+  },
+};
+
+const recallResultSchema = {
+  type: 'object',
+  properties: {
+    ticket: ticketCardSchema,
+  },
+};
+
 @ApiTags('kitchen')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard, KdsStationGuard)
@@ -93,6 +220,7 @@ export class KitchenController {
   @ApiOperation({ summary: 'Read a KDS station queue (FIFO, read-only).' })
   @ApiOkResponse({
     description: 'The station queue and branch KDS config facts.',
+    schema: stationQueueSchema,
   })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid bearer token.' })
   @ApiForbiddenResponse({
@@ -143,7 +271,10 @@ export class KitchenController {
     description:
       'Accepted but not required — the acknowledgement is naturally database-idempotent (write-once).',
   })
-  @ApiOkResponse({ description: 'Count of newly-acknowledged tickets.' })
+  @ApiOkResponse({
+    description: 'Count of newly-acknowledged tickets.',
+    schema: acknowledgeViewedResultSchema,
+  })
   @ApiForbiddenResponse({
     description: 'Wrong station, or no employee identity.',
   })
@@ -169,7 +300,10 @@ export class KitchenController {
   @Post('tickets/:ticketId/lines/:lineId/start')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark a ticket line started.' })
-  @ApiOkResponse({ description: 'The updated ticket and line.' })
+  @ApiOkResponse({
+    description: 'The updated ticket and line.',
+    schema: ticketAndLineResultSchema,
+  })
   @ApiNotFoundResponse({ description: 'Ticket or line not found.' })
   @ApiForbiddenResponse({
     description: 'Wrong station, or no employee identity.',
@@ -197,7 +331,10 @@ export class KitchenController {
   @Post('tickets/:ticketId/lines/:lineId/bump')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark a ticket line ready (bump item).' })
-  @ApiOkResponse({ description: 'The updated ticket and line.' })
+  @ApiOkResponse({
+    description: 'The updated ticket and line.',
+    schema: ticketAndLineResultSchema,
+  })
   @ApiNotFoundResponse({ description: 'Ticket or line not found.' })
   @ApiForbiddenResponse({
     description: 'Wrong station, or no employee identity.',
@@ -232,6 +369,7 @@ export class KitchenController {
   })
   @ApiOkResponse({
     description: 'The updated ticket and the ids of lines this action bumped.',
+    schema: bumpAllResultSchema,
   })
   @ApiNotFoundResponse({ description: 'Ticket not found.' })
   @ApiForbiddenResponse({
@@ -267,7 +405,10 @@ export class KitchenController {
     description:
       'REQUIRED — recall increments recall_count and is not naturally idempotent.',
   })
-  @ApiOkResponse({ description: 'The recalled ticket.' })
+  @ApiOkResponse({
+    description: 'The recalled ticket.',
+    schema: recallResultSchema,
+  })
   @ApiNotFoundResponse({ description: 'Ticket not found.' })
   @ApiForbiddenResponse({
     description: 'Wrong station, or no employee identity.',

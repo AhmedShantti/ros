@@ -19,6 +19,13 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import {
+  businessDaySchema,
+  isoDateTimeSchema,
+  moneyStringSchema,
+  nullable,
+  uuidSchema,
+} from '../../common/openapi/schema-helpers';
+import {
   CurrentTenantContext,
   JwtAuthGuard,
   PermissionGuard,
@@ -32,6 +39,145 @@ import {
   DailyTradingReportQueryDto,
 } from './reporting.dto';
 import { REPORTING_PERMISSIONS } from './reporting.permissions';
+
+// Shape verified against `daily-trading-report.service.ts`'s
+// `DailyTradingReportView`/`assembleView` — not against the Prisma schema or
+// the SRS.
+const tenderFamilyTotalsSchema = {
+  type: 'object',
+  properties: {
+    amountTotal: moneyStringSchema(),
+    roundingAdjustmentTotal: moneyStringSchema(),
+    paymentCount: { type: 'integer' },
+  },
+};
+
+const dailyTradingReportSchema = {
+  type: 'object',
+  properties: {
+    branchId: uuidSchema(),
+    businessDay: businessDaySchema(),
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+    currencySource: {
+      type: 'string',
+      enum: ['TRANSACTION', 'BRANCH_FALLBACK'],
+    },
+    dataAsOf: isoDateTimeSchema(),
+    periodStatus: { type: 'string', enum: ['OPEN', 'UNSEALED', 'SETTLED'] },
+    branchCurrentBusinessDay: businessDaySchema(),
+    openOrderCount: { type: 'integer' },
+    unclosedContributingSessionCount: { type: 'integer' },
+    salesSummary: {
+      type: 'object',
+      properties: {
+        grossSales: moneyStringSchema(),
+        discounts: moneyStringSchema(),
+        refunds: moneyStringSchema(),
+        taxTotal: moneyStringSchema(),
+        netSales: moneyStringSchema(),
+        completedOrderCount: { type: 'integer' },
+        averageOrderValue: nullable(moneyStringSchema()),
+        unsettledCapturedTotal: moneyStringSchema(),
+      },
+    },
+    tenderTotals: {
+      type: 'object',
+      properties: {
+        cash: tenderFamilyTotalsSchema,
+        manualExternalCard: tenderFamilyTotalsSchema,
+        tenderGrandTotal: moneyStringSchema(),
+        cashDrawerContribution: moneyStringSchema(),
+        paymentCount: { type: 'integer' },
+        completedExcessCapturedTotal: moneyStringSchema(
+          'Captured payment value above a completed order’s grand total. Reconciliation-only — no revenue/tax/tip/discount/refund/rounding/variance disposition is inferred.',
+        ),
+      },
+    },
+    taxSummary: {
+      type: 'object',
+      properties: {
+        taxTotal: moneyStringSchema(),
+        byClass: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              taxClassId: uuidSchema(),
+              taxClassCode: nullable({ type: 'string' }),
+              countryPackCode: nullable({ type: 'string' }),
+              taxAmount: moneyStringSchema(),
+              netAmount: moneyStringSchema(),
+              grossAmount: moneyStringSchema(),
+              lineCount: { type: 'integer' },
+            },
+          },
+        },
+      },
+    },
+    cashReconciliation: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string', enum: ['WHOLE_SESSION'] },
+        sessions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              cashSessionId: uuidSchema(),
+              employeeId: uuidSchema(),
+              drawerId: uuidSchema(),
+              openedAt: isoDateTimeSchema(),
+              closedAt: nullable(isoDateTimeSchema()),
+              status: { type: 'string', enum: ['open', 'closing', 'closed'] },
+              currency: {
+                type: 'string',
+                description: 'ISO 4217 currency code.',
+                example: 'AED',
+              },
+              openingFloat: moneyStringSchema(),
+              expectedCash: nullable(moneyStringSchema()),
+              countedCash: nullable(moneyStringSchema()),
+              variance: nullable(moneyStringSchema()),
+              payInTotal: moneyStringSchema(),
+              payOutTotal: moneyStringSchema(),
+              safeDropTotal: moneyStringSchema(),
+              isFinalised: { type: 'boolean' },
+              businessDayCount: { type: 'integer' },
+              spansMultipleBusinessDays: { type: 'boolean' },
+              tenderTotalsForThisBusinessDay: {
+                type: 'object',
+                properties: {
+                  cashSalesTotal: moneyStringSchema(),
+                  cashRoundingAdjustments: moneyStringSchema(),
+                  manualExternalCardTotal: moneyStringSchema(),
+                  paymentCount: { type: 'integer' },
+                },
+              },
+            },
+          },
+        },
+        contributingSessionCount: { type: 'integer' },
+        closedSessionCount: { type: 'integer' },
+        unclosedSessionCount: { type: 'integer' },
+        spanningSessionCount: { type: 'integer' },
+      },
+    },
+    scope: {
+      type: 'object',
+      properties: {
+        salesPopulation: { type: 'string' },
+        lineExclusions: { type: 'array', items: { type: 'string' } },
+        tenderPopulation: { type: 'string' },
+        cashReconciliationScope: { type: 'string' },
+        notes: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  },
+};
 
 /**
  * Minimum Operational Reporting — Internal-MVP branch daily-trading read
@@ -105,6 +251,7 @@ export class ReportingController {
       '— no SEALED, no FUTURE), currency/currencySource, and a scope block ' +
       'disclosing exactly what this Internal-MVP slice does and does not ' +
       'cover.',
+    schema: dailyTradingReportSchema,
   })
   @ApiBadRequestResponse({
     description:
