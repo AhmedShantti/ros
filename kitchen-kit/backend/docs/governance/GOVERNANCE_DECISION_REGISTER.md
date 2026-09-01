@@ -7414,6 +7414,93 @@ implementation task is required before any of those.
 **Status:** **RATIFIED — CLOSED.**
 
 ---
+
+## RCPT-R1 — Internal-MVP Non-Fiscal Receipt Ratification — 2026-09-01
+
+> **RECORDED 2026-09-01 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **Fire Authorization**,
+> **P1F-2 Completion Economics**, **FIFO Exhaustion Carry-Forward**,
+> **Approval Runtime Minimum Resolution**, **P1G-1 Cash-Close Policy**, **R-6**,
+> **KDS MVP Operator Lifecycle**, **Minimum Operational Reporting** and
+> **Day Close** convention. A single limb — **RCPT-R1** — collision-checked
+> against every existing `-R` series (`KDS-R1…R12`, `RPT-R1…R3`, `DC-R1…R3`,
+> `R-1(a)…R-6`) and against no reused prefix.
+
+**RATIFIED — binding:**
+
+1. For the controlled **Internal MVP**, ROS exposes an **itemized receipt
+   view for completed orders** — `GET /orders/{businessDay}/{id}/receipt` —
+   that is **explicitly non-fiscal** and makes **no claim of legal or fiscal
+   invoice compliance**.
+2. This is a **sequencing / scope decision only**.
+3. It **does NOT waive** any full-SRS fiscal requirement.
+4. It **does NOT mark `FR-POS-100` … `FR-POS-106` COMPLETE**. `FR-POS-100`
+   becomes **PARTIAL** (the non-fiscal document body only; tax registration
+   number, invoice sequence, country-pack-mandated tax breakdown, required
+   QR code, the full country-pack element set, and printing all remain
+   **NOT IMPLEMENTED** within it). `FR-POS-101`, `FR-POS-102`, `FR-POS-103`,
+   `FR-POS-104`, `FR-POS-105` and `FR-POS-106` remain **NOT IMPLEMENTED**,
+   unchanged.
+5. It **does NOT authorize deployment as a fiscal receipt** in any
+   jurisdiction.
+6. It **does NOT alter CARRIED ITEM P1C-1** beyond this narrow Internal-MVP
+   carve-out. **P1C-1 remains a blocker to the full fiscal receipt** and is
+   **NOT globally closed**. The capability creates **no tax document, no
+   invoice template, no fiscal submission and no `fiscal.tax_rules` table** —
+   P1C-1's four named exclusions (register, above: *"no tax documents,
+   invoice templates, fiscal submissions or `fiscal.tax_rules` table"*) are
+   each untouched.
+7. **Nothing else is reopened:** **P-1** remains RATIFIED and UNCHANGED ·
+   **D-12** remains BLOCKED · **D-16**'s enumeration remains OPEN · **D-13**
+   remains RATIFIED · **D-2 is not reopened** — no branch-scoped RBAC is
+   introduced; authorization stays tenant-scoped, reusing
+   `pos.order.create` — · no Governance HTTP or read surface (**D-14 A-1**,
+   **D-20**) · **KDS-R1 … KDS-R12**, **RPT-R1 … RPT-R3**, **DC-R1 … DC-R3**,
+   **R-1(a) … R-6** all unchanged.
+8. This entry **amends no numbered decision**, **creates no schema**, and
+   **authorizes no migration**. All historical register text is preserved
+   verbatim above and is not rewritten.
+
+**Basis (source-verified, not asserted):**
+
+- The narrow slice is derivable entirely from already-persisted, already-
+  frozen Sales facts: `order_lines.item_name_snapshot` /
+  `order_line_modifiers.name_snapshot` (BR-POS-004 sale-time `JSONB`
+  snapshots, never rewritten), and `BigInt` money/tax columns written once
+  at capture or settlement. No Catalogue, Localisation, Organisation,
+  Production, Treasury or Identity table is read.
+- No new table, column, sequence, index, enum, RLS policy, domain event,
+  audit action or permission is required (**MIGRATION: NO**).
+- Authorization reuses `pos.order.create` — the same code
+  `GET /orders/{businessDay}/{id}` already sits behind, which already
+  returns a superset of the receipt's data. `pos.reprint.receipt` (SRS
+  §15.2) is deliberately **not** adopted and remains reserved for a future
+  `FR-POS-104` reprint-marking-and-logging implementation.
+- Full analysis, field-by-field data-source mapping, the historical-
+  stability proof, and the requirement classification table are recorded in
+  `docs/reports/claude/2026-09-01_INTERNAL-MVP-receipt-narrow-design-
+  gate.md` (design gate, verdict **A**) and
+  `docs/reports/claude/2026-09-01_INTERNAL-MVP-receipt-implementation-and-
+  acceptance.md` (implementation).
+
+**Implementation consequence**
+
+With **RCPT-R1** recorded, the Receipt design track has no outstanding
+`USER RATIFICATION REQUIRED` item, and the slice is **GOVERNANCE-UNBLOCKED**.
+This entry, together with the accepted design gate, authorizes the exact
+route, contract and file plan those documents specify. **No further user
+ratification is required unless current source disproves a ratified
+assumption** — in which case the implementation task must STOP and report,
+not proceed.
+
+**No new fiscal table, invoice sequence, printing subsystem or delivery
+channel is authorised by this entry.**
+
+**Status:** **RATIFIED — CLOSED.**
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |

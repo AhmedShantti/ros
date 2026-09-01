@@ -10383,7 +10383,7 @@ paths:
                             - 'null'
                         countryPackVersion:
                           description: FR-LOC-021 — the pack version this order was priced under, pinned.
-                          type: integer
+                          type: string
                         createdAt:
                           example: '2026-08-23T14:30:00.000Z'
                           format: date-time
@@ -10485,7 +10485,9 @@ paths:
                                   - 'null'
                               priceRule:
                                 description: Opaque pricing-rule provenance snapshot.
-                                type: object
+                                type:
+                                  - string
+                                  - 'null'
                               quantity:
                                 description: Decimal quantity as a string (preserves exact precision).
                                 example: '2.5'
@@ -10527,9 +10529,7 @@ paths:
                               taxClassId:
                                 example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                                 format: uuid
-                                type:
-                                  - string
-                                  - 'null'
+                                type: string
                               unitCostSnapshot:
                                 description: Decimal quantity as a string (preserves exact precision).
                                 example: '2.5'
@@ -10729,7 +10729,7 @@ paths:
                       - 'null'
                   countryPackVersion:
                     description: FR-LOC-021 — the pack version this order was priced under, pinned.
-                    type: integer
+                    type: string
                   createdAt:
                     example: '2026-08-23T14:30:00.000Z'
                     format: date-time
@@ -10831,7 +10831,9 @@ paths:
                             - 'null'
                         priceRule:
                           description: Opaque pricing-rule provenance snapshot.
-                          type: object
+                          type:
+                            - string
+                            - 'null'
                         quantity:
                           description: Decimal quantity as a string (preserves exact precision).
                           example: '2.5'
@@ -10873,9 +10875,7 @@ paths:
                         taxClassId:
                           example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                           format: uuid
-                          type:
-                            - string
-                            - 'null'
+                          type: string
                         unitCostSnapshot:
                           description: Decimal quantity as a string (preserves exact precision).
                           example: '2.5'
@@ -11092,7 +11092,7 @@ paths:
                       - 'null'
                   countryPackVersion:
                     description: FR-LOC-021 — the pack version this order was priced under, pinned.
-                    type: integer
+                    type: string
                   createdAt:
                     example: '2026-08-23T14:30:00.000Z'
                     format: date-time
@@ -11194,7 +11194,9 @@ paths:
                             - 'null'
                         priceRule:
                           description: Opaque pricing-rule provenance snapshot.
-                          type: object
+                          type:
+                            - string
+                            - 'null'
                         quantity:
                           description: Decimal quantity as a string (preserves exact precision).
                           example: '2.5'
@@ -11236,9 +11238,7 @@ paths:
                         taxClassId:
                           example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                           format: uuid
-                          type:
-                            - string
-                            - 'null'
+                          type: string
                         unitCostSnapshot:
                           description: Decimal quantity as a string (preserves exact precision).
                           example: '2.5'
@@ -11455,7 +11455,7 @@ paths:
                       - 'null'
                   countryPackVersion:
                     description: FR-LOC-021 — the pack version this order was priced under, pinned.
-                    type: integer
+                    type: string
                   createdAt:
                     example: '2026-08-23T14:30:00.000Z'
                     format: date-time
@@ -11557,7 +11557,9 @@ paths:
                             - 'null'
                         priceRule:
                           description: Opaque pricing-rule provenance snapshot.
-                          type: object
+                          type:
+                            - string
+                            - 'null'
                         quantity:
                           description: Decimal quantity as a string (preserves exact precision).
                           example: '2.5'
@@ -11599,9 +11601,7 @@ paths:
                         taxClassId:
                           example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                           format: uuid
-                          type:
-                            - string
-                            - 'null'
+                          type: string
                         unitCostSnapshot:
                           description: Decimal quantity as a string (preserves exact precision).
                           example: '2.5'
@@ -11876,7 +11876,9 @@ paths:
                           - 'null'
                       priceRule:
                         description: Opaque pricing-rule provenance snapshot.
-                        type: object
+                        type:
+                          - string
+                          - 'null'
                       quantity:
                         description: Decimal quantity as a string (preserves exact precision).
                         example: '2.5'
@@ -11918,9 +11920,7 @@ paths:
                       taxClassId:
                         example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                         format: uuid
-                        type:
-                          - string
-                          - 'null'
+                        type: string
                       unitCostSnapshot:
                         description: Decimal quantity as a string (preserves exact precision).
                         example: '2.5'
@@ -11973,7 +11973,7 @@ paths:
                           - 'null'
                       countryPackVersion:
                         description: FR-LOC-021 — the pack version this order was priced under, pinned.
-                        type: integer
+                        type: string
                       createdAt:
                         example: '2026-08-23T14:30:00.000Z'
                         format: date-time
@@ -12075,7 +12075,9 @@ paths:
                                 - 'null'
                             priceRule:
                               description: Opaque pricing-rule provenance snapshot.
-                              type: object
+                              type:
+                                - string
+                                - 'null'
                             quantity:
                               description: Decimal quantity as a string (preserves exact precision).
                               example: '2.5'
@@ -12117,9 +12119,7 @@ paths:
                             taxClassId:
                               example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                               format: uuid
-                              type:
-                                - string
-                                - 'null'
+                              type: string
                             unitCostSnapshot:
                               description: Decimal quantity as a string (preserves exact precision).
                               example: '2.5'
@@ -12392,7 +12392,9 @@ paths:
                           - 'null'
                       priceRule:
                         description: Opaque pricing-rule provenance snapshot.
-                        type: object
+                        type:
+                          - string
+                          - 'null'
                       quantity:
                         description: Decimal quantity as a string (preserves exact precision).
                         example: '2.5'
@@ -12434,9 +12436,7 @@ paths:
                       taxClassId:
                         example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                         format: uuid
-                        type:
-                          - string
-                          - 'null'
+                        type: string
                       unitCostSnapshot:
                         description: Decimal quantity as a string (preserves exact precision).
                         example: '2.5'
@@ -12489,7 +12489,7 @@ paths:
                           - 'null'
                       countryPackVersion:
                         description: FR-LOC-021 — the pack version this order was priced under, pinned.
-                        type: integer
+                        type: string
                       createdAt:
                         example: '2026-08-23T14:30:00.000Z'
                         format: date-time
@@ -12591,7 +12591,9 @@ paths:
                                 - 'null'
                             priceRule:
                               description: Opaque pricing-rule provenance snapshot.
-                              type: object
+                              type:
+                                - string
+                                - 'null'
                             quantity:
                               description: Decimal quantity as a string (preserves exact precision).
                               example: '2.5'
@@ -12633,9 +12635,7 @@ paths:
                             taxClassId:
                               example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                               format: uuid
-                              type:
-                                - string
-                                - 'null'
+                              type: string
                             unitCostSnapshot:
                               description: Decimal quantity as a string (preserves exact precision).
                               example: '2.5'
@@ -12879,7 +12879,7 @@ paths:
                           - 'null'
                       countryPackVersion:
                         description: FR-LOC-021 — the pack version this order was priced under, pinned.
-                        type: integer
+                        type: string
                       createdAt:
                         example: '2026-08-23T14:30:00.000Z'
                         format: date-time
@@ -12981,7 +12981,9 @@ paths:
                                 - 'null'
                             priceRule:
                               description: Opaque pricing-rule provenance snapshot.
-                              type: object
+                              type:
+                                - string
+                                - 'null'
                             quantity:
                               description: Decimal quantity as a string (preserves exact precision).
                               example: '2.5'
@@ -13023,9 +13025,7 @@ paths:
                             taxClassId:
                               example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                               format: uuid
-                              type:
-                                - string
-                                - 'null'
+                              type: string
                             unitCostSnapshot:
                               description: Decimal quantity as a string (preserves exact precision).
                               example: '2.5'
@@ -13277,6 +13277,325 @@ paths:
       security:
         - bearer: []
       summary: Capture a partial, or final settling, CASH or manual/external-card payment. A settling payment completes the order atomically.
+      tags:
+        - sales
+  /orders/{businessDay}/{id}/receipt:
+    get:
+      operationId: OrdersController_receipt
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+        - description: |-
+            `sales.orders` is partitioned by `business_day` and its primary key is
+            (id, business_day), so a read needs both. It is a locator, not a claim
+            about the order's content.
+          in: path
+          name: businessDay
+          required: true
+          schema:
+            format: date
+            pattern: ^\d{4}-\d{2}-\d{2}$
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'An itemized, INTERNAL, NON-FISCAL receipt view for a completed order (RCPT-R1). Makes no claim of legal or fiscal invoice compliance: no tax registration number, invoice sequence, country-pack-mandated tax breakdown, fiscal QR, fiscal signature or tax-authority submission status is present or derivable from this document.'
+                properties:
+                  disclosureKey:
+                    description: Localization key for the visible non-fiscal disclosure text.
+                    example: receipt.internal.nonFiscal
+                    type: string
+                  documentType:
+                    description: Primary machine-readable non-fiscal classification.
+                    enum:
+                      - INTERNAL_NON_FISCAL_RECEIPT
+                    type: string
+                  fiscal:
+                    description: Always false. This is never a fiscal document.
+                    enum:
+                      - false
+                    type: boolean
+                  lines:
+                    items:
+                      properties:
+                        itemNameSnapshot:
+                          description: Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue.
+                          type: object
+                        lineDiscount:
+                          description: Minor-unit money amount as a decimal string. Always "0" under the current runtime — discounts are not implemented — reported verbatim, never invented.
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type: string
+                        lineSubtotal:
+                          description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type: string
+                        lineTotal:
+                          description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type: string
+                        menuItemId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        modifierTotal:
+                          description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type: string
+                        modifiers:
+                          items:
+                            properties:
+                              modifierId:
+                                example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                                format: uuid
+                                type: string
+                              nameSnapshot:
+                                description: Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue.
+                                type: object
+                              priceDelta:
+                                description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                                example: '1250'
+                                pattern: ^-?\d+$
+                                type: string
+                              quantity:
+                                type: integer
+                            type: object
+                          type: array
+                        quantity:
+                          description: Decimal quantity as a string (preserves exact precision).
+                          example: '2.5'
+                          pattern: ^-?\d+(\.\d+)?$
+                          type: string
+                        sequence:
+                          type: integer
+                        taxAmount:
+                          description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type: string
+                        taxClassId:
+                          description: 'The sale-time tax-class identity (never re-resolved). Non-null: a MenuItem with no TaxClass is not sellable.'
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        unitPrice:
+                          description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type: string
+                        variantId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                      type: object
+                    type: array
+                  order:
+                    properties:
+                      branchId:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      businessDay:
+                        description: Business-day partition key (YYYY-MM-DD), not a timestamp.
+                        example: '2026-08-23'
+                        format: date
+                        pattern: ^\d{4}-\d{2}-\d{2}$
+                        type: string
+                      channel:
+                        enum:
+                          - pos
+                          - kiosk
+                          - qr
+                          - aggregator
+                          - phone
+                          - api
+                        type: string
+                      completedAt:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type: string
+                      countryPackVersion:
+                        description: FR-LOC-021 — the pack version this order was priced under, pinned. Provenance only; never re-resolved.
+                        type: string
+                      currency:
+                        description: ISO 4217 currency code.
+                        example: AED
+                        type: string
+                      id:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      orderNumber:
+                        description: 'FR-POS-002 operational order number, e.g. <branch_code>-<business_day_seq>, drawn from a terminal block. This is NOT a fiscal invoice sequence: it is neither gapless nor globally ordered.'
+                        type: string
+                      orderType:
+                        enum:
+                          - dine_in
+                          - takeaway
+                          - delivery
+                          - drive_thru
+                          - pickup
+                          - aggregator
+                        type: string
+                      state:
+                        description: Always completed — a receipt cannot be produced for any other order state.
+                        enum:
+                          - completed
+                        type: string
+                      terminalId:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type:
+                          - string
+                          - 'null'
+                    type: object
+                  payments:
+                    items:
+                      properties:
+                        amount:
+                          description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type: string
+                        cardLast4:
+                          description: manual_external_card only, when supplied. Exactly 4 digits.
+                          type:
+                            - string
+                            - 'null'
+                        cardScheme:
+                          description: manual_external_card only, when supplied.
+                          type:
+                            - string
+                            - 'null'
+                        changeGiven:
+                          description: CASH only. Null for manual_external_card.
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type:
+                            - string
+                            - 'null'
+                        currency:
+                          description: ISO 4217 currency code.
+                          example: AED
+                          type: string
+                        id:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        processedAt:
+                          description: Server clock at capture.
+                          example: '2026-08-23T14:30:00.000Z'
+                          format: date-time
+                          type: string
+                        roundingAdjustment:
+                          description: CASH-only cash-drawer rounding adjustment for this payment. Zero for manual_external_card. Never part of the order grandTotal or paidTotal.
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type: string
+                        tender:
+                          enum:
+                            - cash
+                            - manual_external_card
+                          type: string
+                        tenderedAmount:
+                          description: CASH only. Null for manual_external_card.
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type:
+                            - string
+                            - 'null'
+                      type: object
+                    type: array
+                  taxPresentation:
+                    description: FR-FIN-031 — whether the pinned country pack priced this order tax-inclusive or tax-exclusive, derived from the frozen order totals only. NOT_APPLICABLE when taxTotal is zero.
+                    enum:
+                      - INCLUSIVE
+                      - EXCLUSIVE
+                      - NOT_APPLICABLE
+                      - UNDETERMINED
+                    type: string
+                  totals:
+                    properties:
+                      cashRoundingAdjustment:
+                        description: A separate cash-drawer-reconciliation figure. Never part of grandTotal or paidTotal.
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      discountTotal:
+                        description: Always "0" under the current runtime — discounts are not implemented — reported verbatim, never invented.
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      grandTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      paidTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      serviceChargeTotal:
+                        description: Always "0" under the current runtime — service charge is not implemented.
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      subtotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      taxTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      tipTotal:
+                        description: Always "0" under the current runtime — tips are not implemented.
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                    type: object
+                type: object
+          description: The non-fiscal receipt document. Available only once the order is completed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing the required permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unknown or cross-tenant resource.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The order exists but is not completed — no receipt exists for a draft, open, held, parked, partially_paid, cancelled, partially_refunded or refunded order.
+      security:
+        - bearer: []
+      summary: An itemized, INTERNAL, NON-FISCAL receipt for a completed order.
       tags:
         - sales
   /org/branches:

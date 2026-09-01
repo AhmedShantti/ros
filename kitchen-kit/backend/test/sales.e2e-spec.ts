@@ -967,7 +967,7 @@ describe('Sales P1A (e2e)', () => {
 
   // ------------------------------------------------------ exposed surface ---
   describe('the public surface matches what can be produced truthfully', () => {
-    it('exposes order capture + explicit Fire (P1E-6) + Payment capture (P1F-1), and NOTHING with an unmet prerequisite', () => {
+    it('exposes order capture + explicit Fire (P1E-6) + Payment capture (P1F-1) + Receipt (RCPT-R1), and NOTHING with an unmet prerequisite', () => {
       const paths = registeredRoutePaths(app);
       // Guard the guard: an introspection that silently returned nothing would
       // make every "route absent" assertion below pass vacuously.
@@ -983,12 +983,18 @@ describe('Sales P1A (e2e)', () => {
         '/orders/:businessDay/:id/lines',
         '/orders/:businessDay/:id/lines/:lineId',
         '/orders/:businessDay/:id/payments',
+        '/orders/:businessDay/:id/receipt',
       ]);
 
       // P1E-6: explicit Fire is now real (ratified "Fire Authorization
       // Ratification — 2026-08-24"). Automatic/configurable Fire (the other
       // half of FR-POS-035) and complete still have unmet prerequisites; a
-      // state flip for either would misrepresent them.
+      // state flip for either would misrepresent them. RCPT-R1: the
+      // itemized, INTERNAL, NON-FISCAL receipt is real too — every fact it
+      // needs is already historically durable (design gate §H); the FULL
+      // FISCAL receipt (tax registration number, invoice sequence,
+      // country-pack tax breakdown, fiscal QR) remains an unmet
+      // prerequisite and is not exposed by this route.
       expect(paths.filter((p) => p.includes('fire'))).toHaveLength(1);
       // `/catalogue/completeness` is a Catalogue reporting route and is not an
       // order-completion route; scope the check to Sales.

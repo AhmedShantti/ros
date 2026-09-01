@@ -69,6 +69,8 @@ import { OrderLinesService } from './order-lines.service';
 import { OrdersService } from './orders.service';
 import { SalesFireService } from './sales-fire.service';
 import { SalesPaymentService } from './sales-payment.service';
+import { ReceiptService } from './receipt.service';
+import { receiptSchema } from './receipt.openapi';
 
 /**
  * Order capture + Fire API.
@@ -86,6 +88,9 @@ import { SalesPaymentService } from './sales-payment.service';
  *   POST   /orders/:businessDay/:id/payments        capture a partial CASH or
  *                                                    manual/external-card
  *                                                    payment (P1F-1)
+ *   GET    /orders/:businessDay/:id/receipt         itemized, INTERNAL,
+ *                                                    NON-FISCAL receipt for a
+ *                                                    completed order (RCPT-R1)
  *
  * ── DELIBERATELY ABSENT ─────────────────────────────────────────────────────
  *   POST   /orders/:id/complete   · BR-POS-002 gates COMPLETED on payment, and
@@ -127,17 +132,25 @@ const orderLineSchema = {
     modifierTotal: moneyStringSchema(),
     lineDiscount: moneyStringSchema(),
     lineSubtotal: moneyStringSchema(),
-    taxClassId: nullable(uuidSchema()),
+    // `order_lines.tax_class_id UUID NOT NULL` (D-09) — a MenuItem with no
+    // TaxClass is not sellable, so a captured line always carries one.
+    // CORRECTED 2026-09-01 (Receipt design gate §Q.4): was incorrectly
+    // documented nullable.
+    taxClassId: uuidSchema(),
     taxAmount: moneyStringSchema(),
     lineTotal: moneyStringSchema(),
     unitCostSnapshot: nullable(decimalStringSchema()),
     recipeVersionId: nullable(uuidSchema()),
     priceListId: nullable(uuidSchema()),
     priceEntryId: nullable(uuidSchema()),
-    priceRule: {
-      type: 'object',
+    // `order_lines.price_rule VARCHAR(160) NULL`, returned verbatim by
+    // `toOrderLineView` — a nullable STRING, never an object. CORRECTED
+    // 2026-09-01 (Receipt design gate §Q.4): was incorrectly documented as
+    // an opaque object.
+    priceRule: nullable({
+      type: 'string',
       description: 'Opaque pricing-rule provenance snapshot.',
-    },
+    }),
     course: nullable({ type: 'integer' }),
     seatNumber: nullable({ type: 'integer' }),
     state: {
@@ -219,8 +232,11 @@ const orderSchema = {
     firstFiredAt: nullable(isoDateTimeSchema()),
     completedAt: nullable(isoDateTimeSchema()),
     originDeviceTime: isoDateTimeSchema(),
+    // `orders.country_pack_version VARCHAR(24)`, returned verbatim by
+    // `toOrderView` — a STRING, never an integer. CORRECTED 2026-09-01
+    // (Receipt design gate §Q.4): was incorrectly documented as an integer.
     countryPackVersion: {
-      type: 'integer',
+      type: 'string',
       description:
         'FR-LOC-021 — the pack version this order was priced under, pinned.',
     },
@@ -294,6 +310,7 @@ export class OrdersController {
     private readonly lines: OrderLinesService,
     private readonly fireService: SalesFireService,
     private readonly paymentService: SalesPaymentService,
+    private readonly receiptService: ReceiptService,
   ) {}
 
   /**
@@ -442,6 +459,50 @@ export class OrdersController {
     // client already holds one when line mutation becomes available.
     response.setHeader('ETag', orderETag(order));
     return toOrderView(order);
+  }
+
+  /**
+   * An itemized, INTERNAL, NON-FISCAL receipt for a completed order
+   * (RCPT-R1 — `docs/governance/GOVERNANCE_DECISION_REGISTER.md`).
+   *
+   * Pure GET, deterministic and read-only: no Idempotency-Key (nothing is
+   * created), no If-Match (a frozen document has no concurrency story), no
+   * ETag (there is no next mutation to precondition). Reuses
+   * `pos.order.create` — the same permission `GET
+   * /orders/:businessDay/:id` already sits behind, which already returns a
+   * superset of this data, so this route grants zero new visibility.
+   * `pos.reprint.receipt` is deliberately NOT adopted: it names the
+   * FR-POS-104 reprint capability (duplicate marking + logging), neither of
+   * which this route implements — re-GET is the Internal-MVP "reprint".
+   *
+   * Available ONLY for a `completed` order; every other state is refused
+   * with 422 via `ReceiptNotAvailableError` (zero `SalesDomainException-
+   * Filter` changes needed — it extends `OrderStateError`, the same
+   * mechanism Fire/Payment's own domain errors already use).
+   */
+  @Get(':businessDay/:id/receipt')
+  @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
+  @ApiOperation({
+    summary: 'An itemized, INTERNAL, NON-FISCAL receipt for a completed order.',
+  })
+  @ApiOkResponse({
+    description:
+      'The non-fiscal receipt document. Available only once the order is completed.',
+    schema: receiptSchema,
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The order exists but is not completed — no receipt exists for a draft, open, held, parked, partially_paid, cancelled, partially_refunded or refunded order.',
+  })
+  async receipt(
+    @CurrentTenantContext() context: TenantContext,
+    @Param() params: OrderPathParamsDto,
+  ) {
+    return this.receiptService.findCompletedOrderReceipt(
+      context.tenantId,
+      params.id,
+      parseBusinessDay(params.businessDay),
+    );
   }
 
   /**

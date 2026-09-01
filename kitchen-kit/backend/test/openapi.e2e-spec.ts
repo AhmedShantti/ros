@@ -272,13 +272,19 @@ describe('OpenAPI document (e2e)', () => {
    * surface instead. `/serve` (FR-KDS-013 `[S]`, deferred) and any
    * cancellation/analytics/sort-configuration route remain absent.
    */
-  it('documents explicit Fire, Payment, and the KDS operator lifecycle (and only those routes), and does not document Completion, refund, integrated-terminal, PaymentAttempt, serve, or cancellation endpoints', () => {
+  it('documents explicit Fire, Payment, Receipt, and the KDS operator lifecycle (and only those routes), and does not document Completion, refund, integrated-terminal, PaymentAttempt, serve, or cancellation endpoints', () => {
     const paths = Object.keys(doc.paths);
     const fireMatches = paths.filter((p) => /\/fire\b/i.test(p));
     expect(fireMatches).toEqual(['/orders/{businessDay}/{id}/fire']);
 
     const paymentMatches = paths.filter((p) => /\/payments?\b/i.test(p));
     expect(paymentMatches).toEqual(['/orders/{businessDay}/{id}/payments']);
+
+    // RCPT-R1 — exactly ONE exact receipt route, the same "exactly one exact
+    // route" discipline Fire/Payment/KDS already follow. No
+    // /receipt/email, /receipt/print, /receipt/reprint or /fiscal-receipt.
+    const receiptMatches = paths.filter((p) => /\/receipts?\b/i.test(p));
+    expect(receiptMatches).toEqual(['/orders/{businessDay}/{id}/receipt']);
 
     const kdsMatches = paths.filter((p) => p.startsWith('/kds')).sort();
     expect(kdsMatches).toEqual(
@@ -299,6 +305,11 @@ describe('OpenAPI document (e2e)', () => {
       /\/cancel/i,
       /payment[-_]?attempts?/i,
       /terminals?\/(session|authoriz|capture)/i,
+      // RCPT-R1 — the receipt is a GET-only DATA/VIEW capability (design
+      // gate §14/§C): no delivery channel, no reprint-marking route, no
+      // fiscal variant.
+      /receipts?\/(email|print|reprint)/i,
+      /fiscal[-_]?receipts?/i,
     ];
     for (const p of paths) {
       for (const pattern of forbidden) {
@@ -394,6 +405,45 @@ describe('OpenAPI document (e2e)', () => {
     expect(quantity).toBeDefined();
     expect(quantity?.type).toBe('string');
     expect(quantity?.pattern).toBe('^-?\\d+(\\.\\d+)?$');
+  });
+
+  /**
+   * RCPT-R1 / Receipt design gate §Q.4 — three pre-existing Order contract
+   * defects, found while designing the Receipt schema and corrected as
+   * adjacent work in this same PR: `countryPackVersion` is a `VarChar(24)`
+   * column (a string) but was documented `integer`; `priceRule` is a
+   * nullable `VarChar(160)` (a nullable string) but was documented an
+   * opaque object; `lines[].taxClassId` is `NOT NULL` (D-09) but was
+   * documented nullable. Zero runtime wire change — documentation only.
+   */
+  it('countryPackVersion is documented as a string, not an integer (was a pre-existing defect)', () => {
+    const schema = responseSchema('/orders', 'post', '201');
+    const countryPackVersion = schema?.properties?.countryPackVersion;
+    expect(countryPackVersion).toBeDefined();
+    expect(countryPackVersion?.type).toBe('string');
+  });
+
+  it('lines[].priceRule is documented as a nullable string, not an opaque object (was a pre-existing defect)', () => {
+    const schema = responseSchema(
+      '/orders/{businessDay}/{id}/lines',
+      'post',
+      '201',
+    );
+    const priceRule = schema?.properties?.line?.properties?.priceRule;
+    expect(priceRule).toBeDefined();
+    expect(priceRule?.type).toEqual(['string', 'null']);
+  });
+
+  it('lines[].taxClassId is documented as a non-nullable uuid, not nullable (was a pre-existing defect)', () => {
+    const schema = responseSchema(
+      '/orders/{businessDay}/{id}/lines',
+      'post',
+      '201',
+    );
+    const taxClassId = schema?.properties?.line?.properties?.taxClassId;
+    expect(taxClassId).toBeDefined();
+    expect(taxClassId?.type).toBe('string');
+    expect(taxClassId?.format).toBe('uuid');
   });
 
   it('businessDay remains a YYYY-MM-DD date string, not a full timestamp', () => {
