@@ -210,31 +210,73 @@ const dayCloseViewSchema = {
   },
 };
 
-// Shape verified against `day-close.service.ts`'s `DayClosePostResult`
-// discriminated union. Flattened with per-outcome presence notes, following
-// the same established convention as `treasury.controller.ts`'s
-// `declareCloseResponseSchema`/`finalizeCloseResponseSchema` (a real
-// discriminator property — `outcome` — documented via `enum` plus per-field
-// "present only when" descriptions, rather than `oneOf`, for consistency
-// with that sibling Treasury response).
-const dayClosePostResultSchema = {
+/**
+ * Shape verified against `day-close.service.ts`'s `DayClosePostResult` — a
+ * REAL discriminated union (two distinct TS object literal types, not one
+ * object with optional fields):
+ *
+ *   type DayClosePostResult =
+ *     | { outcome: 'ACTIVATED'; branchId; businessDay;
+ *         activationBusinessDay; firstEligibleBusinessDay }
+ *     | { outcome: 'CLOSED'; branchId; businessDay;
+ *         activationBusinessDay; firstEligibleBusinessDay; dayClose }
+ *
+ * A prior correction flattened this into one object schema with a
+ * "present only when outcome is CLOSED" description on `dayClose` — that
+ * is not a machine-checkable contract (nothing rejects an ACTIVATED
+ * response that also carries `dayClose`, or a CLOSED response missing it).
+ * This is a genuine `oneOf` — two concrete, mutually-exclusive branches,
+ * each with its own `required` list, its own `additionalProperties: false`
+ * (so a hybrid payload structurally fails BOTH branches, not just one —
+ * `oneOf` needs EXACTLY one match), and its own `outcome` `const` acting as
+ * the real discriminator.
+ */
+const dayCloseActivatedResultSchema = {
   type: 'object',
+  description:
+    'The branch’s first ever DayClose request: commits and activates the DayClose epoch. No day is sealed; there is no `dayClose` snapshot.',
+  required: [
+    'outcome',
+    'branchId',
+    'businessDay',
+    'activationBusinessDay',
+    'firstEligibleBusinessDay',
+  ],
+  additionalProperties: false,
   properties: {
-    outcome: {
-      type: 'string',
-      enum: ['ACTIVATED', 'CLOSED'],
-      description:
-        'ACTIVATED on the branch’s first ever DayClose request (no day sealed, dayClose absent). CLOSED once a real close is performed (dayClose present, the full Z snapshot).',
-    },
+    outcome: { type: 'string', const: 'ACTIVATED' },
     branchId: uuidSchema(),
     businessDay: businessDaySchema(),
     activationBusinessDay: businessDaySchema(),
     firstEligibleBusinessDay: businessDaySchema(),
-    dayClose: {
-      ...dayCloseViewSchema,
-      description: 'Present only when outcome is CLOSED.',
-    },
   },
+};
+
+const dayCloseClosedResultSchema = {
+  type: 'object',
+  description:
+    'A real close was performed: the target business day is sealed and the full Z snapshot is returned.',
+  required: [
+    'outcome',
+    'branchId',
+    'businessDay',
+    'activationBusinessDay',
+    'firstEligibleBusinessDay',
+    'dayClose',
+  ],
+  additionalProperties: false,
+  properties: {
+    outcome: { type: 'string', const: 'CLOSED' },
+    branchId: uuidSchema(),
+    businessDay: businessDaySchema(),
+    activationBusinessDay: businessDaySchema(),
+    firstEligibleBusinessDay: businessDaySchema(),
+    dayClose: dayCloseViewSchema,
+  },
+};
+
+const dayClosePostResultSchema = {
+  oneOf: [dayCloseActivatedResultSchema, dayCloseClosedResultSchema],
 };
 
 @ApiTags('treasury')

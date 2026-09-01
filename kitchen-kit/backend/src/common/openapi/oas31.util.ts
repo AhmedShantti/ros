@@ -83,7 +83,7 @@ const ERROR_RESPONSE_SCHEMA = {
  * path parameters consistent with the identical convention already shipped
  * for response bodies, not a new judgement call).
  */
-const UUID_PATH_PARAM_NAMES = new Set([
+export const UUID_PATH_PARAM_NAMES = new Set([
   'branchId',
   'brandId',
   'categoryId',
@@ -108,7 +108,24 @@ const UUID_PATH_PARAM_NAMES = new Set([
   'warehouseId',
 ]);
 
-const UUID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
+export const UUID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
+
+/**
+ * Pure classification for a path-parameter NAME (not its current schema) —
+ * the single shared source of truth `enrichPathParameterSchemas` (below)
+ * and `test/openapi.e2e-spec.ts`'s exhaustive path-parameter format test
+ * both consume, so the "which names get which format" decision lives in
+ * exactly one place, never as two independently-maintained lists that can
+ * silently drift apart.
+ */
+export type PathParamKind = 'uuid' | 'businessDay' | 'version';
+
+export function classifyPathParamName(name: string): PathParamKind | null {
+  if (UUID_PATH_PARAM_NAMES.has(name)) return 'uuid';
+  if (name === 'businessDay') return 'businessDay';
+  if (name === 'version') return 'version';
+  return null;
+}
 
 type JsonRecord = Record<string, unknown>;
 
@@ -212,16 +229,15 @@ function enrichPathParameterSchemas(document: JsonRecord): void {
         if (!isRecord(param) || param.in !== 'path') continue;
         const name = param.name;
         const schema = isRecord(param.schema) ? param.schema : undefined;
-        if (!schema || schema.format) continue;
+        if (!schema || typeof name !== 'string' || schema.format) continue;
 
-        if (typeof name === 'string' && UUID_PATH_PARAM_NAMES.has(name)) {
-          if (schema.type === 'string') {
-            schema.format = 'uuid';
-            schema.example = UUID_EXAMPLE;
-          }
-        } else if (name === 'businessDay' && schema.type === 'string') {
+        const kind = classifyPathParamName(name);
+        if (kind === 'uuid' && schema.type === 'string') {
+          schema.format = 'uuid';
+          schema.example = UUID_EXAMPLE;
+        } else if (kind === 'businessDay' && schema.type === 'string') {
           schema.format = 'date';
-        } else if (name === 'version' && schema.type === 'number') {
+        } else if (kind === 'version' && schema.type === 'number') {
           schema.type = 'integer';
         }
       }

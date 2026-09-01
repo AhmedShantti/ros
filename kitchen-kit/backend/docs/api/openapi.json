@@ -4787,29 +4787,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "activationBusinessDay": {
-                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
-                      "example": "2026-08-23",
-                      "format": "date",
-                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                      "type": "string"
-                    },
-                    "branchId": {
-                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                      "format": "uuid",
-                      "type": "string"
-                    },
-                    "businessDay": {
-                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
-                      "example": "2026-08-23",
-                      "format": "date",
-                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                      "type": "string"
-                    },
-                    "dayClose": {
-                      "description": "Present only when outcome is CLOSED.",
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "description": "The branch’s first ever DayClose request: commits and activates the DayClose epoch. No day is sealed; there is no `dayClose` snapshot.",
                       "properties": {
+                        "activationBusinessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
                         "branchId": {
                           "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                           "format": "uuid",
@@ -4822,285 +4811,264 @@
                           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
                           "type": "string"
                         },
-                        "cashReconciliation": {
+                        "firstEligibleBusinessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "outcome": {
+                          "const": "ACTIVATED",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "outcome",
+                        "branchId",
+                        "businessDay",
+                        "activationBusinessDay",
+                        "firstEligibleBusinessDay"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "description": "A real close was performed: the target business day is sealed and the full Z snapshot is returned.",
+                      "properties": {
+                        "activationBusinessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "dayClose": {
                           "properties": {
-                            "scope": {
-                              "enum": [
-                                "WHOLE_SESSION"
-                              ],
+                            "branchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
                               "type": "string"
                             },
-                            "sessionCount": {
-                              "type": "integer"
+                            "businessDay": {
+                              "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                              "example": "2026-08-23",
+                              "format": "date",
+                              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                              "type": "string"
                             },
-                            "sessions": {
+                            "cashReconciliation": {
+                              "properties": {
+                                "scope": {
+                                  "enum": [
+                                    "WHOLE_SESSION"
+                                  ],
+                                  "type": "string"
+                                },
+                                "sessionCount": {
+                                  "type": "integer"
+                                },
+                                "sessions": {
+                                  "items": {
+                                    "properties": {
+                                      "businessDayCount": {
+                                        "type": "integer"
+                                      },
+                                      "cashSessionId": {
+                                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                        "format": "uuid",
+                                        "type": "string"
+                                      },
+                                      "dayScoped": {
+                                        "properties": {
+                                          "cashRoundingAdjustments": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "cashSalesTotal": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "manualExternalCardTotal": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "paymentCount": {
+                                            "type": "integer"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "isVarianceOwner": {
+                                        "type": "boolean"
+                                      },
+                                      "wholeSession": {
+                                        "properties": {
+                                          "countedCash": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "expectedCash": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "openingFloat": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          },
+                                          "variance": {
+                                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                            "example": "1250",
+                                            "pattern": "^-?\\d+$",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      }
+                                    },
+                                    "type": "object"
+                                  },
+                                  "type": "array"
+                                },
+                                "varianceOwnerSessionCount": {
+                                  "type": "integer"
+                                },
+                                "varianceTotal": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "closedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "closedBy": {
+                              "properties": {
+                                "employeeId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "userId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "currency": {
+                              "description": "ISO 4217 currency code.",
+                              "example": "AED",
+                              "type": "string"
+                            },
+                            "dataAsOf": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "salesByOrderType": {
                               "items": {
                                 "properties": {
-                                  "businessDayCount": {
-                                    "type": "integer"
-                                  },
-                                  "cashSessionId": {
-                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                                    "format": "uuid",
+                                  "grossSales": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
                                     "type": "string"
                                   },
-                                  "dayScoped": {
-                                    "properties": {
-                                      "cashRoundingAdjustments": {
-                                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                        "example": "1250",
-                                        "pattern": "^-?\\d+$",
-                                        "type": "string"
-                                      },
-                                      "cashSalesTotal": {
-                                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                        "example": "1250",
-                                        "pattern": "^-?\\d+$",
-                                        "type": "string"
-                                      },
-                                      "manualExternalCardTotal": {
-                                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                        "example": "1250",
-                                        "pattern": "^-?\\d+$",
-                                        "type": "string"
-                                      },
-                                      "paymentCount": {
-                                        "type": "integer"
-                                      }
-                                    },
-                                    "type": "object"
+                                  "netSales": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
                                   },
-                                  "isVarianceOwner": {
-                                    "type": "boolean"
+                                  "orderCount": {
+                                    "type": "integer"
                                   },
-                                  "wholeSession": {
-                                    "properties": {
-                                      "countedCash": {
-                                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                        "example": "1250",
-                                        "pattern": "^-?\\d+$",
-                                        "type": "string"
-                                      },
-                                      "expectedCash": {
-                                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                        "example": "1250",
-                                        "pattern": "^-?\\d+$",
-                                        "type": "string"
-                                      },
-                                      "openingFloat": {
-                                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                        "example": "1250",
-                                        "pattern": "^-?\\d+$",
-                                        "type": "string"
-                                      },
-                                      "variance": {
-                                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                        "example": "1250",
-                                        "pattern": "^-?\\d+$",
-                                        "type": "string"
-                                      }
-                                    },
-                                    "type": "object"
+                                  "orderType": {
+                                    "type": "string"
                                   }
                                 },
                                 "type": "object"
                               },
                               "type": "array"
                             },
-                            "varianceOwnerSessionCount": {
-                              "type": "integer"
-                            },
-                            "varianceTotal": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "closedAt": {
-                          "example": "2026-08-23T14:30:00.000Z",
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "closedBy": {
-                          "properties": {
-                            "employeeId": {
-                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                              "format": "uuid",
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "userId": {
-                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                              "format": "uuid",
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "currency": {
-                          "description": "ISO 4217 currency code.",
-                          "example": "AED",
-                          "type": "string"
-                        },
-                        "dataAsOf": {
-                          "example": "2026-08-23T14:30:00.000Z",
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "id": {
-                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                          "format": "uuid",
-                          "type": "string"
-                        },
-                        "salesByOrderType": {
-                          "items": {
-                            "properties": {
-                              "grossSales": {
-                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                "example": "1250",
-                                "pattern": "^-?\\d+$",
-                                "type": "string"
-                              },
-                              "netSales": {
-                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                "example": "1250",
-                                "pattern": "^-?\\d+$",
-                                "type": "string"
-                              },
-                              "orderCount": {
-                                "type": "integer"
-                              },
-                              "orderType": {
-                                "type": "string"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "type": "array"
-                        },
-                        "salesSummary": {
-                          "properties": {
-                            "averageOrderValue": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "completedOrderCount": {
-                              "type": "integer"
-                            },
-                            "discounts": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": "string"
-                            },
-                            "grossSales": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": "string"
-                            },
-                            "netSales": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": "string"
-                            },
-                            "refunds": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": "string"
-                            },
-                            "taxTotal": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "scope": {
-                          "properties": {
-                            "notImplemented": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "notes": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            "partial": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "taxByClass": {
-                          "items": {
-                            "properties": {
-                              "grossAmount": {
-                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                "example": "1250",
-                                "pattern": "^-?\\d+$",
-                                "type": "string"
-                              },
-                              "lineCount": {
-                                "type": "integer"
-                              },
-                              "netAmount": {
-                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                "example": "1250",
-                                "pattern": "^-?\\d+$",
-                                "type": "string"
-                              },
-                              "taxAmount": {
-                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                                "example": "1250",
-                                "pattern": "^-?\\d+$",
-                                "type": "string"
-                              },
-                              "taxClassId": {
-                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                                "format": "uuid",
-                                "type": "string"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "type": "array"
-                        },
-                        "tenderTotals": {
-                          "properties": {
-                            "cash": {
+                            "salesSummary": {
                               "properties": {
-                                "amountTotal": {
+                                "averageOrderValue": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "completedOrderCount": {
+                                  "type": "integer"
+                                },
+                                "discounts": {
                                   "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
                                   "example": "1250",
                                   "pattern": "^-?\\d+$",
                                   "type": "string"
                                 },
-                                "paymentCount": {
-                                  "type": "integer"
+                                "grossSales": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
                                 },
-                                "roundingAdjustmentTotal": {
+                                "netSales": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "refunds": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "taxTotal": {
                                   "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
                                   "example": "1250",
                                   "pattern": "^-?\\d+$",
@@ -5109,81 +5077,166 @@
                               },
                               "type": "object"
                             },
-                            "completedExcessCapturedTotal": {
-                              "description": "Captured payment value above a completed order’s grand total. Reconciliation-only.",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": "string"
-                            },
-                            "manualExternalCard": {
+                            "scope": {
                               "properties": {
-                                "amountTotal": {
+                                "notImplemented": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "notes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "partial": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "taxByClass": {
+                              "items": {
+                                "properties": {
+                                  "grossAmount": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "lineCount": {
+                                    "type": "integer"
+                                  },
+                                  "netAmount": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "taxAmount": {
+                                    "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                    "example": "1250",
+                                    "pattern": "^-?\\d+$",
+                                    "type": "string"
+                                  },
+                                  "taxClassId": {
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                    "format": "uuid",
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "tenderTotals": {
+                              "properties": {
+                                "cash": {
+                                  "properties": {
+                                    "amountTotal": {
+                                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                      "example": "1250",
+                                      "pattern": "^-?\\d+$",
+                                      "type": "string"
+                                    },
+                                    "paymentCount": {
+                                      "type": "integer"
+                                    },
+                                    "roundingAdjustmentTotal": {
+                                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                      "example": "1250",
+                                      "pattern": "^-?\\d+$",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "completedExcessCapturedTotal": {
+                                  "description": "Captured payment value above a completed order’s grand total. Reconciliation-only.",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "manualExternalCard": {
+                                  "properties": {
+                                    "amountTotal": {
+                                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                      "example": "1250",
+                                      "pattern": "^-?\\d+$",
+                                      "type": "string"
+                                    },
+                                    "paymentCount": {
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "unsettledCapturedTotal": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "voidAndCompSummary": {
+                              "properties": {
+                                "compLineCount": {
+                                  "type": "integer"
+                                },
+                                "compLineValue": {
                                   "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
                                   "example": "1250",
                                   "pattern": "^-?\\d+$",
                                   "type": "string"
                                 },
-                                "paymentCount": {
+                                "voidedLineCount": {
                                   "type": "integer"
+                                },
+                                "voidedLineValue": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
                                 }
                               },
                               "type": "object"
                             },
-                            "unsettledCapturedTotal": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
+                            "zNumber": {
                               "type": "string"
                             }
                           },
                           "type": "object"
                         },
-                        "voidAndCompSummary": {
-                          "properties": {
-                            "compLineCount": {
-                              "type": "integer"
-                            },
-                            "compLineValue": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": "string"
-                            },
-                            "voidedLineCount": {
-                              "type": "integer"
-                            },
-                            "voidedLineValue": {
-                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                              "example": "1250",
-                              "pattern": "^-?\\d+$",
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
+                        "firstEligibleBusinessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
                         },
-                        "zNumber": {
+                        "outcome": {
+                          "const": "CLOSED",
                           "type": "string"
                         }
                       },
-                      "type": "object"
-                    },
-                    "firstEligibleBusinessDay": {
-                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
-                      "example": "2026-08-23",
-                      "format": "date",
-                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                      "type": "string"
-                    },
-                    "outcome": {
-                      "description": "ACTIVATED on the branch’s first ever DayClose request (no day sealed, dayClose absent). CLOSED once a real close is performed (dayClose present, the full Z snapshot).",
-                      "enum": [
-                        "ACTIVATED",
-                        "CLOSED"
+                      "required": [
+                        "outcome",
+                        "branchId",
+                        "businessDay",
+                        "activationBusinessDay",
+                        "firstEligibleBusinessDay",
+                        "dayClose"
                       ],
-                      "type": "string"
+                      "type": "object"
                     }
-                  },
-                  "type": "object"
+                  ]
                 }
               }
             },
