@@ -46,6 +46,14 @@ import {
   TREASURY_PERMISSIONS,
   TREASURY_PERMISSION_DEFS,
 } from '../modules/treasury/treasury.permissions';
+import {
+  KDS_PERMISSIONS,
+  KDS_PERMISSION_DEFS,
+} from '../modules/kitchen/kitchen.permissions';
+import {
+  REPORTING_PERMISSIONS,
+  REPORTING_PERMISSION_DEFS,
+} from '../modules/reporting/reporting.permissions';
 
 /**
  * One-shot local-dev data seeder — NOT wired to any HTTP route, run manually:
@@ -101,6 +109,8 @@ async function main(): Promise<void> {
     ...ORGANISATION_PERMISSION_DEFS,
     ...PRODUCTION_PERMISSION_DEFS,
     ...TREASURY_PERMISSION_DEFS,
+    ...KDS_PERMISSION_DEFS,
+    ...REPORTING_PERMISSION_DEFS,
   ]);
 
   // ---------------------------------------------------------------- tenant --
@@ -147,6 +157,8 @@ async function main(): Promise<void> {
     ...Object.values(ORGANISATION_PERMISSIONS),
     ...Object.values(PRODUCTION_PERMISSIONS),
     ...Object.values(TREASURY_PERMISSIONS),
+    ...Object.values(KDS_PERMISSIONS),
+    ...Object.values(REPORTING_PERMISSIONS),
   ]);
   await membershipRoles.assign(tenant.id, ownerMembership.id, ownerRole.id);
 

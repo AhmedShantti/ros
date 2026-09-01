@@ -6,3 +6,4 @@
  * §5.2.3 requires of the rule.
  */
 export * from './pinned-payment-policy.query';
+export * from './tax-class-labels.query';

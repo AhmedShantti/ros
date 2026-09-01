@@ -6442,6 +6442,978 @@ migration, test, or OpenAPI change.
 **Status:** **RATIFIED — CLOSED.**
 
 ---
+## KDS MVP Operator Lifecycle Ratification — 2026-08-30
+
+> **RECORDED 2026-08-30 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry carrying **two independently
+> identifiable limbs**, matching the **P1A / P1C / P1D** carried-item,
+> **Fire Authorization**, **P1F-2 Completion Economics**, **FIFO Exhaustion
+> Carry-Forward**, **Approval Runtime Minimum Resolution**, **P1G-1 Cash-Close
+> Policy** and **R-6** convention.
+>
+> **Limb identifiers.** These continue the **`KDS-R<n>`** series established by
+> the P1E-2 KDS routing design closure (`KDS-R1 … KDS-R10`, of which `KDS-R9`
+> is cited in `prisma/schema.prisma`'s `StationRoutingRule` docblock), and
+> therefore begin at **KDS-R11**. The ratified cash series `R-1(a) … R-6` is
+> deliberately **not** continued, and **`R-7` is deliberately NOT reused**:
+> that label is already taken by a **D-20 option** (*"Defer to Appendix C"*) in
+> **precisely this subject area** — permission-catalogue source silence — and
+> reusing it would make the record ambiguous exactly where it must be clearest.
+>
+> Occasioned by
+> `docs/reports/claude/2026-08-30_KDS_operator-lifecycle-final-design-gate.md`
+> and
+> `docs/reports/claude/2026-08-30_KDS_operator-lifecycle-design-gate-acceptance-correction.md`,
+> **the correction superseding the gate where they differ**. **Those reports are
+> non-authoritative evidence; this entry is the binding record**, and where they
+> differ this entry governs. The user was **neutral between the tabled options**
+> and expressly delegated selection to the architecture recommendation,
+> optimizing for **scalability, long-term sustainability, maintainability and
+> operational simplicity**; both selected recommendations were **Option A**.
+>
+> This entry amends **no numbered decision**, creates **no schema**, and does not
+> reopen **P-1**, **D-2**, **D-12**, **D-13**, **D-16**'s enumeration, **D-20**,
+> or **R-1(a) … R-6**. **All historical text is preserved verbatim above and is
+> NOT rewritten**, superseded forward in the register's established manner.
+
+### The questions
+
+Two — and only two — items in the KDS MVP operator-lifecycle design track
+returned `USER RATIFICATION REQUIRED`.
+
+1. **No KDS permission code is derivable from source.** SRS **§15.2** contains
+   no `kds.*` code, and states that the complete catalogue *"is maintained in
+   **Appendix C**"* — **Appendix C is absent from the delivered SRS**. Yet
+   **ACT-09** ("Kitchen Staff | One station | KDS") requires Kitchen Staff to
+   operate the KDS, **FR-KDS-024** `[M]` requires bump item / bump all,
+   **FR-KDS-025** `[M]` requires recall, and this repository's convention is
+   that every route is permission-guarded. **An executable KDS surface therefore
+   cannot exist without an explicitly ratified permission code.**
+2. **The cross-module consequence of recall is source-silent.** §5.5.4 requires
+   `ticket.bumped` (Kitchen Ops → Sales) and **UC-POS-01 step 7** requires Sales
+   to move the relevant order lines to READY when Kitchen completes them.
+   **FR-KDS-025** then requires recall of an already-bumped ticket. The SRS
+   never states what becomes of the Sales line whose READY state was caused by
+   the bump now being withdrawn. Left unresolved, Kitchen would restore the
+   ticket to active work while Sales continued to report the order line as
+   READY — a divergence that reaches front-of-house.
+
+### RATIFICATION — KDS-R11: THE `kds.operate` PERMISSION (2026-08-30)
+
+**RATIFIED — binding:**
+
+1. **A new permission code is introduced: `kds.operate`**, described as
+   *"Operate a kitchen display station"*.
+2. **It authorises exactly this capability surface**, and nothing else:
+   station queue read · first-viewed acknowledgement · item start · bump item ·
+   bump all · ticket recall.
+3. **It is an explicit user-authorized exception to the repository's
+   zero-invented-permission-code discipline**, and is the **third** such
+   exception on record, following **`pos.order.fire`** (Fire Authorization
+   Ratification — 2026-08-24) and **`pos.payment.capture`** (CARRIED ITEM
+   P1D-F). The discipline itself is **unchanged and remains in force** for every
+   other code.
+4. **The coarse grain is deliberate**, selected for operational simplicity and
+   long-term maintainability. **The following codes are NOT authorized by this
+   entry and MUST NOT be created**: `kds.view`, `kds.ticket.view`,
+   `kds.ticket.start`, `kds.ticket.bump`, `kds.ticket.recall`,
+   `kds.ticket.serve`, `kds.expedite`.
+5. **Reads sit behind `kds.operate`.** No separate KDS read code is created —
+   consistent with the existing `pos.order.create` operational-read precedent,
+   which likewise declined to invent a read code §15.2 does not supply.
+6. **`kds.operate` does NOT represent station authorization**, and must never be
+   relied on for it. Station scope is a separate, independently enforced
+   concern — see the consequence note below.
+7. **No other permission is broadened.** Every existing code keeps its exact
+   pre-ratification scope; this limb authorises the KDS operator surface alone.
+8. **Should Appendix C ever be supplied and name this capability differently**,
+   the code is remapped by the route **ADR 0008 D-01** already provides — the
+   same remap path the Catalogue `.read` codes record verbatim
+   (*"PROVISIONAL: if Appendix C names them differently, remap per D-01"*).
+   Recording that route does not make this ratification provisional.
+
+#### Consequence note — station authorization is NOT this permission
+
+Recorded as a **binding constraint on implementation**, not as a separate
+business decision (it is engineering mechanics derived from **ACT-09**, ratified
+**ADR 0008 D-16**, and existing session/terminal substrate):
+
+- an **active, registered KDS-type terminal** is required;
+- **exactly one** operative station binding must resolve;
+- **zero** bindings ⇒ **denied**;
+- **more than one** binding ⇒ **denied** as unsupported/misconfigured for this
+  slice;
+- the supplied `stationId` **must equal** the terminal-derived station;
+- an ordinary **POS or dashboard surface cannot operate the KDS** merely by
+  holding `kds.operate`.
+
+**D-2's branch-scoped RBAC deferral is UNCHANGED and is not reopened** — station
+scope here is a terminal-binding fact under **FR-SEC-021** / **FR-SEC-028**, not
+a new RBAC scoping tier.
+
+#### Binding constraints on implementation (mirroring the Fire Authorization Ratification)
+
+- **Do NOT hardcode role-name strings.** Authorization is permission-based.
+- The permission **CODE** is added exactly as every other business permission
+  code in this repository is added: an entry in the owning module's
+  `<MODULE>_PERMISSIONS` / `<MODULE>_PERMISSION_DEFS`, persisted through the
+  existing `PermissionsService.upsert`/`upsertMany` mechanism — **code-driven,
+  not migration-driven**. **No migration creates this permission.**
+- Per the repository's standing rule that a permission is seeded only where an
+  executable consumer exists, `kds.operate` is seeded **by the slice that
+  creates the KDS routes**, not before.
+- **FR-SEC-012** `[M]` requires a plain-language description; the description in
+  clause 1 is that text.
+
+### RATIFICATION — KDS-R12: THE `ticket.recalled` DOMAIN EVENT (2026-08-30)
+
+**RATIFIED — binding:**
+
+1. **A new internal domain event is introduced: `ticket.recalled`.**
+   **Publisher: Kitchen Ops. Principal subscriber: Sales.**
+2. It is recorded as an **EXTENSION of SRS §5.5.4 — "Event Catalogue (Core
+   Subset)"**, whose own title declares the catalogue non-exhaustive.
+   **The SRS does NOT define `ticket.recalled`, and no claim to the contrary is
+   made** — verified: the string occurs nowhere in the delivered SRS, and
+   nowhere in this register before this entry.
+3. **Business semantics.** When Kitchen **successfully recalls** a previously
+   bumped ticket:
+   - Kitchen publishes `ticket.recalled`;
+   - **Sales consumes it inside the SAME UnitOfWork transaction** as the Kitchen
+     recall, consistent with **§5.5.2**;
+   - Sales reverts **exactly** the affected order lines whose READY state is
+     being withdrawn;
+   - the eligible Sales transition is **`ready → fired`**;
+   - **`ready_at` is cleared** on those reverted lines.
+4. **Sales MUST NOT regress a line that is already `served`, `voided` or
+   `comped`.**
+5. **Module ownership is preserved.** Kitchen owns the Kitchen lifecycle and
+   Kitchen tables; Sales owns Sales order and order-line state. **No direct
+   cross-module table query is authorized in either direction.** Communication
+   remains through published `contract/` surfaces and domain events, per
+   **§5.2.3**.
+6. **No schema change is authorized by this limb.** The Sales columns it writes
+   (`sales.order_lines.state`, `sales.order_lines.ready_at`) already exist.
+7. **`ticket.bumped` is unchanged in publisher and subscribers** (§5.5.4:
+   Kitchen Ops → Sales, Analytics). This limb adds a compensating event; it does
+   not alter, replace, or reinterpret `ticket.bumped`.
+
+### Future standard-role intent — RECORDED, NOT IMPLEMENTED
+
+Recorded **only** so a future role-seeding implementation does not have to
+rediscover the decision:
+
+`kds.operate` is intended for **Kitchen Staff · Head Chef · Branch Manager ·
+Shift Supervisor · Owner**, and for **no other standard role**. **Auditor
+explicitly does NOT receive it**, because `kds.operate` carries **write**
+authority and the Auditor role is read-only.
+
+**This entry does NOT authorize implementation of FR-SEC-010 standard-role
+seeding.** **No existing role row and no existing role semantics are modified by
+this entry.** As the Fire Authorization Ratification already records, **ROS has
+no system-defined "standard role" persistence mechanism**; this mapping is
+therefore a **POLICY for whoever creates or administers a tenant's equivalent
+roles**, not a migration and not a hardcoded seed of specific role rows.
+
+### What is expressly NOT ratified by this entry
+
+- **The SERIALIZABLE + bounded-retry concurrency mechanism** for the KDS
+  bump / bump-all / recall Unit of Work. It is an **engineering correctness
+  mechanism**, not a business or governance choice, and is **not ratified as
+  one**. It introduces no `SELECT FOR UPDATE`, no new advisory lock, no reliance
+  on `AuditService`'s tenant-wide advisory lock, no `sales.orders.version`
+  coupling, and **no migration** — so §24.6.4's confinement of pessimistic
+  locking is untouched.
+- **The first-viewed audit entry.** **FR-AUD-001** `[M]` already decides it: a
+  persisted first-viewed acknowledgement is a state-changing operation and is
+  therefore audited (one entry per newly-first-viewed Ticket; affected lines as
+  metadata; a zero-row replay writes no entry). This is **requirement
+  compliance, not a discretionary governance choice**.
+- **Any schema, migration, table, column, index, route URL, DTO, audit action
+  literal or event payload field.** All remain **design/implementation details,
+  NOT ratified here**.
+- **`served` / Expediter behaviour (FR-KDS-013 `[S]`), sorting beyond FIFO,
+  colour thresholds, FR-KDS-041/042 analytics, the post-fire cancellation path
+  (`order.line.voided`), offline KDS (NFR-REL-002), peer discovery
+  (NFR-REL-003), and the FR-SEC-026 8-hour KDS session TTL** — all remain
+  **DEFERRED and NOT authorized**.
+
+### Authority classification
+
+**KDS-R11 and KDS-R12 are USER-RATIFIED decisions resolving source silence.
+Neither is an SRS-derived requirement, and neither is presented as one.**
+
+- **KDS-R11** is *compatible with, but not mandated by*, **ACT-09**,
+  **FR-KDS-024** `[M]`, **FR-KDS-025** `[M]`, **FR-SEC-001** `[M]` and
+  **FR-SEC-011** `[M]`. **§15.2 supplies no `kds.*` code and Appendix C is
+  absent**, so the code name is **not source-determined**.
+- **KDS-R12** is *compatible with, but not mandated by*, **§5.5.4**,
+  **UC-POS-01 step 7** and **FR-KDS-025** `[M]`. **The SRS specifies no
+  recall consequence for Sales.**
+
+**D-20 is NOT reopened, contradicted, or amended.** D-20's *"permission-code
+decision DEFERRED, not invented"* is scoped to a **Governance approval-read**
+code (`governance.approval.read`) for a surface **D-14 A-1 removed** — there was
+no route needing a code, so deferral cost nothing. **KDS has the opposite
+posture**: `[M]` requirements demand an executable, permission-guarded surface,
+so deferral is not available and the register's own established remedy — an
+explicitly user-authorized code, as for `pos.order.fire` and
+`pos.payment.capture` — applies instead. **D-20's own R-1 … R-7 option labels
+remain what they always were: options that were NOT introduced.**
+
+### Preservation
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures, the P1A / P1C / P1D carried items,
+the Fire Authorization Ratification, the P1F-2 Completion Economics & Depletion
+Resolution, the FIFO Exhaustion Carry-Forward Ratification, the Approval Runtime
+Minimum Resolution, the P1G-1 Cash-Close Policy Ratification and R-1(a) … R-6
+are ALL unchanged — this entry amends none of them.** In particular: **D-2's
+branch-scoped RBAC defer remains in force**; **D-12 remains BLOCKED**;
+**D-16's `request_type` enumeration remains OPEN**; **D-13 remains RATIFIED**;
+**D-14 A-1 and D-20 remain unchanged — NO Governance HTTP or read surface**;
+**P-1 remains RATIFIED and UNCHANGED**; the P1E-2 KDS routing decisions
+**KDS-R1 … KDS-R10** and the P1E-4/P1E-5 Ticket lifecycle and Kitchen ownership
+decisions are **unchanged and not reopened**; **§5.5.4's `ticket.bumped`
+publisher and subscribers are unchanged**. **No numbered decision is added,
+amended by number, or renumbered. No schema is created by this entry.**
+
+### Implementation consequence
+
+With **KDS-R11** and **KDS-R12** recorded, the KDS MVP operator-lifecycle design
+track has **no outstanding `USER RATIFICATION REQUIRED` item**, and the slice is
+**GOVERNANCE-UNBLOCKED**.
+
+**No migration is created by this entry, and no implementation is performed by
+it.** A separate, explicitly authorised implementation task is required before
+any product code, migration, permission seeding, test, or OpenAPI change.
+
+**Status:** **RATIFIED — CLOSED.**
+
+---
+## Minimum Operational Reporting Ratification — 2026-08-31
+
+> **RECORDED 2026-08-31 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry carrying **three independently
+> identifiable limbs**, matching the **P1A / P1C / P1D** carried-item,
+> **Fire Authorization**, **P1F-2 Completion Economics**, **FIFO Exhaustion
+> Carry-Forward**, **Approval Runtime Minimum Resolution**, **P1G-1 Cash-Close
+> Policy**, **R-6** and **KDS MVP Operator Lifecycle** convention.
+>
+> **Limb identifiers.** These open a NEW **`RPT-R<n>`** series — `RPT-R1`,
+> `RPT-R2`, `RPT-R3` — verified unused anywhere in this register before this
+> entry. Three existing series are deliberately **not** continued: the cash
+> series **`R-1(a) … R-6`** (whose bare `R-<n>` labels additionally collide
+> with **D-20's own option labels `R-1 … R-7`**, one of which — `R-7`,
+> *"Defer to Appendix C"* — sits in **precisely this subject area**,
+> permission-catalogue source silence, where the record must be clearest);
+> the KDS series **`KDS-R1 … KDS-R12`** (a different domain); and the
+> numbered **`D-<n>`** series (no numbered decision is created).
+>
+> Occasioned by
+> `docs/reports/claude/2026-08-31_MINIMUM-reporting-final-design-gate.md`
+> and
+> `docs/reports/claude/2026-08-31_MINIMUM-reporting-design-gate-acceptance-correction.md`,
+> **the acceptance correction superseding the gate where they differ**.
+> **Those reports are non-authoritative evidence; this entry is the binding
+> record**, and where they differ this entry governs.
+>
+> **The user's ratification statement, verbatim:**
+> *"موافق، اعتمد القرارات 1 و2 و3."* — *"Agreed, ratify decisions 1, 2 and 3."*
+> The three decisions are those tabled in the acceptance correction's §18.
+>
+> This entry amends **no numbered decision**, creates **no schema**, and does
+> not reopen **P-1**, **D-2**, **D-12**, **D-13**, **D-16**'s enumeration,
+> **D-14 A-1**, **D-20**, **R-1(a) … R-6**, **KDS-R1 … KDS-R12**, or
+> **CARRIED ITEM P1C-1**. **All historical text is preserved verbatim above
+> and is NOT rewritten**, superseded forward in the register's established
+> manner.
+
+### The questions
+
+Three — and only three — items in the Minimum Operational Reporting design
+track returned `USER RATIFICATION REQUIRED` after the acceptance correction.
+
+1. **No concrete report permission code is derivable from source.** SRS
+   **§15.2** supplies the **template** `report.view.<category>` and the code
+   `report.export`, and states the complete catalogue *"is maintained in
+   **Appendix C**"* — **Appendix C is absent from the delivered SRS**. §19.3
+   supplies the **category vocabulary** (Sales · Inventory · Kitchen ·
+   Financial · Workforce · Governance) as report-group headings, not as
+   permission tokens. This repository already records the gap **in code**:
+   `treasury.controller.ts` lists the X report as *"authorization NOT
+   SOURCE-DECIDABLE (no `cash.x_report`, **`report.view.<category>`
+   unenumerated**)"*. Every route in this repository is permission-guarded and
+   **no existing code covers the surface truthfully** — reusing
+   `pos.order.create` would hand every cashier the branch's whole daily
+   financial position, and `cash.session.close`/`_other` are write
+   authorities. **An executable reporting surface therefore cannot exist
+   without an explicitly ratified permission code.**
+2. **Shipping the Internal-MVP read surface leaves four `[M]` requirements
+   knowingly unmet.** `FR-RPT-001` (read replica), `FR-RPT-002` (rollups),
+   `FR-RPT-003` (incremental/rebuildable rollups) and `FR-RPT-005` (Type-2
+   dimensions) are **architecture** requirements. A query-time aggregation
+   over the transactional primary does not satisfy any of them. Whether to
+   build the operational read **now** in that condition is a sequencing
+   decision only project governance can take.
+3. **The Average Order Value numerator is source-silent.** The SRS names AOV
+   in five places — `FR-FIN-022`'s Z report, §19.3 *Sales by Employee*, §19.3
+   *Average Order Value Trend*, the §12.1 employee-metric list and the §18.x
+   customer-profile list — and **defines a formula in none of them**.
+   Repository source is likewise silent. The choice is user-visible: a
+   manager reads one number.
+
+---
+
+### RATIFICATION — RPT-R1: THE `report.view.sales` + `report.view.financial` PERMISSIONS (2026-08-31)
+
+**RATIFIED — binding:**
+
+1. **Two new permission codes are introduced:**
+   **`report.view.sales`**, described as *"View sales reports"*, and
+   **`report.view.financial`**, described as *"View financial reports"*.
+2. **BOTH are required together** on the Minimum Operational Reporting
+   composite daily-trading route — **`mode: 'all'` (AND), never OR**. A
+   principal holding only one of the two is refused. The existing
+   `@RequirePermission(...)` default and `PermissionGuard`'s
+   `codes.every(...)` evaluation are the mechanism; **no new authorization
+   capability is invented**.
+3. **The route authorised by this limb is exactly:**
+   **`GET /reports/branches/{branchId}/daily-trading/{businessDay}`** —
+   one branch, one business day, dashboard-only, read-only. **No other route
+   is authorised by these codes.**
+4. **They instantiate a source-supplied pattern.** §15.2 supplies the template
+   `report.view.<category>`; §19.3 supplies the categories. The composite
+   response genuinely spans **both**: *Sales Summary* and *Sales by Tender*
+   are §19.3 **Sales** reports; *Cash Reconciliation* and *Tax Summary* are
+   §19.3 **Financial** reports. Requiring both is the only gating that neither
+   over-grants nor mislabels.
+5. **These are the FOURTH and FIFTH explicit user-authorized exceptions** to
+   the repository's zero-invented-permission-code discipline, following
+   **`pos.order.fire`** (Fire Authorization Ratification — 2026-08-24),
+   **`pos.payment.capture`** (CARRIED ITEM P1D-F) and **`kds.operate`**
+   (KDS-R11). **The discipline itself is unchanged and remains in force** for
+   every other code. Unlike the prior three, §15.2 supplies the **pattern**
+   and §19.3 the **category vocabulary**, so only the concrete instantiation
+   is user-ratified — a materially **weaker** form of invention, and it is
+   recorded as such rather than overstated in either direction.
+6. **The following codes are NOT authorized and MUST NOT be created:**
+   `report.export`, `report.view.daily_trading`, `report.view.inventory`,
+   `report.view.kitchen`, `report.view.workforce`, `report.view.governance`,
+   and **any other `report.view.*` code**. `report.view.daily_trading` is
+   specifically refused: `daily_trading` is **not a §19.3 category**.
+7. **Reads sit behind these two codes.** No separate report-read code is
+   created — consistent with the `pos.order.create` and `kds.operate`
+   operational-read precedents, which likewise declined to invent a read code
+   §15.2 does not supply.
+8. **No existing permission is broadened.** Every existing code keeps its
+   exact pre-ratification scope. In particular `pos.order.create`,
+   `inventory.view`, `inventory.cost.view`, `settings.branch.read` and every
+   `cash.*` code are **unchanged**, and none is repurposed as a report-read
+   authority.
+9. **These codes carry NO branch scope** and must never be relied on for it —
+   directly parallel to **KDS-R11 §6**. Branch scope is a separate,
+   independently enforced concern; see the consequence note below.
+10. **ADR 0008 D-01 remap route, recorded.** **Should Appendix C ever be
+    supplied and name these categories differently**, the codes are remapped
+    by the route **ADR 0008 D-01** already provides — the same remap path the
+    Organisation and Catalogue `.read` codes record verbatim (*"PROVISIONAL:
+    if Appendix C names them differently, remap per D-01"*). **Recording that
+    route does not make this ratification provisional.**
+
+#### Future standard-role intent — RECORDED ONLY, NOT IMPLEMENTED
+
+Following **KDS-R11 §4.3**, which recorded role intent without seeding it:
+
+- **Likely holders of BOTH codes:** **Owner · Operations Director · Branch
+  Manager · Accountant · Auditor**.
+- **NOT resolved by this entry, and deliberately left open:** **Brand
+  Manager** (§15.3: *"Menu, pricing, reports; no financial approval"* — an
+  approval restriction is not self-evidently a read restriction) and **Shift
+  Supervisor** (§15.3 is silent on reports). These remain **future
+  role-seeding questions**.
+- **NOT granted:** **Cashier · Waiter · Kitchen Staff · Head Chef ·
+  Storekeeper** — none is a reporting role — **unless a future ratified
+  role-seeding decision explicitly says otherwise**.
+
+> **`FR-SEC-010` standard-role seeding is NOT authorized by this entry. No
+> role row, role_permission row, or role semantic is created or modified.**
+
+#### Binding constraints on implementation (mirroring KDS-R11)
+
+- **Do NOT hardcode role-name strings.** Authorization is permission-based
+  (**D-3**).
+- The codes are added **code-driven, not migration-driven** — entries in the
+  owning module's `<module>.permissions.ts` plus `PermissionDef`s registered
+  through the existing `PermissionsService.upsertMany`, and **seeded only by
+  the slice that creates the route**, per the standing rule recorded in
+  `treasury.permissions.ts` (*"a code with no route behind it is appearance
+  without capability"*).
+- **No migration, no schema change, no RLS change** is authorised for the
+  permission codes or for anything else in this entry.
+
+---
+
+### RATIFICATION — RPT-R2: INTERNAL-MVP REPORTING SEQUENCING (2026-08-31)
+
+**RATIFIED — binding:**
+
+1. **The Internal-MVP operational daily-trading read surface is AUTHORISED to
+   be implemented now**, using **query-time aggregation over the
+   transactional primary**.
+2. **Simultaneously, and without qualification:**
+
+   | Requirement | Pri | Status |
+   |---|---|---|
+   | **`FR-RPT-001`** — analytical queries against a read replica | `[M]` | **NOT IMPLEMENTED** |
+   | **`FR-RPT-002`** — hourly/daily/weekly/monthly pre-aggregated rollups | `[M]` | **NOT IMPLEMENTED** |
+   | **`FR-RPT-003`** — incrementally updated, fully rebuildable rollups | `[M]` | **NOT IMPLEMENTED** |
+   | **`FR-RPT-005`** — Type-2 slowly-changing dimensions | `[M]` | **NOT IMPLEMENTED** |
+
+3. **This is NOT a waiver, NOT a reinterpretation, and NOT a claim of
+   completion.** All four remain **open, unmet `[M]` requirements** counted
+   against the Reporting domain, exactly as **`FR-SEC-032`** is already
+   recorded as knowingly unmet under **D-2**.
+4. **No artefact may claim otherwise.** No report, register entry, INDEX row,
+   code comment, OpenAPI description or commit message produced by this slice
+   may state or imply *"FR-RPT-001/002/003/005 waived"* or *"…complete"*.
+5. **This limb authorises the SEQUENCING ONLY.** It does **NOT** authorise a
+   **read replica**, a **star schema**, any **`fact_*`** or **`dim_*`** table,
+   **Type-2 dimensions**, **rollup persistence**, a **report cache**, an
+   **export pipeline**, or an **analytics warehouse**. The reporting module
+   owns **zero tables and zero migrations**.
+6. **`FR-RPT-004`** `[M]` — data-as-of timestamp plus explicit indication that
+   the period is incomplete — **MAY be implemented in full by this slice**.
+7. **`FR-RPT-042`** `[M]` (drill-down to contributing transactions) remains
+   **NOT IMPLEMENTED**. **`FR-RPT-043`/`FR-RPT-044`** `[M]` (export and export
+   audit) remain **NOT IMPLEMENTED**; no export route and no `report.export`
+   code is created. **`FR-RPT-030 … 034`**, **`FR-RPT-040`/`041`**,
+   **`FR-RPT-045`/`046`** and **`FR-RPT-047`** remain **NOT IMPLEMENTED**.
+8. **`FR-FIN-010`** `[M]` remains **PARTIAL**. Per-day tender reporting for
+   the **two implemented tenders** (`cash`, `manual_external_card`) may be
+   added. ***"Each card scheme"* remains UNSATISFIED** — `card_scheme` is
+   optional, unvalidated, cashier-typed free text and no integrated payment
+   terminal exists (`FR-POS-064` NOT IMPLEMENTED). **The nine unimplemented
+   tender families remain UNSATISFIED.**
+9. **§19.3 *Cash Reconciliation* is delivered as PARTIAL**, per the accepted
+   acceptance correction: **payment-contributing sessions only**;
+   **whole-session close facts**, explicitly scoped as such; **zero-payment
+   and movement-only session attribution NOT IMPLEMENTED** — no business-day
+   anchor exists on `treasury.cash_sessions`, `workforce.shifts`,
+   `treasury.cash_movements` or `treasury.cash_session_close_attempts`, and
+   **none is invented**; and **NO day-level variance total is produced**,
+   because a session spanning two business days would contribute its single
+   whole-session variance to both days.
+10. **`FR-FIN-020 … 026` remain NOT IMPLEMENTED.** DayClose, the **Z report**
+    and the **X report** are untouched, and **this slice does NOT provide
+    `FR-FIN-021`'s blocking-session list** — that requires every open session
+    of the branch, which a payment-derived session set cannot see. DayClose
+    remains a separate slice with its own design gate.
+11. **`FR-AUD-008` remains a knowingly unsatisfied gap**, unchanged by this
+    entry — **D-20 clause 9** stands.
+12. **Ordinary report `GET` requests generate NO `FR-AUD-001` business audit
+    entry.** `FR-AUD-001` binds state-changing operations; `FR-AUD-006`'s
+    always-audit list names *"data exports"*, and this slice performs none;
+    `FR-AUD-007` binds **audit-log** access, which this route does not touch
+    (**D-20 clause 8** — CONDITIONAL — stands).
+13. **Nothing is reopened:** **D-2**, **D-20**, **KDS-R11**, **KDS-R12** and
+    **CARRIED ITEM P1C-1**'s Receipt/fiscal exclusion are **unchanged**.
+
+---
+
+### RATIFICATION — RPT-R3: AVERAGE ORDER VALUE NUMERATOR (2026-08-31)
+
+**RATIFIED — binding:**
+
+1. **`averageOrderValue` = `netSales ÷ completedOrderCount`.**
+2. **Rounding: HALF_UP to minor units**, using the repository's approved exact
+   integer money/rounding mechanism (`divideRounded` with
+   `RoundingMode.HALF_UP`, **BR-FIN-001**). **No floating-point money.**
+3. **When `completedOrderCount = 0`, `averageOrderValue` is `null`** — not
+   `"0"`. An average of nothing is undefined, and `"0"` would read as *"the
+   average order was worth nothing"*.
+4. **`netSales` is the already-source-decided figure**:
+   `Gross − Discounts − Refunds − Tax` (**`FR-CST-003`** `[M]`, verbatim).
+   **`FR-CST-003` is an SRS finding, not a ratification** — it is recorded
+   here only to fix the numerator's meaning, and this entry does not ratify,
+   restate or alter it.
+5. **The NET basis is a USER-RATIFIED choice resolving source silence, not an
+   SRS finding.** The SRS names AOV in five places and defines no formula.
+   The choice is *compatible with, but not mandated by*, §13's consistent use
+   of **Net Sales** as the canonical revenue denominator
+   (`Food Cost % = COGS ÷ Net Sales`; `Prime Cost % ÷ Net Sales`;
+   `Sales per Labour Hour = Net Sales ÷ Hours Worked`) and `FR-CST-035`'s
+   ledger line *"= Net Sales (excl. tax)"*.
+6. **This limb applies to Average Order Value ONLY.** It does **NOT**
+   authorise **Food Cost %**, **Prime Cost %**, **gross-margin %**,
+   **contribution margin**, **items per order**, **upsell rate**, **basket-size
+   decomposition**, or **any other derived KPI**. **`FR-CST-003` is NOT
+   claimed** by this slice, and **no COGS figure is exposed** — doing so would
+   silently widen **`inventory.cost.view`**.
+
+---
+
+### Consequence note — the branch fail-closed posture is NOT a fourth ratification
+
+Recorded as a **binding constraint on implementation**, not as a separate
+business decision — exactly as **KDS-R11**'s station-authorization consequence
+note was recorded (*"engineering mechanics"*). It is derived from existing
+substrate and **grants nothing, lifts nothing and relaxes nothing**; it is
+strictly **more** restrictive than every existing read route in the
+repository:
+
+- the report route requires an **explicit `branchId`** path parameter — there
+  is no optional-filter form;
+- the target branch **must exist and be visible in the caller's tenant**, or
+  the response is a tenant-safe **404** indistinguishable from an unknown id;
+- the tenant must resolve to **exactly ONE active branch** for this
+  Internal-MVP surface;
+- **zero** active branches ⇒ **denied**;
+- **more than one** active branch ⇒ **denied as unsupported** for this
+  release;
+- the supplied `branchId` **must equal** that one active branch;
+- **the branch-shape verification executes inside the SAME `RepeatableRead`
+  transaction that assembles the report**, so a branch activated or
+  deactivated concurrently cannot produce a report assembled under a shape the
+  posture refuses.
+
+**`D-2`'s branch-scoped RBAC deferral is UNCHANGED and is not reopened.** The
+assertion reads a **tenant-shape** fact (`org.branches.status`), **never a
+principal's scope**: it does not consult `identity.membership_roles.branch_id`,
+does not populate `TenantContext.branchId`, and does not make `PermissionGuard`
+branch-aware. **`FR-SEC-002` / `FR-SEC-003` / `FR-SEC-004` remain NOT
+IMPLEMENTED.**
+
+> **Disclosed product consequence, recorded so it is not lost:** a tenant with
+> **more than one active branch receives 403 on this route entirely**. This is
+> the correct posture for an Internal MVP whose permitted carve-out is
+> explicitly *"one branch operationally"*, and the refusal disappears when
+> **D-2** is lifted.
+
+### Accepted engineering consequences — NOT ratified, NOT discretionary
+
+The following are **accepted design consequences** of the corrected gate and
+are **deliberately NOT recorded as governance decisions**, because none is a
+discretionary choice for project governance: the **thin reporting module
+owning zero tables**; **`RepeatableRead`** composite snapshot;
+**`transaction_timestamp()`** as `dataAsOf`; **a future `businessDay` ⇒ 400**;
+**historical transaction-currency selection** (immutable order/payment currency
+snapshots preferred over the mutable `org.branches.base_currency`);
+**orders-first indexed joins**; **zero migration**; **no day-level variance
+total**; **WHOLE_SESSION cash-reconciliation scope**; **tax by class only, no
+tax-by-rate**; **zero `KNOWN_DEVIATIONS` growth**; and **no business audit on
+an ordinary `GET`**. Exact table/column names, route URLs, DTO field names,
+SQL shapes, index decisions and error-code choices remain **implementation
+details, NOT ratified here**.
+
+### Authority classification
+
+**RPT-R1, RPT-R2 and RPT-R3 are USER-RATIFIED decisions resolving source
+silence or project sequencing. None is an SRS-derived requirement, and none is
+presented as one.**
+
+- **RPT-R1** is *compatible with, but not mandated by*, **§15.2**'s
+  `report.view.<category>` template, **§19.3**'s category vocabulary,
+  **`FR-SEC-001`** `[M]`, **`FR-SEC-010`** `[M]` and **`FR-SEC-011`** `[M]`.
+  **§15.2 supplies no concrete `report.view.*` token and Appendix C is
+  absent**, so the code names are **not source-determined**.
+- **RPT-R2** is a **sequencing authorisation**, not a requirement finding. It
+  changes the *order of work*, never the *status* of
+  `FR-RPT-001/002/003/005`, which stay **NOT IMPLEMENTED**.
+- **RPT-R3** is *compatible with, but not mandated by*, **§13**'s ratio
+  definitions and **`FR-CST-035`**. **The SRS defines no AOV formula.**
+
+**D-20 is NOT reopened, contradicted, or amended.** D-20's *"permission-code
+decision DEFERRED, not invented"* is scoped by its own stated Question to a
+**Governance approval-read** code for a surface **D-14 A-1 removed** — there
+was no route needing a code, so deferral cost nothing. **Reporting has the
+opposite posture**, identical to KDS's: an executable, permission-guarded
+surface is required, so deferral is not available and the register's own
+established remedy — an explicitly user-authorized code, as for
+`pos.order.fire`, `pos.payment.capture` and `kds.operate` — applies instead.
+**D-20's own `R-1 … R-7` option labels remain what they always were: options
+that were NOT introduced**, and `R-7` is not reused by this entry.
+
+**`report.export` is NOT created.** D-20's and `FR-AUD-008`'s reliance on it is
+unchanged, and `FR-AUD-008` remains a knowingly unsatisfied gap.
+
+### Preservation
+
+**D-1 … D-20, P-1, PL, SB, the P0 closures, the P1A / P1C / P1D carried items,
+the Fire Authorization Ratification, the P1F-2 Completion Economics & Depletion
+Resolution, the FIFO Exhaustion Carry-Forward Ratification, the Approval
+Runtime Minimum Resolution, the P1G-1 Cash-Close Policy Ratification,
+R-1(a) … R-6, and the KDS MVP Operator Lifecycle Ratification
+(KDS-R11 / KDS-R12) are ALL unchanged — this entry amends none of them.**
+In particular: **D-2's branch-scoped RBAC defer remains in force**;
+**D-12 remains BLOCKED**; **D-16's `request_type` enumeration remains OPEN**;
+**D-13 remains RATIFIED**; **D-14 A-1 and D-20 remain unchanged — NO
+Governance HTTP or read surface**; **P-1 remains RATIFIED and UNCHANGED**;
+**CARRIED ITEM P1C-1's Receipt/fiscal exclusion stands, untouched**;
+**KDS-R1 … KDS-R12 are unchanged and not reopened**. **No numbered decision is
+added, amended by number, or renumbered. No schema is created by this entry.**
+
+### Implementation consequence
+
+With **RPT-R1**, **RPT-R2** and **RPT-R3** recorded, the Minimum Operational
+Reporting design track has **no outstanding `USER RATIFICATION REQUIRED`
+item**, and the slice is **GOVERNANCE-UNBLOCKED**.
+
+Downstream implementation may consume the **acceptance-corrected design gate**
+together with these three ratified limbs. **No further user ratification is
+required unless current source disproves a ratified assumption** — in which
+case the implementation task must STOP and report, not proceed.
+
+**No migration is created by this entry, no schema is authorised, and no
+implementation is performed by it.** No product code, migration, permission
+seeding, test, or OpenAPI change was made. A separate, explicitly authorised
+implementation task is required before any of those.
+
+**Status:** **RATIFIED — CLOSED.**
+
+---
+## Day Close Ratification — 2026-08-31
+
+> **RECORDED 2026-08-31 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry carrying **three independently
+> identifiable limbs**, matching the **P1A / P1C / P1D** carried-item,
+> **Fire Authorization**, **P1F-2 Completion Economics**, **FIFO Exhaustion
+> Carry-Forward**, **Approval Runtime Minimum Resolution**, **P1G-1 Cash-Close
+> Policy**, **R-6**, **KDS MVP Operator Lifecycle** and **Minimum Operational
+> Reporting** convention.
+>
+> **Limb identifiers.** These open a NEW **`DC-R<n>`** series — `DC-R1`,
+> `DC-R2`, `DC-R3` — **verified unused anywhere in this register before this
+> entry** (`DC-R` and the bare `DC-` prefix both returned zero occurrences).
+> Four existing series are deliberately **not** continued: the cash series
+> **`R-1(a) … R-6`** (whose bare `R-<n>` labels collide with **D-20's own
+> option labels `R-1 … R-7`**); the KDS series **`KDS-R1 … KDS-R12`** and the
+> Reporting series **`RPT-R1 … RPT-R3`** (different domains); and the numbered
+> **`D-<n>`** series (no numbered decision is created).
+>
+> Occasioned by, in supersession order:
+> `docs/reports/claude/2026-08-31_DAYCLOSE-final-design-gate.md`,
+> `docs/reports/claude/2026-08-31_DAYCLOSE-design-gate-acceptance-correction.md`,
+> `docs/reports/claude/2026-08-31_DAYCLOSE-pre-ratification-final-correction.md`
+> and
+> `docs/reports/claude/2026-08-31_DAYCLOSE-activation-mechanic-final-correction.md`,
+> **each later correction governing the earlier reports where they differ**.
+> **Those reports are non-authoritative evidence; this entry is the binding
+> record**, and where they differ this entry governs.
+>
+> **The user's ratification statement, verbatim:**
+> *"موافق، اعتمد DC-R1 وDC-R2 وDC-R3."* — *"Agreed, ratify DC-R1, DC-R2 and
+> DC-R3."*
+>
+> This entry amends **no numbered decision**, creates **no schema**, and does
+> not reopen **P-1**, **D-2**, **D-12**, **D-13**, **D-16**'s enumeration,
+> **D-14 A-1**, **D-20**, **R-1(a) … R-6**, **KDS-R1 … KDS-R12**,
+> **RPT-R2**, **RPT-R3**, or **CARRIED ITEM P1C-1**. **RPT-R1 is narrowly
+> EXTENDED, explicitly and only as stated in DC-R3 — never silently
+> superseded.** **All historical text is preserved verbatim above and is NOT
+> rewritten**, superseded forward in the register's established manner.
+
+### The questions
+
+Three — and only three — items in the Day Close design track returned
+`USER RATIFICATION REQUIRED` after the corrected gate.
+
+1. **`FR-FIN-022` [M] cannot be fully produced from persisted facts.** Tax by
+   rate is not derivable (only the `FR-FIN-032` component **sum** is
+   persisted); sales by category has no snapshot on `sales.order_lines` and
+   would require joining a permanently sealed document to **mutable**,
+   many-to-many master data. `FR-FIN-026` [M]'s four trigger limbs are all
+   unavailable. **May the operational DayClose ship while those limbs stay
+   explicitly unmet?** This is a **sequencing** question; no user choice can
+   conjure data that is not persisted.
+2. **Which business day owns a spanning CashSession's whole-session
+   variance?** A session's payments can span two business days — the accepted
+   Reporting slice emits `businessDayCount` precisely because it occurs. §16.5
+   is **silent** on which day owns that session's single whole-session
+   variance. This is a **business-semantics** question.
+3. **What authorises the historical Z read?** `cash.day.close` is a **WRITE**
+   authority (§15.2, *"Close the business day"*), and this repository has
+   already refused that class of reinterpretation once. §15.2's Cash family
+   contains **no read code**, and §15.2's designated authority for the full
+   catalogue — **Appendix C — is ABSENT from `ROS_SRS_v1.0.pdf`** (the
+   document ends at §29.5), the same absence **D-20** records.
+
+---
+
+### RATIFICATION — DC-R1: INTERNAL-MVP DAY CLOSE SEQUENCING (2026-08-31)
+
+**RATIFIED — binding:**
+
+1. **The Internal-MVP operational Day Close capability is AUTHORISED to be
+   implemented now** — the state-changing **Treasury** DayClose aggregate and
+   its minimum persisted Z/DayClose historical surface.
+2. **Implemented by this authorisation:** **`FR-FIN-020`** (per-branch
+   business-day close operation); **`FR-FIN-021`** **in full — both limbs**
+   (blocked while any branch cash session remains open, **and** the blocking
+   sessions are listed), over **every** branch cash session with
+   `status <> 'closed'`, unqualified by business day; **`FR-FIN-023`**
+   (sequential per-branch Z numbering, immutability, historical retrieval —
+   retrieval authorised by **DC-R3**). **`FR-FIN-024`** is **already COMPLETE**
+   and is reused, never reimplemented.
+3. **Simultaneously, and without qualification — `FR-FIN-022` [M] remains
+   PARTIAL.** These mandatory limbs remain **NOT IMPLEMENTED**:
+
+   | Limb | Why |
+   |---|---|
+   | **tax by rate** | `FR-FIN-032` permits multiple tax components; only the component **sum** is persisted (`order_lines.tax_amount`). Per-component rate and base exist nowhere. Deriving a statutory rate from rounded money is refused |
+   | **sales by category** | `sales.order_lines` carries **no category snapshot**; `catalogue.menu_items` deliberately carries no `category_id`; placement is the **many-to-many** `catalogue.menu_item_placements`. Aggregating would bind a permanently sealed document to **mutable** master data and be ambiguous for a multi-placed item |
+   | **comp** half of *void and comp summary* | **structurally zero** — no code path writes `state:'comped'`. *(The **void** half **is** implemented: pre-fire voids are written with `voided_by` and a reason CHECK.)* |
+   | **sales by tender** | **PARTIAL** — two implemented tenders only; ***each card scheme*** and the nine unimplemented tender families remain **UNSATISFIED**, exactly as **RPT-R2 clause 8** already records |
+
+   Gross sales, discounts, refunds, net sales, transaction count, average
+   order value, cash reconciliation and the variance summary **are**
+   implemented.
+4. **`FR-FIN-026` [M] remains PARTIAL — all four trigger limbs unmet:**
+   - **fiscal document finalisation — NOT IMPLEMENTED.** **No
+     fiscal-finalisation capability is implemented**, and **no fiscal
+     documents currently exist to finalise**. **An empty set is NOT
+     compliance**: this limb may **never** be described as *"satisfied"*,
+     *"vacuously satisfied"* or *"complete by absence"*. **CARRIED ITEM
+     P1C-1's Receipt/fiscal exclusion is untouched and is not reopened.**
+   - **inventory day-end snapshot — NOT IMPLEMENTED.** No dated snapshot
+     exists; `inventory.stock_levels` is a live projection with no date
+     dimension.
+   - **report pre-aggregation — NOT IMPLEMENTED, and remains excluded by
+     RPT-R2** (clause 2 records `FR-RPT-002`/`FR-RPT-003` NOT IMPLEMENTED;
+     clause 5 forbids rollup persistence, `fact_*`/`dim_*` tables and any
+     analytics warehouse). **Day Close MUST NOT implement it.**
+   - **accounting export generation — NOT IMPLEMENTED.** `FR-RPT-043` remains
+     NOT IMPLEMENTED (**RPT-R2 clause 7**) and the required external-delivery
+     substrate is absent: **no transactional outbox exists**, while §5.5.3
+     makes it **mandatory (`FR-PLT-041`)** for exactly this class of effect.
+     **No fire-and-forget external call may be substituted.**
+5. **`FR-FIN-025` [S] remains NOT IMPLEMENTED.** No scheduler, no per-branch
+   enablement flag, and no force-close-and-flag semantics are authorised or
+   built.
+6. **This is NOT a waiver, NOT a reinterpretation, and NOT a claim of
+   completion.** Every limb in clauses 3–5 remains an **open, unmet
+   requirement** counted against its domain — exactly as **RPT-R2 clause 3**
+   records `FR-RPT-001/002/003/005` and as **`FR-SEC-032`** is recorded under
+   **D-2**. **It is sequencing only.**
+7. **No artefact may claim otherwise.** No report, register entry, INDEX row,
+   code comment, OpenAPI description or commit message produced by this slice
+   may state or imply **"`FR-FIN-022` waived"**, **"satisfied with a
+   subset"**, **"the Z report is fully compliant"**, or
+   **"`FR-FIN-020 … 026` COMPLETE"**.
+8. **The Day Close state-changing aggregate is distinct from full Z-content
+   compliance.** What ships is a **complete `FR-FIN-020`/`021`/`023` close
+   aggregate** carrying an **Internal-MVP Z snapshot whose content obligation
+   (`FR-FIN-022`) is PARTIAL**. Both facts are stated together, always, and the
+   response carries a machine-readable scope block naming each unmet limb.
+9. **Nothing is reopened:** **RPT-R2**, **CARRIED ITEM P1C-1** and **D-2** are
+   unchanged.
+
+---
+
+### RATIFICATION — DC-R2: CLOSE-BUSINESS-DAY VARIANCE OWNERSHIP (2026-08-31)
+
+**RATIFIED — binding:**
+
+1. **WHOLE-SESSION CashSession close facts — above all the variance — are owned
+   EXACTLY ONCE by the business day in which that CashSession itself becomes
+   `CLOSED`.** The rule's name is **CLOSE-BUSINESS-DAY OWNERSHIP**.
+2. **Derivation and persistence.** An immutable `closedBusinessDay` is derived
+   at CashSession **final-close** time, using the **same authoritative
+   business-day resolver already used by Sales** (the single
+   `resolveBusinessDay`/`cutoverLookup` implementation that `FR-FIN-024` and
+   Order creation share). **No second business-day algorithm is created.**
+3. **It is NEVER historically re-derived** from `org.branches.timezone` or
+   `org.operating_hours.business_day_cutover`, both of which are mutable. A
+   sealed document must not change meaning because configuration changed.
+4. **Spanning sessions.** For a session whose payments touch `D` and `D+1`:
+   **day-scoped tender MAY contribute to BOTH `D` and `D+1`**, while the
+   **whole-session variance is owned ONLY by the day on which the session
+   closes**.
+5. **The same CashSession MAY therefore be linked to multiple DayClose
+   snapshots** for day-scoped tender and historical record.
+6. **An unconditional global uniqueness constraint equivalent to
+   `UNIQUE (tenant_id, cash_session_id)` on the DayClose linkage is
+   PROHIBITED** — it would silently forbid the legitimate relationship
+   clause 5 permits.
+7. **Variance MUST NOT double-count across Z reports.** Whole-session figures
+   (opening float, expected cash, counted cash, variance, movement totals) are
+   **never** emitted as day totals and are labelled **`WHOLE_SESSION`**
+   wherever they appear.
+8. **Legacy closed sessions carrying `closed_business_day IS NULL` remain
+   unknown honestly.** They are **never** backfilled, **never** inferred
+   historically, **never** silently assigned to a DayClose, and **never**
+   included in any variance summary. **No speculative backfill is
+   authorised.**
+9. **Zero-payment and movement-only sessions are reached by this rule** — their
+   variance is owned exactly once by their closing day, which the accepted
+   payment-derived Reporting contract structurally could not see
+   (**RPT-R2 clause 9** unchanged).
+
+---
+
+### RATIFICATION — DC-R3: HISTORICAL Z READ AUTHORITY (2026-08-31)
+
+**RATIFIED — binding:**
+
+1. **The existing permission `report.view.financial` is extended narrowly** to
+   authorise the historical Day Close / Z read surface:
+   **`GET /branches/{branchId}/day-closes/{businessDay}`**.
+2. **NO new permission code is created.** This is a **scope extension of an
+   already-ratified code**, not an invention, and the repository's
+   zero-invented-permission-code discipline is **unchanged and remains in
+   force**.
+3. **This is an EXPLICIT, USER-RATIFIED EXTENSION of RPT-R1 clause 3**, which
+   reads *"The route authorised by this limb is exactly:
+   `GET /reports/branches/{branchId}/daily-trading/{businessDay}` … **No other
+   route is authorised by these codes.**"* **That clause is hereby extended by
+   exactly one additional route and by nothing else.** RPT-R1 is **not**
+   silently superseded, and every other RPT-R1 clause — including clause 6's
+   NOT-authorized code list and clause 8's *"no existing permission is
+   broadened"* as applied to **every other** code — stands unchanged.
+4. **Source basis.** SRS §19.3 lists **“Z Report — Statutory day close”** under
+   **Financial Reports** — the same §19.3 category from which RPT-R1 drew
+   `report.view.financial`. The extension is therefore **category-consistent**,
+   not a reinterpretation.
+5. **`report.view.sales` is NOT required** on this route and is **not**
+   extended: the Z is a Financial report, and requiring the Sales code would
+   broaden a second code without cause.
+6. **`cash.day.close` remains the separate, source-decided authority for the
+   WRITE** — `POST` Day Close — and is quoted verbatim from §15.2 (*"Close the
+   business day"*). It is **NOT** a historical-read authority and **MUST NOT**
+   be used as one. A write permission is not a read-history permission.
+7. **The following codes are NOT authorized and MUST NOT be created:**
+   `cash.day.read`, `cash.z.read`, `report.view.z`, `report.view.day_close`,
+   and **any other new token**. `report.view.day_close` additionally fails
+   RPT-R1 clause 6's own test — `day_close` is **not** a §19.3 category.
+8. **The extension MUST NOT be broadened to any other financial route.** It
+   authorises exactly the one `GET` named in clause 1.
+9. **The code carries NO branch scope** and must never be relied on for it —
+   directly parallel to **RPT-R1 clause 9** and **KDS-R11 §6**. Branch safety
+   remains the separately enforced tenant-shape assertion; **D-2 is
+   unchanged**.
+10. **ADR 0008 D-01 remap route, recorded.** Should Appendix C ever be supplied
+    and name the categories differently, the code is remapped by the route
+    **ADR 0008 D-01** already provides. **Recording that route does not make
+    this ratification provisional.**
+
+---
+
+### Consequence notes — NOT ratifications, NOT further user decisions
+
+Recorded as **binding constraints on implementation**, in the manner **KDS-R11**
+and **RPT-R2** already used for the same class of item. **None of the following
+is a business decision, and no `DC-R4` exists.**
+
+**Activation epoch and the first Day Close command.** The first Day Close
+command for a branch **may create the immutable Day Close activation epoch and
+return `outcome = ACTIVATED`**; **that transaction COMMITS successfully** and
+**does not throw and rely on rollback persistence**. **`activationBusinessDay`
+itself is NEVER closeable** — the migration lands *during* a business day, so
+that day provably mixes attributed and unattributed session closes.
+**`firstEligibleBusinessDay = activationBusinessDay + 1`.** A target day is
+closeable only when
+**`activationBusinessDay < targetBusinessDay < branchCurrentBusinessDay`**.
+**Historical Z is NEVER retroactively manufactured for pre-activation dates** —
+`FR-FIN-023` retrieval returns **persisted records only**, and a day with no
+persisted Day Close is a **404**. **Legacy closed sessions with unknown
+close-business-day attribution are never silently assigned.**
+
+**Concurrency and the business-day cutover.** Order creation and Day Close share
+the **existing** `ros_order_number(branchId, businessDay)` serialization fence.
+Order creation checks Treasury's public Day Close state **after** acquiring that
+fence and **before** its `INSERT`; Day Close acquires the **same** fence before
+its final close checks. This prevents a pre-cutover in-flight Order from
+committing into a business day after that day has been closed. **SERIALIZABLE is
+NOT claimed to solve this race**, and **advisory-lock mechanics are NOT ratified
+as business policy** — they are engineering mechanics recorded here only so the
+constraint is not lost.
+
+**Also engineering mechanics, and deliberately NOT ratified:** Treasury
+ownership of the aggregate · the strictly-past-day close rule · current-day and
+future-day refusal · the global `FR-FIN-021` blocker set · the
+zero-open-target-day-orders precondition · `cash.day.close` (source-decided) ·
+`day.closed` (source-decided, §5.5.4) · `Idempotency-Key` (`FR-API-020`) ·
+READ COMMITTED · the Treasury `DAY_CLOSE_STATE_QUERY` contract · Z-number
+allocation mechanics · uniqueness constraints · RLS · append-only grants · audit
+action literals · the activation mechanic · legacy `NULL` handling · one
+additive migration · and exact schema, table, column, index, constraint and
+route names.
+
+---
+
+### Authority classification
+
+**DC-R1** is a **sequencing / scope acceptance** decision resolving a conflict
+between an `[M]` content obligation and the data that is actually persisted. It
+is **user-ratified**, **not** an SRS finding, and it **changes no requirement's
+status from unmet to met**.
+
+**DC-R2** is a **user-ratified business decision resolving genuine source
+silence**. §16.5 defines a variance summary but never states which business day
+owns a spanning session's whole-session variance. The choice is *compatible
+with, but not mandated by*, `FR-FIN-007`'s treatment of a closed session as an
+immutable unit.
+
+**DC-R3** is a **user-ratified narrow scope extension of an existing ratified
+permission**, occasioned by the absence of **Appendix C** — the same absence
+**D-20** and **RPT-R1** already record. It is a **materially weaker** form of
+authorisation than creating a code, and is recorded as such rather than
+overstated in either direction.
+
+### Preservation
+
+**P-1 remains RATIFIED and UNCHANGED. D-12 remains BLOCKED. D-16's enumeration
+remains OPEN. D-13 remains RATIFIED. D-14 A-1 and D-20 remain unchanged — no
+Governance HTTP or read surface. D-2's branch-scoped RBAC deferral remains IN
+FORCE and `FR-SEC-002`/`FR-SEC-003`/`FR-SEC-004` remain NOT IMPLEMENTED.
+CARRIED ITEM P1C-1's Receipt/fiscal exclusion is UNTOUCHED. R-1(a) … R-6,
+KDS-R1 … KDS-R12, RPT-R2 and RPT-R3 are unchanged. RPT-R1 is extended by
+DC-R3 clause 3 and by nothing else.** **No numbered decision is created,
+amended or renumbered; the 20-decision tally is unchanged.** **`FR-SEC-010`
+standard-role seeding is NOT authorized by this entry — no role row,
+`role_permission` row, or role semantic is created or modified.**
+
+### Binding constraints on implementation
+
+- **Do NOT hardcode role-name strings.** Authorization is permission-based
+  (**D-3**).
+- **`cash.day.close` is added code-driven, not migration-driven** — an entry in
+  `treasury.permissions.ts` plus a `PermissionDef` registered through the
+  existing `PermissionsService.upsertMany`, **seeded only by the slice that
+  creates the route**, per the standing rule already recorded in that file
+  (*"a code with no route behind it is appearance without capability"*).
+- **`report.view.financial` gains NO new `PermissionDef`** — the row already
+  exists, keyed by `code`; DC-R3 changes only which routes require it.
+- **No migration, no schema change and no RLS change is authorised for the
+  permission codes** by this entry.
+
+### Implementation consequence
+
+With **DC-R1**, **DC-R2** and **DC-R3** recorded, the Day Close design track has
+**no outstanding `USER RATIFICATION REQUIRED` item**, and the slice is
+**GOVERNANCE-UNBLOCKED**.
+
+Downstream implementation may consume the **Day Close final design gate**, its
+**design-gate acceptance correction**, its **pre-ratification final
+correction** and its **activation-mechanic final correction** — each later
+correction governing the earlier where they differ — together with these three
+ratified limbs. **No further user ratification is required unless current source
+disproves a ratified assumption** — in which case the implementation task must
+STOP and report, not proceed.
+
+**No migration is created by this entry, no schema is authorised, and no
+implementation is performed by it.** No product code, migration, permission
+seeding, test, or OpenAPI change was made. A separate, explicitly authorised
+implementation task is required before any of those.
+
+**Status:** **RATIFIED — CLOSED.**
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |
@@ -6740,6 +7712,185 @@ migration, test, or OpenAPI change.
   request amendment untouched · no Governance HTTP surface (D-14 A-1) · no new permission code ·
   no schema created · no numbered decision added, amended or renumbered.** **Migration 34 is NOT
   created by this entry and no implementation is performed by it.**
+- **KDS MVP OPERATOR LIFECYCLE — RATIFIED 2026-08-30.** Recorded as an **unnumbered ratification
+  entry with two independently identifiable limbs**, in the established forward-supersession
+  style — **no D-21 is created and the 20-decision tally is unchanged**. Limb ids continue the
+  **P1E-2 `KDS-R<n>` series** (`KDS-R1 … KDS-R10` are taken) and therefore begin at **KDS-R11**;
+  **`R-7` is deliberately NOT reused**, that label being a **D-20 option** (*"Defer to Appendix
+  C"*) in the same subject area. **KDS-R11** authorises a new permission code **`kds.operate`** —
+  *"Operate a kitchen display station"* — covering **station queue read · first-viewed
+  acknowledgement · item start · bump item · bump all · ticket recall**, as the **third explicit
+  user-authorized exception** to the zero-invented-codes discipline after **`pos.order.fire`** and
+  **`pos.payment.capture`**; the **coarse grain is deliberate** and **`kds.view`,
+  `kds.ticket.view`, `kds.ticket.start`, `kds.ticket.bump`, `kds.ticket.recall`,
+  `kds.ticket.serve` and `kds.expedite` are NOT authorized**; reads sit behind `kds.operate` on
+  the `pos.order.create` operational-read precedent; **`kds.operate` does NOT represent station
+  authorization**, which is separately enforced fail-closed by **active registered KDS-terminal
+  binding resolving to exactly ONE operative station** (zero ⇒ denied · more than one ⇒ denied as
+  unsupported · supplied `stationId` must equal the terminal-derived station · a POS/dashboard
+  surface cannot operate KDS merely by holding the code), with **D-2's branch-scoped RBAC defer
+  UNCHANGED**; the code is added **code-driven, not migration-driven**, via
+  `<MODULE>_PERMISSION_DEFS` + `PermissionsService.upsertMany`, seeded only by the slice that
+  creates the routes. **KDS-R12** authorises a new internal domain event **`ticket.recalled`**,
+  **publisher Kitchen Ops, principal subscriber Sales**, recorded as an **EXTENSION of §5.5.4
+  "Event Catalogue (Core Subset)"** — **the SRS does NOT define it and no claim to the contrary is
+  made**; on a successful recall Sales consumes it **inside the same UnitOfWork transaction** and
+  reverts exactly the affected lines **`ready → fired`**, **clearing `ready_at`**, and **MUST NOT
+  regress `served`, `voided` or `comped` lines**; **no direct cross-module table query is
+  authorized** in either direction and **`ticket.bumped`'s publisher/subscribers are unchanged**.
+  **FUTURE ROLE INTENT ONLY** (recorded, **NOT implemented**): `kds.operate` for **Kitchen Staff ·
+  Head Chef · Branch Manager · Shift Supervisor · Owner**, and **NOT Auditor** (it carries write
+  authority) — **FR-SEC-010 standard-role seeding is NOT authorized and no role row or role
+  semantic is modified**. Expressly **NOT ratified**: the **SERIALIZABLE + bounded-retry**
+  concurrency mechanism (an **engineering correctness mechanism**, introducing no
+  `SELECT FOR UPDATE`, no new advisory lock, no reliance on `AuditService`'s tenant-wide advisory
+  lock, no `sales.orders.version` coupling, **no migration** — §24.6.4 untouched) and the
+  **first-viewed `TICKET_VIEWED` audit entry** (**FR-AUD-001 already decides it** — requirement
+  compliance, not a discretionary choice). **`served`/Expediter (FR-KDS-013), sorting beyond FIFO,
+  colour thresholds, FR-KDS-041/042 analytics, the post-fire `order.line.voided` path, offline KDS
+  (NFR-REL-002), peer discovery (NFR-REL-003) and the FR-SEC-026 8-hour KDS TTL all remain
+  DEFERRED and NOT authorized.** **D-20 is NOT reopened** — its deferral concerned a
+  **Governance approval-read** code for a surface **D-14 A-1 had removed**, where deferral cost
+  nothing; KDS has `[M]` requirements demanding an executable permission-guarded surface, so the
+  register's own remedy for that posture applies instead. **P-1 remains RATIFIED and UNCHANGED ·
+  D-2's RBAC defer in force · D-12 remains BLOCKED · D-16's enumeration remains OPEN · D-13
+  remains RATIFIED · no Governance HTTP or read surface (D-14 A-1, D-20) · KDS-R1 … KDS-R10 and
+  the P1E-4/P1E-5 Ticket-lifecycle and Kitchen-ownership decisions unchanged · R-1(a) … R-6
+  unchanged · no schema created · no numbered decision added, amended or renumbered.** **No
+  migration is created by this entry and no implementation is performed by it**; exact
+  table/column names, route URLs, DTOs, audit action literals and event payload fields remain
+  **implementation details, NOT ratified here**. **The KDS MVP operator-lifecycle slice is
+  GOVERNANCE-UNBLOCKED.**
+- **MINIMUM OPERATIONAL REPORTING — RATIFIED 2026-08-31.** Recorded as an **unnumbered
+  ratification entry with three independently identifiable limbs**, in the established
+  forward-supersession style — **no D-21 is created and the 20-decision tally is unchanged**.
+  Limb ids open a **NEW `RPT-R<n>` series** (`RPT-R1 … RPT-R3`), verified unused in this
+  register; the cash series **`R-1(a) … R-6`** is **not** continued and **`R-7` is again NOT
+  reused**, that label being a **D-20 option** (*"Defer to Appendix C"*) in this very subject
+  area. **RPT-R1** authorises **TWO** new permission codes — **`report.view.sales`** (*"View
+  sales reports"*) and **`report.view.financial`** (*"View financial reports"*) — **BOTH
+  required together (`mode: 'all'`, AND, never OR)** on the single composite route
+  **`GET /reports/branches/{branchId}/daily-trading/{businessDay}`**, because the response
+  spans **two** §19.3 categories (*Sales Summary* / *Sales by Tender* are **Sales**;
+  *Cash Reconciliation* / *Tax Summary* are **Financial**); these are the **fourth and fifth
+  explicit user-authorized exceptions** to the zero-invented-codes discipline after
+  **`pos.order.fire`**, **`pos.payment.capture`** and **`kds.operate`**, and a **weaker** form
+  of invention than those three because **§15.2 supplies the template `report.view.<category>`
+  and §19.3 supplies the categories** — only the instantiation is user-ratified; **`report.export`,
+  `report.view.daily_trading`, `report.view.inventory`, `report.view.kitchen`,
+  `report.view.workforce`, `report.view.governance` and every other `report.view.*` code are
+  NOT authorized**; reads sit behind the two codes on the `pos.order.create` / `kds.operate`
+  operational-read precedent; **the codes carry NO branch scope**; and the **ADR 0008 D-01**
+  remap route is recorded should Appendix C ever name the categories differently — which does
+  **not** make the ratification provisional. **RPT-R2** authorises **Internal-MVP sequencing
+  only**: the operational daily-trading read may be built **now** over the **transactional
+  primary**, while **`FR-RPT-001`, `FR-RPT-002`, `FR-RPT-003` and `FR-RPT-005` remain NOT
+  IMPLEMENTED** — **NOT waived, NOT reinterpreted, NOT complete**, and **no artefact may claim
+  otherwise**; **no read replica, star schema, `fact_*`/`dim_*` table, Type-2 dimension, rollup
+  persistence, report cache, export pipeline or analytics warehouse is authorized**;
+  **`FR-RPT-004` may be implemented in full**; **`FR-RPT-042` and `FR-RPT-043`/`044` remain NOT
+  IMPLEMENTED**; **`FR-FIN-010` remains PARTIAL** (per-day totals for the two implemented
+  tenders only — *each card scheme* and the nine unimplemented tender families stay
+  **UNSATISFIED**); **§19.3 Cash Reconciliation is PARTIAL** (payment-contributing sessions
+  only · **WHOLE_SESSION** close facts · zero-payment/movement-only attribution **NOT
+  IMPLEMENTED**, no business-day anchor existing on `cash_sessions`, `shifts`, `cash_movements`
+  or `cash_session_close_attempts` and **none invented** · **NO day-level variance total**);
+  **`FR-FIN-020 … 026` / DayClose / X / Z remain NOT IMPLEMENTED** and this slice **does NOT
+  provide `FR-FIN-021`'s blocking-session list**; **`FR-AUD-008` stays a knowingly unsatisfied
+  gap (D-20 cl. 9)**; and **ordinary report `GET`s generate NO `FR-AUD-001` audit entry**.
+  **RPT-R3** fixes **`averageOrderValue` = `netSales ÷ completedOrderCount`, HALF_UP to minor
+  units (BR-FIN-001), `null` when the count is zero** — a **user-ratified choice resolving
+  source silence** (the SRS names AOV five times and defines no numerator), *compatible with but
+  not mandated by* §13's consistent Net-Sales denominator and `FR-CST-035`; it applies to **AOV
+  alone** and authorises **no** other derived KPI, and **no COGS is exposed** (that would
+  silently widen `inventory.cost.view`). **FUTURE ROLE INTENT ONLY** (recorded, **NOT
+  implemented**): both codes for **Owner · Operations Director · Branch Manager · Accountant ·
+  Auditor**; **Brand Manager and Shift Supervisor deliberately left OPEN**; **not** for Cashier,
+  Waiter, Kitchen Staff, Head Chef or Storekeeper — **`FR-SEC-010` standard-role seeding is NOT
+  authorized and no role row or role semantic is modified**. Expressly **NOT ratified** (accepted
+  **engineering consequences**, not discretionary governance): the thin zero-table reporting
+  module · `RepeatableRead` · `transaction_timestamp()` `dataAsOf` · future `businessDay` ⇒ 400 ·
+  historical transaction-currency selection · orders-first indexed joins · zero migration ·
+  no day-level variance total · WHOLE_SESSION scope · tax by class only · zero `KNOWN_DEVIATIONS`
+  growth · no audit on ordinary `GET`. The **branch fail-closed posture** (explicit `branchId` ·
+  tenant-visible branch or tenant-safe 404 · **exactly ONE active branch**, zero ⇒ denied, more
+  than one ⇒ denied as unsupported · supplied id must equal it · **verified inside the SAME
+  `RepeatableRead` transaction as the report**) is recorded as an **implementation consequence,
+  NOT a fourth ratification** — it grants nothing, and **D-2's branch-scoped RBAC defer is
+  UNCHANGED**, `FR-SEC-002`/`003`/`004` remaining **NOT IMPLEMENTED**. **D-20 is NOT reopened** —
+  its deferral concerned a **Governance approval-read** code for a surface **D-14 A-1 had
+  removed**, where deferral cost nothing; Reporting has the **KDS posture**, an executable
+  permission-guarded surface, so the register's own remedy for that posture applies instead, and
+  **D-20's `R-1 … R-7` option labels remain options that were NOT introduced**. **P-1 remains
+  RATIFIED and UNCHANGED · D-12 remains BLOCKED · D-16's enumeration remains OPEN · D-13 remains
+  RATIFIED · no Governance HTTP or read surface (D-14 A-1, D-20) · KDS-R1 … KDS-R12 unchanged ·
+  R-1(a) … R-6 unchanged · CARRIED ITEM P1C-1's Receipt/fiscal exclusion untouched · no schema
+  created · no numbered decision added, amended or renumbered.** **No migration is created by
+  this entry and no implementation is performed by it**; exact table/column names, route URLs,
+  DTO fields, SQL shapes, index decisions and error-code choices remain **implementation details,
+  NOT ratified here**. **The Minimum Operational Reporting slice is GOVERNANCE-UNBLOCKED.**
+- **DAY CLOSE — RATIFIED 2026-08-31.** Recorded as an **unnumbered ratification entry with three
+  independently identifiable limbs**, in the established forward-supersession style — **no D-21 is
+  created and the 20-decision tally is unchanged**. Limb ids open a **NEW `DC-R<n>` series**
+  (`DC-R1 … DC-R3`), **verified unused in this register** (`DC-R` and bare `DC-` both returned
+  zero); the cash **`R-1(a) … R-6`**, **`KDS-R1 … KDS-R12`** and **`RPT-R1 … RPT-R3`** series are
+  **not** continued. **DC-R1** authorises the **Internal-MVP operational Day Close now** — the
+  state-changing **Treasury** aggregate plus its minimum persisted Z/historical surface —
+  implementing **`FR-FIN-020`**, **`FR-FIN-021` IN FULL (block *and* blocking-session list, over
+  every branch session with `status <> 'closed'`, unqualified by business day)** and
+  **`FR-FIN-023`**, while reusing the already-**COMPLETE** **`FR-FIN-024`**; **simultaneously
+  `FR-FIN-022` remains PARTIAL** (**tax by rate** not derivable — only the `FR-FIN-032` component
+  *sum* is persisted; **sales by category** has no `order_lines` snapshot and would bind a sealed
+  document to mutable many-to-many master data; the **comp** half is structurally zero, the
+  **void** half IS implemented; **sales by tender** stays PARTIAL per RPT-R2 cl. 8) and
+  **`FR-FIN-026` remains PARTIAL with all four limbs unmet** (**fiscal finalisation NOT
+  IMPLEMENTED** — an empty document set is **never** to be called *satisfied*, and **P1C-1 is
+  untouched**; **inventory day-end snapshot** NOT IMPLEMENTED; **report pre-aggregation** NOT
+  IMPLEMENTED and **excluded by RPT-R2**; **accounting export** NOT IMPLEMENTED, `FR-RPT-043`
+  unchanged and **no `FR-PLT-041` outbox exists**), with **`FR-FIN-025` [S] NOT IMPLEMENTED** —
+  **sequencing only: NOT a waiver, NOT a reinterpretation, NOT a claim that `FR-FIN-020 … 026` are
+  complete or that the Z report is fully compliant**, and **no artefact may claim otherwise**.
+  **DC-R2** fixes **CLOSE-BUSINESS-DAY OWNERSHIP** — whole-session close facts, above all
+  variance, are owned **exactly once** by the business day in which the CashSession becomes
+  `CLOSED`, via an **immutable `closedBusinessDay`** derived at final close from the **same
+  authoritative resolver Sales already uses** and **never historically re-derived** from mutable
+  timezone/cutover; a spanning session's **day-scoped tender may contribute to BOTH days** while
+  its **variance is owned only by the closing day**, so the same session **MAY** be linked to
+  multiple DayClose snapshots and an **unconditional `UNIQUE (tenant_id, cash_session_id)` on the
+  linkage is PROHIBITED**; **variance must not double-count**, whole-session figures are labelled
+  **`WHOLE_SESSION`** and never emitted as day totals; **legacy `closed_business_day IS NULL`
+  sessions remain unknown honestly — never backfilled, inferred, assigned or included**; and
+  **zero-payment / movement-only sessions are reached for the first time** (RPT-R2 cl. 9
+  unchanged). **DC-R3** extends the existing **`report.view.financial`** narrowly to
+  **`GET /branches/{branchId}/day-closes/{businessDay}`**, **creating NO new permission code** —
+  an **explicit user-ratified extension of RPT-R1 clause 3** (*"No other route is authorised by
+  these codes"*) **by exactly one route and nothing else**, category-consistent because §19.3
+  lists *"Z Report — Statutory day close"* under **Financial Reports**; **`report.view.sales` is
+  not required and not extended**; **`cash.day.close` remains the separate source-decided WRITE
+  authority and MUST NOT serve as historical-read authority**; **`cash.day.read`, `cash.z.read`,
+  `report.view.z`, `report.view.day_close` and any other new token are NOT authorized**; the code
+  **carries no branch scope**; and the **ADR 0008 D-01** remap route is recorded without making the
+  ratification provisional. Recorded as **consequences, NOT ratifications and NOT a `DC-R4`**: the
+  **activation epoch** (the first command may create it and return **`outcome = ACTIVATED`** on a
+  transaction that **COMMITS and does not throw**; **`activationBusinessDay` is never closeable**;
+  **`firstEligibleBusinessDay = activationBusinessDay + 1`**; closeable only when
+  **`activation < target < branchCurrentBusinessDay`**; **historical Z is never retroactively
+  manufactured** and a pre-activation day is a **404**) and the **cutover fence** (Order creation
+  and Day Close share the **existing** `ros_order_number(branchId, businessDay)` serialization
+  fence, with the public Day Close state checked **after** the fence and **before** INSERT —
+  **SERIALIZABLE is NOT claimed to solve this race** and **advisory-lock mechanics are NOT
+  ratified as business policy**), alongside Treasury ownership, the strictly-past-day rule,
+  current/future-day refusal, the global `FR-FIN-021` blocker set, the zero-open-target-day-orders
+  precondition, `day.closed`, `Idempotency-Key`, READ COMMITTED, `DAY_CLOSE_STATE_QUERY`,
+  Z-number mechanics, uniqueness/RLS/append-only grants, audit literals, legacy `NULL` handling,
+  one additive migration, and exact schema/route names. **P-1 remains RATIFIED and UNCHANGED ·
+  D-12 remains BLOCKED · D-16's enumeration remains OPEN · D-13 remains RATIFIED · no Governance
+  HTTP or read surface (D-14 A-1, D-20) · D-2's branch-scoped RBAC defer remains IN FORCE and
+  `FR-SEC-002`/`003`/`004` remain NOT IMPLEMENTED · CARRIED ITEM P1C-1 untouched · R-1(a) … R-6,
+  KDS-R1 … KDS-R12, RPT-R2 and RPT-R3 unchanged · RPT-R1 extended by DC-R3 cl. 3 and nothing else ·
+  no schema created · no numbered decision added, amended or renumbered · `FR-SEC-010` role
+  seeding NOT authorized.** **No migration is created by this entry and no implementation is
+  performed by it. The Day Close slice is GOVERNANCE-UNBLOCKED.**
 
 **6 decisions remain fully unratified** (including **D-16**, which must remain OPEN), plus
 D-3's deferred residual, the decision→parent linkage question exposed by D-5, and the

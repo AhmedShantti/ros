@@ -50,8 +50,14 @@ import { PermissionDef } from '../identity/authz/permissions.constants';
  * Approval Runtime itself, against the PIN-verified manager's resolved
  * permission set, never by a route-level `@RequirePermission`, since the
  * approver is a different actor than the caller). `cash.drawer.open_no_sale`
- * and `cash.day.close` remain deliberately NOT seeded — still no executable
- * consumer for either.
+ * remains deliberately NOT seeded — still no executable consumer.
+ *
+ * Migration 35 (DayClose) seeds `cash.day.close` — §15.2 verbatim, "Close
+ * the business day" — now that the `POST .../day-closes/{businessDay}`
+ * route exists (`day-close/day-close.controller.ts`). It is a WRITE
+ * authority only; DC-R3 authorises the historical GET separately, through a
+ * narrow extension of `report.view.financial` (`reporting.permissions.ts`),
+ * never through this code.
  */
 export const TREASURY_PERMISSIONS = {
   CASH_SESSION_OPEN: 'cash.session.open',
@@ -67,6 +73,23 @@ export const TREASURY_PERMISSIONS = {
   /** P1G-1 migration 34. FR-FIN-006 [M] verbatim — the manager's approval
    *  authority, checked by the Approval Runtime, never by a route guard. */
   CASH_VARIANCE_APPROVE: 'cash.variance.approve',
+  /** Migration 35 (DayClose). §15.2 verbatim — "Close the business day". A
+   *  WRITE authority only; it MUST NOT be reused as historical-read
+   *  authority (DC-R3 clause 6 — see `reporting.permissions.ts`'s
+   *  `report.view.financial`, narrowly extended to the DayClose GET route). */
+  CASH_DAY_CLOSE: 'cash.day.close',
+  /**
+   * DC-R3 — the EXISTING `report.view.financial` (owned/seeded by
+   * Reporting), narrowly extended to authorise
+   * `GET /branches/{branchId}/day-closes/{businessDay}`. Declared here as a
+   * plain STRING LITERAL, mirroring `SETTINGS_BRANCH_MANAGE`'s own
+   * precedent above — NOT imported from `reporting/reporting.permissions`
+   * (that would be a NEW `treasury->reporting` private-path deviation), and
+   * NO new `PermissionDef` is added to `TREASURY_PERMISSION_DEFS` below —
+   * the row already exists, keyed by `code`; DC-R3 changes only which
+   * routes require it.
+   */
+  REPORT_VIEW_FINANCIAL: 'report.view.financial',
 } as const;
 
 export const TREASURY_PERMISSION_DEFS: PermissionDef[] = [
@@ -104,5 +127,10 @@ export const TREASURY_PERMISSION_DEFS: PermissionDef[] = [
     code: TREASURY_PERMISSIONS.CASH_VARIANCE_APPROVE,
     module: 'cash',
     description: 'Approve a variance beyond tolerance',
+  },
+  {
+    code: TREASURY_PERMISSIONS.CASH_DAY_CLOSE,
+    module: 'cash',
+    description: 'Close the business day',
   },
 ];

@@ -6,3 +6,5 @@
  * §5.2.3 requires of the rule.
  */
 export * from './pin-verification.contract';
+export * from './terminal-facts.query';
+export * from './http';

@@ -1,10 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { newId } from '../ids';
+import { Prisma } from '../../generated/prisma/client';
 import { AuthScope, PrismaService } from '../../prisma/prisma.service';
 import { createDomainEvent } from './internal/create-domain-event';
 import { InternalUnitOfWorkContext } from './internal/unit-of-work-internal-context';
 import { DomainEventCollector } from './domain-event-collector';
 import { TransactionalDomainEventDispatcher } from './domain-event-dispatcher';
+import {
+  isSerializationFailure,
+  SerializationRetryExhaustedError,
+} from './serialization-retry';
 import { UnitOfWorkContext } from './unit-of-work-context';
 
 /**
@@ -24,6 +29,20 @@ import { UnitOfWorkContext } from './unit-of-work-context';
 export interface UnitOfWorkCausalContext {
   readonly correlationId?: string;
   readonly causationId?: string;
+}
+
+/**
+ * KDS acceptance correction §1.5/§1.6 — opt-in bounded whole-transaction
+ * retry. Omitted (the default for every existing caller) means exactly one
+ * attempt at the connection's default isolation (READ COMMITTED), unchanged
+ * from before this correction. Supplying `isolationLevel` is what a caller
+ * uses to request the retry loop at all — `maxAttempts` only has an effect
+ * once `isolationLevel` is set, and defaults to 3 (§19 of the KDS operator
+ * lifecycle prompt).
+ */
+export interface UnitOfWorkRetryOptions {
+  readonly isolationLevel?: Prisma.TransactionIsolationLevel;
+  readonly maxAttempts?: number;
 }
 
 /**
@@ -125,35 +144,69 @@ export class UnitOfWork {
     scope: AuthScope,
     fn: (ctx: UnitOfWorkContext) => Promise<T>,
     causal: UnitOfWorkCausalContext = {},
+    retry: UnitOfWorkRetryOptions = {},
   ): Promise<T> {
+    // Resolved ONCE, outside the retry loop below: a retried attempt is the
+    // SAME logical command re-executed, not a new one, so the causal chain
+    // (and the events every attempt would publish) stays stable across
+    // attempts (KDS acceptance correction §1.5, "Retry safety").
     const correlationId = causal.correlationId ?? newId();
     // This operation's own identity — always fresh, regardless of inheritance.
     const commandId = newId();
     const defaultCausationId = causal.causationId ?? commandId;
 
-    return this.prisma.withAuthContext(scope, async (tx) => {
-      const events = new DomainEventCollector();
-      const publishEvent: UnitOfWorkContext['publishEvent'] = (input) => {
-        if (!scope.tenantId) {
-          throw new Error(
-            'UnitOfWork.publishEvent requires a tenantId in the AuthScope ' +
-              'this Unit of Work was opened with; this UoW has none.',
+    const maxAttempts = retry.isolationLevel ? (retry.maxAttempts ?? 3) : 1;
+
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.prisma.withAuthContext(
+          scope,
+          async (tx) => {
+            // A fresh, uncontaminated collector per attempt: a rolled-back
+            // attempt must not leak queued events into the retry.
+            const events = new DomainEventCollector();
+            const publishEvent: UnitOfWorkContext['publishEvent'] = (input) => {
+              if (!scope.tenantId) {
+                throw new Error(
+                  'UnitOfWork.publishEvent requires a tenantId in the ' +
+                    'AuthScope this Unit of Work was opened with; this UoW ' +
+                    'has none.',
+                );
+              }
+              const event = createDomainEvent({
+                ...input,
+                // ALWAYS the trusted values, applied LAST — see the class docblock.
+                tenantId: scope.tenantId,
+                correlationId,
+                causationId: input.causationId ?? defaultCausationId,
+              });
+              events.record(event);
+              return event;
+            };
+            const ctx: InternalUnitOfWorkContext = { tx, events, publishEvent };
+            const result = await fn(ctx);
+            await this.dispatcher.drain(ctx);
+            return result;
+          },
+          retry.isolationLevel
+            ? { isolationLevel: retry.isolationLevel }
+            : undefined,
+        );
+      } catch (err) {
+        if (!isSerializationFailure(err)) {
+          throw err;
+        }
+        if (attempt >= maxAttempts) {
+          throw new SerializationRetryExhaustedError(
+            `KDS transaction still could not serialize after ${attempt} ` +
+              `attempt(s): ${err instanceof Error ? err.message : String(err)}`,
           );
         }
-        const event = createDomainEvent({
-          ...input,
-          // ALWAYS the trusted values, applied LAST — see the class docblock.
-          tenantId: scope.tenantId,
-          correlationId,
-          causationId: input.causationId ?? defaultCausationId,
-        });
-        events.record(event);
-        return event;
-      };
-      const ctx: InternalUnitOfWorkContext = { tx, events, publishEvent };
-      const result = await fn(ctx);
-      await this.dispatcher.drain(ctx);
-      return result;
-    });
+        // Retry the ENTIRE Unit of Work from the beginning — the caller's
+        // `fn` is re-invoked on a brand-new transaction with fresh reads, so
+        // any recomputation (e.g. KDS readiness) sees the winner's committed
+        // state (KDS acceptance correction §1.5/§1.6).
+      }
+    }
   }
 }

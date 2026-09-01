@@ -22,6 +22,8 @@ import { PasswordController } from './password/password.controller';
 import { EmployeesService } from './employees/employees.service';
 import { PinService } from './employees/pin.service';
 import { TERMINAL_PIN_VERIFIER } from './contract/pin-verification.contract';
+import { TERMINAL_FACTS_QUERY } from './contract/terminal-facts.query';
+import { TerminalFactsQueryService } from './terminals/terminal-facts.query.service';
 import { PasswordService } from './password/password.service';
 import {
   LoggingPasswordResetNotifier,
@@ -130,6 +132,8 @@ import { UsersService } from './users/users.service';
     EmployeesService,
     PinService,
     { provide: TERMINAL_PIN_VERIFIER, useExisting: PinService },
+    TerminalFactsQueryService,
+    { provide: TERMINAL_FACTS_QUERY, useExisting: TerminalFactsQueryService },
   ],
   exports: [
     UsersService,
@@ -151,6 +155,7 @@ import { UsersService } from './users/users.service';
     EmployeesService,
     PinService,
     TERMINAL_PIN_VERIFIER,
+    TERMINAL_FACTS_QUERY,
   ],
 })
 export class IdentityModule {}

@@ -64,6 +64,9 @@ model User {
   /// P1G-1 migration 34 back-relations only (virtual; no DDL impact).
   closeAttemptsDeclared    CashSessionCloseAttempt[] @relation("CloseAttemptDeclaredByUser")
   cashSessionsClosedBy     CashSession[]             @relation("CashSessionClosedByUser")
+  /// Migration 35 back-relations only (virtual; no DDL impact).
+  dayCloseActivationsMade  DayCloseActivation[]
+  dayClosesClosed          DayClose[]
 
   // Production Spec back-relations (virtual; no DDL impact).
   publishedRecipeVersions RecipeVersion[] @relation("RecipeVersionPublisher")
@@ -228,6 +231,12 @@ model Tenant {
   /// P1G-1 migration 34 back-relations only (virtual; no DDL impact on `tenants`).
   cashSessionCloseAttempts  CashSessionCloseAttempt[]
   cashCountDenominations    CashCountDenomination[]
+  /// Migration 35 back-relations only (virtual; no DDL impact on `tenants`).
+  dayCloseActivations       DayCloseActivation[]
+  dayCloses                 DayClose[]
+  dayCloseTaxClassTotals    DayCloseTaxClassTotal[]
+  dayCloseOrderTypeTotals   DayCloseOrderTypeTotal[]
+  dayCloseSessions          DayCloseSession[]
   modifierGroups            ModifierGroup[]
   priceLists                PriceList[]
   /// P1E-3 back-relations. Prisma requires both sides of a relation; these add
@@ -649,6 +658,9 @@ model Branch {
   cashMovements     CashMovement[]
   // P1G-1 back-relation only (virtual; no DDL impact on this model).
   cashClosePolicies CashClosePolicy[]
+  // Migration 35 back-relations only (virtual; no DDL impact on this model).
+  dayCloseActivations DayCloseActivation[]
+  dayCloses           DayClose[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_branch_code")
@@ -1679,6 +1691,9 @@ model Employee {
   // P1G-1 migration 34 back-relations only (virtual; no DDL impact).
   closeAttemptsDeclared CashSessionCloseAttempt[] @relation("CloseAttemptDeclaredByEmployee")
   cashSessionsClosedBy  CashSession[]             @relation("CashSessionClosedByEmployee")
+  // Migration 35 back-relations only (virtual; no DDL impact on this model).
+  dayCloseActivationsMade DayCloseActivation[]
+  dayClosesClosed         DayClose[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_employee_code")
@@ -2332,6 +2347,15 @@ model CashSession {
   approvalRequestId  String? @map("approval_request_id") @db.Uuid
   closedByUserId     String? @map("closed_by_user_id") @db.Uuid
   closedByEmployeeId String? @map("closed_by_employee_id") @db.Uuid
+  /// Migration 35 (DayClose, DC-R2 — CLOSE-BUSINESS-DAY OWNERSHIP). Written
+  /// EXACTLY ONCE, in the SAME UPDATE as the other close facts, at the
+  /// CLOSED transition, from the SAME authoritative `resolveBusinessDay`
+  /// resolver Sales/Order-creation uses (via `DAILY_TRADING_SALES_QUERY
+  /// .currentBusinessDay`). NEVER re-derived afterwards, NEVER re-derived
+  /// historically from the mutable `branch.timezone`/cutover. NULLABLE —
+  /// a pre-migration-35 legacy `closed` row keeps this NULL forever: it is
+  /// owned by no DayClose, never backfilled, never inferred (DC-R2 clause 8).
+  closedBusinessDay  DateTime? @map("closed_business_day") @db.Date
 
   tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch           Branch                    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
@@ -2354,12 +2378,17 @@ model CashSession {
   closeAttempts    CashSessionCloseAttempt[] @relation("SessionOwnership")
   closedByUser     User?                     @relation("CashSessionClosedByUser", fields: [closedByUserId], references: [id], onDelete: Restrict)
   closedByEmployee Employee?                 @relation("CashSessionClosedByEmployee", fields: [tenantId, closedByEmployeeId], references: [tenantId, id], onDelete: Restrict)
+  /// Migration 35 back-relation only (virtual; no DDL impact on this model).
+  dayCloseLinks    DayCloseSession[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, branchId, id], map: "uq_cs_branch_scoped_id")
   @@index([tenantId, branchId, status])
   @@index([tenantId, shiftId])
   @@index([tenantId, employeeId])
+  /// Migration 35 — DayClose's variance-owner query:
+  /// `WHERE tenant_id AND branch_id AND closed_business_day = :target`.
+  @@index([tenantId, branchId, closedBusinessDay], map: "cash_sessions_closed_business_day_idx")
   @@map("cash_sessions")
   @@schema("treasury")
 }
@@ -2566,6 +2595,233 @@ model CashClosePolicy {
   @@unique([tenantId, branchId, id], map: "uq_ccp_branch_scoped_id")
   @@index([tenantId, branchId, effectiveFrom(sort: Desc)], map: "cash_close_policies_resolve_idx")
   @@map("cash_close_policies")
+  @@schema("treasury")
+}
+
+// ---------------------------------------------------------------------------
+// Migration 35 — DayClose (FR-FIN-020/021/023/024, Internal-MVP; DC-R1/R2/R3,
+// docs/governance/GOVERNANCE_DECISION_REGISTER.md "Day Close Ratification —
+// 2026-08-31"). Insert-once, immutable, append-only. See the migration's own
+// header comment for the full authority chain and design rationale.
+// ---------------------------------------------------------------------------
+
+/// The immutable per-(tenant, branch) DayClose activation epoch. Created
+/// lazily and idempotently on the FIRST DayClose POST for a branch, inside
+/// that command's own transaction, on a path that COMMITS (never throws) —
+/// see `day-close.service.ts`. `activationBusinessDay` is NEVER closeable;
+/// `firstEligibleBusinessDay = activationBusinessDay + 1` is derived, never
+/// stored. No UPDATE/DELETE grant — immutable forever.
+model DayCloseActivation {
+  id                     String    @id @db.Uuid
+  tenantId               String    @map("tenant_id") @db.Uuid
+  branchId               String    @map("branch_id") @db.Uuid
+  activationBusinessDay  DateTime  @map("activation_business_day") @db.Date
+  activatedAt            DateTime  @default(dbgenerated("statement_timestamp()")) @map("activated_at") @db.Timestamptz(6)
+  activatedBy            String    @map("activated_by") @db.Uuid
+  /// P1D-E actor provenance, when the activating request was POS-originated
+  /// (`@AllowPosSession`). NULL for a dashboard-originated activation — no
+  /// employee identity exists for that session type.
+  activatedByEmployeeId  String?   @map("activated_by_employee_id") @db.Uuid
+
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch             Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  activatedByUser    User     @relation(fields: [activatedBy], references: [id], onDelete: Restrict)
+  activatedByEmployeeRef Employee? @relation(fields: [tenantId, activatedByEmployeeId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  /// Exactly one activation row per branch, forever.
+  @@unique([tenantId, branchId], map: "uq_day_close_activations_branch")
+  @@map("day_close_activations")
+  @@schema("treasury")
+}
+
+/// The immutable DayClose / Z root — FR-FIN-020/023. Insert-once: no status
+/// column, no `version` (§24.6.4's OCC clause governs UPDATEs; this
+/// aggregate never has one — see the migration's header). One row per
+/// `(tenant, branch, business_day)`; `zNumber` sequential per
+/// `(tenant, branch)`, starting at 1, `MAX+1` inside the closing
+/// transaction, `UNIQUE` as the structural backstop (FR-FIN-023).
+///
+/// `discountsMinor`/`refundsMinor`/`compLineCount`/`compLineValueMinor` are
+/// DB-CHECKed to `0` — structurally zero at this HEAD (DC-R1 clause 3; no
+/// discount or comp mechanism exists). THE SLICE THAT IMPLEMENTS EITHER
+/// MUST EXPLICITLY DROP THE CORRESPONDING CHECK.
+model DayClose {
+  id       String   @id @db.Uuid
+  tenantId String   @map("tenant_id") @db.Uuid
+  branchId String   @map("branch_id") @db.Uuid
+
+  businessDay DateTime @map("business_day") @db.Date
+  /// FR-FIN-023 — sequential per (tenant, branch), starting at 1, never reset.
+  zNumber     BigInt   @map("z_number")
+
+  /// `transaction_timestamp()` of the closing transaction — FR-RPT-004's
+  /// "as of" convention, reused verbatim from the accepted Reporting slice.
+  dataAsOf  DateTime @map("data_as_of") @db.Timestamptz(6)
+  closedAt  DateTime @default(dbgenerated("statement_timestamp()")) @map("closed_at") @db.Timestamptz(6)
+  closedBy  String   @map("closed_by") @db.Uuid
+  /// P1D-E. NULL only for a dashboard-originated close (no PIN/employee
+  /// identity on that session type — §17 of the design gate).
+  closedByEmployeeId String? @map("closed_by_employee_id") @db.Uuid
+
+  /// Historical transaction currency (ADR-008/BR-CORE-001) — never
+  /// re-derived from today's mutable `org.branches.base_currency`.
+  currency String @db.Char(3)
+
+  // ── Sales Summary (FR-FIN-022 class A/B) ─────────────────────────────────
+  grossSalesMinor              BigInt @map("gross_sales_minor")
+  /// Structurally `0` at this HEAD — no discount mechanism exists (§9 CHECK).
+  discountsMinor                BigInt @map("discounts_minor")
+  /// Structurally `0` at this HEAD — no inbound transition to
+  /// refunded/partially_refunded exists (§9 CHECK).
+  refundsMinor                  BigInt @map("refunds_minor")
+  taxTotalMinor                 BigInt @map("tax_total_minor")
+  /// `gross - discounts - refunds - tax` (FR-CST-003, DB-CHECKed).
+  netSalesMinor                 BigInt @map("net_sales_minor")
+  completedOrderCount           Int    @map("completed_order_count")
+  /// `netSales / completedOrderCount`, HALF_UP — `NULL` at zero count
+  /// (RPT-R3's own convention, reused verbatim).
+  averageOrderValueMinor        BigInt? @map("average_order_value_minor")
+
+  // ── Tender totals (class A, PARTIAL — two tenders only, RPT-R2 cl. 8) ────
+  cashAmountTotalMinor              BigInt @map("cash_amount_total_minor")
+  cashRoundingAdjustmentTotalMinor  BigInt @map("cash_rounding_adjustment_total_minor")
+  cashPaymentCount                  Int    @map("cash_payment_count")
+  cardAmountTotalMinor              BigInt @map("card_amount_total_minor")
+  cardPaymentCount                  Int    @map("card_payment_count")
+
+  // ── Reconciliation (acceptance-correction identity terms) ────────────────
+  unsettledCapturedTotalMinor        BigInt @map("unsettled_captured_total_minor")
+  completedExcessCapturedTotalMinor  BigInt @map("completed_excess_captured_total_minor")
+
+  // ── Void and comp summary (class C void / structurally-zero comp) ────────
+  voidedLineCount      Int    @map("voided_line_count")
+  voidedLineValueMinor BigInt @map("voided_line_value_minor")
+  /// Structurally `0` — no code path writes `state:'comped'` (§9 CHECK).
+  compLineCount        Int    @default(0) @map("comp_line_count")
+  /// Structurally `0` (§9 CHECK).
+  compLineValueMinor   BigInt @default(0) @map("comp_line_value_minor")
+
+  // ── Cash reconciliation / variance summary (DC-R2 ownership) ─────────────
+  /// Count of `day_close_sessions` linkage rows for this DayClose (day-scoped
+  /// tender contribution OR variance ownership OR both).
+  sessionCount             Int    @map("session_count")
+  /// Count of linked sessions that OWN this day's variance
+  /// (`closedBusinessDay == businessDay`) — DC-R2.
+  varianceOwnerSessionCount Int   @map("variance_owner_session_count")
+  /// `Σ variance OVER linkage rows WHERE isVarianceOwner` — counted exactly
+  /// once system-wide (DC-R2 clause 2). WHOLE_SESSION scope; never a
+  /// day-scoped figure.
+  varianceTotalMinor        BigInt @map("variance_total_minor")
+
+  createdAt DateTime @default(dbgenerated("statement_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  tenant           Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch           Branch               @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  closedByUser     User                 @relation(fields: [closedBy], references: [id], onDelete: Restrict)
+  closedByEmployee Employee?            @relation(fields: [tenantId, closedByEmployeeId], references: [tenantId, id], onDelete: Restrict)
+  taxClassTotals   DayCloseTaxClassTotal[]
+  orderTypeTotals  DayCloseOrderTypeTotal[]
+  sessions         DayCloseSession[]
+
+  @@unique([tenantId, id])
+  /// One close per branch-day — the TERMINAL conflict (§14/§18 of the
+  /// final design gate; "the day is genuinely already closed").
+  @@unique([tenantId, branchId, businessDay], map: "uq_day_closes_branch_business_day")
+  /// FR-FIN-023's structural backstop — the RETRYABLE conflict (a transient
+  /// allocation collision handled by a local bounded retry, never a 409).
+  @@unique([tenantId, branchId, zNumber], map: "uq_day_closes_branch_z_number")
+  @@map("day_closes")
+  @@schema("treasury")
+}
+
+/// Per-`tax_class_id` repeating group (FR-FIN-022 tax total — by CLASS,
+/// never by rate, §9 of the final design gate). `taxClassId` carries no FK,
+/// mirroring `sales.order_lines.tax_class_id`'s own FK-less design.
+model DayCloseTaxClassTotal {
+  id            String @id @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  dayCloseId    String @map("day_close_id") @db.Uuid
+  taxClassId    String @map("tax_class_id") @db.Uuid
+  taxAmountMinor   BigInt @map("tax_amount_minor")
+  netAmountMinor   BigInt @map("net_amount_minor")
+  grossAmountMinor BigInt @map("gross_amount_minor")
+  lineCount        Int    @map("line_count")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dayClose DayClose @relation(fields: [tenantId, dayCloseId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, dayCloseId, taxClassId], map: "uq_dctc_day_close_tax_class")
+  @@map("day_close_tax_class_totals")
+  @@schema("treasury")
+}
+
+/// Per-`order_type` repeating group (FR-FIN-022 sales by order type, class
+/// C — an immutable `NOT NULL` enum on the order itself, no master-data
+/// join). Stored as TEXT with a CHECK against `sales.OrderType`'s values —
+/// Treasury does not own that enum type and does not cross-reference it.
+model DayCloseOrderTypeTotal {
+  id           String @id @db.Uuid
+  tenantId     String @map("tenant_id") @db.Uuid
+  dayCloseId   String @map("day_close_id") @db.Uuid
+  orderType    String @map("order_type") @db.VarChar(16)
+  grossSalesMinor BigInt @map("gross_sales_minor")
+  netSalesMinor   BigInt @map("net_sales_minor")
+  orderCount      Int    @map("order_count")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dayClose DayClose @relation(fields: [tenantId, dayCloseId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, dayCloseId, orderType], map: "uq_dcot_day_close_order_type")
+  @@map("day_close_order_type_totals")
+  @@schema("treasury")
+}
+
+/// DC-R2's LINKAGE child — "which sessions did this Z's snapshot list".
+/// One row per session PER DayClose (a spanning session MAY appear under
+/// TWO DayClose rows — UNCONDITIONAL `UNIQUE(tenant, cashSessionId)` is
+/// FORBIDDEN, DC-R2 clause 6). `isVarianceOwner` is a MATERIALISED,
+/// defence-in-depth-only flag: true ownership is the THEOREM
+/// `session.closedBusinessDay == dayClose.businessDay` (design-gate
+/// acceptance correction §4.4) — this column and its partial unique index
+/// exist only so a materialisation bug becomes a write failure, never a
+/// silently double-counted variance.
+model DayCloseSession {
+  id             String  @id @db.Uuid
+  tenantId       String  @map("tenant_id") @db.Uuid
+  dayCloseId     String  @map("day_close_id") @db.Uuid
+  cashSessionId  String  @map("cash_session_id") @db.Uuid
+  isVarianceOwner Boolean @map("is_variance_owner")
+
+  // ── Day-scoped tender contribution — genuinely day-attributable, from
+  //    the immutable `order_payments.business_day` (§9 anti-double-counting
+  //    rule 3). Zero for a zero-payment/movement-only session.
+  dayScopedCashSalesTotalMinor             BigInt @map("day_scoped_cash_sales_total_minor")
+  dayScopedCashRoundingAdjustmentsMinor    BigInt @map("day_scoped_cash_rounding_adjustments_minor")
+  dayScopedManualExternalCardTotalMinor    BigInt @map("day_scoped_manual_external_card_total_minor")
+  dayScopedPaymentCount                    Int    @map("day_scoped_payment_count")
+  /// `COUNT(DISTINCT order_payments.business_day)` over ALL of this
+  /// session's payments (not scoped to this DayClose's day) — the accepted
+  /// Reporting `businessDayCount` precedent, so a sealed Z visibly declares
+  /// a session that was not exclusive to it.
+  businessDayCount                         Int    @map("business_day_count")
+
+  // ── WHOLE_SESSION close facts — NEVER a day total (§9 rule 1). Snapshot
+  //    of `cash_sessions`' own immutable close-facts row, identical on
+  //    every linkage row for this session regardless of which day links it.
+  wholeSessionOpeningFloatMinor  BigInt @map("whole_session_opening_float_minor")
+  wholeSessionExpectedCashMinor  BigInt @map("whole_session_expected_cash_minor")
+  wholeSessionCountedCashMinor   BigInt @map("whole_session_counted_cash_minor")
+  wholeSessionVarianceMinor      BigInt @map("whole_session_variance_minor")
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dayClose    DayClose    @relation(fields: [tenantId, dayCloseId], references: [tenantId, id], onDelete: Restrict)
+  cashSession CashSession @relation(fields: [tenantId, cashSessionId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  /// One row per session PER DayClose (linkage cardinality, DC-R2 clause 5).
+  @@unique([tenantId, dayCloseId, cashSessionId], map: "uq_dcs_day_close_cash_session")
+  @@map("day_close_sessions")
   @@schema("treasury")
 }
 

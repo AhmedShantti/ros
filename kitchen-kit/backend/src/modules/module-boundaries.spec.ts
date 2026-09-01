@@ -645,11 +645,167 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
     expect(resolver).not.toContain('organisation/stations');
   });
 
-  it('Kitchen is not a new module-boundary deviation (zero new entries)', () => {
+  /**
+   * KDS operator lifecycle (KDS-R11/KDS-R12, ratified 2026-08-30), acceptance
+   * correction Blocker A (2026-08-31): Kitchen's FIRST controller needs the
+   * same cross-cutting HTTP/auth plumbing and `AuditService` every OTHER
+   * controller-bearing module reaches through a PRIVATE Identity/Governance
+   * path (each recorded as that module's own pre-existing `<module>->
+   * identity` / `<module>->governance` `KNOWN_DEVIATIONS` entry). Rather than
+   * let Kitchen add its own copy of that debt, Identity now publishes the
+   * guard chain/decorators/types as `identity/contract`'s `http.ts`, and
+   * Governance publishes `AuditService`/`AUDIT_ACTION`/`AUDIT_ENTITY` as
+   * `governance/contract`'s `audit.ts` — both THIN re-exports (proven
+   * elsewhere in this file to add no persistence implementation to either
+   * contract directory). Kitchen imports exclusively from those two
+   * `contract/` barrels, plus `organisation/contract`, plus `identity/
+   * identity.module`/`kitchen/kitchen.module` (the `${module}.module`
+   * DI-composition exemption) — so it adds **zero** new `KNOWN_DEVIATIONS`
+   * entries of any kind, the strict form of the accepted design's
+   * requirement.
+   */
+  it('Kitchen adds ZERO new module-boundary deviations — no private Identity, Governance, Organisation, Sales, or Catalogue path', () => {
     expect(KNOWN_DEVIATIONS['kitchen->organisation']).toBeUndefined();
     expect(KNOWN_DEVIATIONS['kitchen->sales']).toBeUndefined();
     expect(KNOWN_DEVIATIONS['kitchen->catalogue']).toBeUndefined();
+    expect(KNOWN_DEVIATIONS['kitchen->identity']).toBeUndefined();
+    expect(KNOWN_DEVIATIONS['kitchen->governance']).toBeUndefined();
     expect(violations.filter((v) => v.importer === 'kitchen')).toEqual([]);
+  });
+
+  it('Identity publishes the cross-cutting HTTP/auth surface through contract/http, and Kitchen consumes only that contract', () => {
+    const contract = readFileSync(
+      join(MODULES_ROOT, 'identity/contract/index.ts'),
+      'utf8',
+    );
+    expect(contract).toContain("export * from './http'");
+    const http = readFileSync(
+      join(MODULES_ROOT, 'identity/contract/http.ts'),
+      'utf8',
+    );
+    for (const symbol of [
+      'JwtAuthGuard',
+      'TenantContextGuard',
+      'PermissionGuard',
+      'RequirePermission',
+      'AllowPosSession',
+      'CurrentPrincipal',
+      'CurrentTenantContext',
+      'AuthenticatedPrincipal',
+      'TenantContext',
+      'PermissionDef',
+    ]) {
+      expect(http).toContain(symbol);
+    }
+    // Thin re-export only — no behaviour lives in this file itself.
+    expect(containsPersistenceImplementation(http)).toBe(false);
+
+    for (const file of [
+      'kitchen/kitchen.controller.ts',
+      'kitchen/kitchen.permissions.ts',
+      'kitchen/auth/kds-station.guard.ts',
+    ]) {
+      const source = readFileSync(join(MODULES_ROOT, file), 'utf8');
+      const importLines = source
+        .split('\n')
+        .filter((line) => /^\s*import\b/.test(line));
+      expect(
+        importLines.some(
+          (line) =>
+            line.includes('identity/auth/') ||
+            line.includes('identity/authz/') ||
+            line.includes('identity/context/'),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it('Governance publishes AuditService/AUDIT_ACTION/AUDIT_ENTITY through contract/audit, and Kitchen consumes only that contract (no AuditModule import needed — it is @Global())', () => {
+    const contract = readFileSync(
+      join(MODULES_ROOT, 'governance/contract/index.ts'),
+      'utf8',
+    );
+    expect(contract).toContain("export * from './audit'");
+    const audit = readFileSync(
+      join(MODULES_ROOT, 'governance/contract/audit.ts'),
+      'utf8',
+    );
+    expect(audit).toContain('AuditService');
+    expect(audit).toContain('AUDIT_ACTION');
+    expect(audit).toContain('AUDIT_ENTITY');
+    expect(containsPersistenceImplementation(audit)).toBe(false);
+
+    const operations = readFileSync(
+      join(MODULES_ROOT, 'kitchen/tickets/kds-operations.service.ts'),
+      'utf8',
+    );
+    expect(operations).toContain("from '../../governance/contract'");
+    expect(operations).not.toContain('governance/audit/audit.service');
+    expect(operations).not.toContain('governance/audit/audit.constants');
+
+    const kitchenModule = readFileSync(
+      join(MODULES_ROOT, 'kitchen/kitchen.module.ts'),
+      'utf8',
+    );
+    expect(kitchenModule).not.toContain('governance/audit/audit.module');
+  });
+
+  /**
+   * KDS-R11 acceptance correction §3.3/§4 — Kitchen reaches the two new
+   * Identity/Organisation runtime facts (terminal type/status, station
+   * binding) ONLY through their published `contract/`, never a private path.
+   */
+  it('Identity publishes terminal facts through contract/ (TerminalFactsQuery), and Kitchen consumes only that contract', () => {
+    const contract = readFileSync(
+      join(MODULES_ROOT, 'identity/contract/index.ts'),
+      'utf8',
+    );
+    expect(contract).toContain("export * from './terminal-facts.query'");
+    const query = readFileSync(
+      join(MODULES_ROOT, 'identity/contract/terminal-facts.query.ts'),
+      'utf8',
+    );
+    expect(query).toContain('TerminalFactsQuery');
+    expect(query).not.toMatch(/:\s*any\b|<any>|\bas any\b/);
+
+    const guard = readFileSync(
+      join(MODULES_ROOT, 'kitchen/auth/kds-station.guard.ts'),
+      'utf8',
+    );
+    expect(guard).toContain("from '../../identity/contract'");
+    expect(guard).not.toContain('identity/terminals/terminals.service');
+    expect(guard).not.toContain(
+      'identity/terminals/terminal-facts.query.service',
+    );
+  });
+
+  it('Organisation publishes station-display binding and KDS branch config through contract/, and Kitchen consumes only those contracts', () => {
+    const contract = readFileSync(
+      join(MODULES_ROOT, 'organisation/contract/index.ts'),
+      'utf8',
+    );
+    expect(contract).toContain(
+      "export * from './station-display-binding.query'",
+    );
+    expect(contract).toContain("export * from './kds-branch-config.query'");
+
+    const guard = readFileSync(
+      join(MODULES_ROOT, 'kitchen/auth/kds-station.guard.ts'),
+      'utf8',
+    );
+    expect(guard).toContain("from '../../organisation/contract'");
+    expect(guard).not.toContain(
+      'organisation/stations/station-display-binding.query.service',
+    );
+
+    const operations = readFileSync(
+      join(MODULES_ROOT, 'kitchen/tickets/kds-operations.service.ts'),
+      'utf8',
+    );
+    expect(operations).toContain("from '../../organisation/contract'");
+    expect(operations).not.toContain(
+      'organisation/routing-config/kds-branch-config.query.service',
+    );
   });
 
   /**
@@ -1023,6 +1179,93 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
       .filter((f) => containsForeignPrismaQuery(readFileSync(f, 'utf8')))
       .map((f) => relative(MODULES_ROOT, f));
     expect(offending).toEqual([]);
+  });
+
+  /**
+   * Minimum Operational Reporting (RPT-R1/R2/R3, governance register
+   * "Minimum Operational Reporting Ratification — 2026-08-31"), acceptance
+   * correction §7 (Correction E): `reporting`'s own controller-bearing
+   * module reaches the SAME cross-cutting HTTP/auth plumbing every other
+   * controller-bearing module reaches through `identity/contract`, and its
+   * daily-trading facts come ONLY from Sales/Treasury/Organisation/
+   * Localisation's own published `contract/` tokens
+   * (`DAILY_TRADING_SALES_QUERY`, `DAILY_CASH_RECONCILIATION_QUERY`,
+   * `BRANCH_CURRENCY_QUERY`/`BRANCH_REPORTING_SCOPE_QUERY`,
+   * `TAX_CLASS_LABELS_QUERY`), plus each owning module's `${module}.module`
+   * for DI composition. `KNOWN_DEVIATIONS` growth for `reporting` is ZERO —
+   * no new allow-list key of any kind, for any module.
+   */
+  it('Reporting adds ZERO new module-boundary deviations — no private Identity, Sales, Treasury, Organisation, or Localisation path', () => {
+    for (const key of [
+      'reporting->identity',
+      'reporting->sales',
+      'reporting->treasury',
+      'reporting->organisation',
+      'reporting->localisation',
+      'reporting->governance',
+      'reporting->catalogue',
+      'reporting->inventory',
+      'reporting->kitchen',
+      'reporting->production',
+      'reporting->workforce',
+    ]) {
+      expect(KNOWN_DEVIATIONS[key]).toBeUndefined();
+    }
+    expect(violations.filter((v) => v.importer === 'reporting')).toEqual([]);
+  });
+
+  it('Reporting consumes HTTP/auth plumbing only through identity/contract (no identity/auth, identity/authz, or identity/context import)', () => {
+    for (const file of [
+      'reporting/reporting.controller.ts',
+      'reporting/reporting.permissions.ts',
+      'reporting/reporting.module.ts',
+      'reporting/daily-trading-report.service.ts',
+    ]) {
+      const source = readFileSync(join(MODULES_ROOT, file), 'utf8');
+      const importLines = source
+        .split('\n')
+        .filter((line) => /^\s*import\b/.test(line));
+      expect(
+        importLines.some(
+          (line) =>
+            line.includes('identity/auth/') ||
+            line.includes('identity/authz/') ||
+            line.includes('identity/context/'),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it('Reporting owns no Prisma model and no migration', () => {
+    // Reporting's own transaction handle carries `tx.$queryRaw` for
+    // `transaction_timestamp()` (§29) and nothing else — no `tx.<model>.`
+    // delegate call of any kind lives under this directory.
+    const DIRECT_MODEL_CALL_RE =
+      /\btx\s*\.\s*[a-zA-Z]+\s*\.\s*(findMany|findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|create|createMany|update|updateMany|upsert|delete|deleteMany|count|aggregate|groupBy)\s*\(/;
+    const reportingDir = join(MODULES_ROOT, 'reporting');
+    const offending = walk(reportingDir)
+      .filter((f) => DIRECT_MODEL_CALL_RE.test(readFileSync(f, 'utf8')))
+      .map((f) => relative(MODULES_ROOT, f));
+    expect(offending).toEqual([]);
+
+    const schema = readFileSync(
+      resolve(MODULES_ROOT, '..', '..', 'prisma', 'schema.prisma'),
+      'utf8',
+    );
+    expect(schema).not.toMatch(/@@schema\("reporting"\)/);
+
+    const migrationsDir = resolve(
+      MODULES_ROOT,
+      '..',
+      '..',
+      'prisma',
+      'migrations',
+    );
+    expect(
+      readdirSync(migrationsDir, { withFileTypes: true }).filter((e) =>
+        e.isDirectory(),
+      ).length,
+    ).toBe(35);
   });
 
   /**

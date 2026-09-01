@@ -1,5 +1,17 @@
 components:
   schemas:
+    AcknowledgeViewedDto:
+      properties:
+        ticketIds:
+          items:
+            type: string
+          maxItems: 200
+          minItems: 1
+          type: array
+          uniqueItems: true
+      required:
+        - ticketIds
+      type: object
     AddFingerprintDto:
       properties:
         appVersion:
@@ -1089,6 +1101,9 @@ components:
           type: string
       required:
         - categoryId
+      type: object
+    PostDayCloseDto:
+      properties: {}
       type: object
     PostMovementDto:
       properties:
@@ -2963,6 +2978,113 @@ paths:
         Create a new immutable cash-close policy version for a branch — R-1(a),
         R-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a
         flaky link must not produce a second version.
+      tags:
+        - treasury
+  /branches/{branchId}/day-closes/{businessDay}:
+    get:
+      description: Returns the persisted immutable snapshot, byte-stable forever — never recomputed, never manufactured for a pre-activation date. Requires `report.view.financial` (DC-R3); NOT `cash.day.close` (a write authority) and NOT `report.view.sales`.
+      operationId: DayCloseController_get
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: businessDay
+          required: true
+          schema:
+            pattern: ^\d{4}-\d{2}-\d{2}$
+            type: string
+      responses:
+        '200':
+          description: The persisted Z snapshot.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing the required permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Branch unknown/foreign, or no DayClose exists for that business day.
+      security:
+        - bearer: []
+      summary: Retrieve a historical DayClose / Z (persisted records only).
+      tags:
+        - treasury
+    post:
+      description: 'The FIRST request for a branch ACTIVATES it: commits a durable, audited, idempotent `outcome: "ACTIVATED"` and never throws. A later request, once `activationBusinessDay < businessDay < currentBusinessDay`, performs a real close and returns `outcome: "CLOSED"` with the full Z snapshot. Internal-MVP: FR-FIN-022/026 remain PARTIAL — see the response’s own `scope` block.'
+      operationId: DayCloseController_post
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: businessDay
+          required: true
+          schema:
+            pattern: ^\d{4}-\d{2}-\d{2}$
+            type: string
+        - description: 'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).'
+          in: header
+          name: idempotency-key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostDayCloseDto'
+        required: true
+      responses:
+        '200':
+          description: ACTIVATED (no day sealed) or CLOSED (with the Z snapshot). Never 409 for a successful activation.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Future business days are not supported.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing the required permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Branch unknown or in another tenant.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The current business day cannot yet be closed; the target day is outside the DayClose activation epoch; the day is already closed; open orders or open/closing cash sessions block the close; or a transient Z-number allocation collision could not be resolved after several attempts.
+      security:
+        - bearer: []
+      summary: Close a business day, or — on the branch’s first ever DayClose request — activate the branch’s DayClose epoch.
       tags:
         - treasury
   /cash-sessions:
@@ -7956,6 +8078,245 @@ paths:
       summary: Record waste (writes waste movements for each line; FR-INV-055…059).
       tags:
         - inventory
+  /kds/stations/{stationId}/queue:
+    get:
+      operationId: KitchenController_getStationQueue
+      parameters:
+        - in: path
+          name: stationId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: sort
+          required: false
+          schema:
+            enum:
+              - fifo
+            type: string
+      responses:
+        '200':
+          description: The station queue and branch KDS config facts.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid bearer token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No kds.operate, non-KDS/inactive terminal, no or ambiguous station binding, or wrong station.
+      security:
+        - bearer: []
+      summary: Read a KDS station queue (FIFO, read-only).
+      tags:
+        - kitchen
+  /kds/stations/{stationId}/tickets/view:
+    post:
+      operationId: KitchenController_acknowledgeViewed
+      parameters:
+        - in: path
+          name: stationId
+          required: true
+          schema:
+            type: string
+        - description: Accepted but not required — the acknowledgement is naturally database-idempotent (write-once).
+          in: header
+          name: idempotency-key
+          required: false
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcknowledgeViewedDto'
+        required: true
+      responses:
+        '200':
+          description: Count of newly-acknowledged tickets.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Wrong station, or no employee identity.
+      security:
+        - bearer: []
+      summary: Acknowledge tickets as first-viewed on this station.
+      tags:
+        - kitchen
+  /kds/tickets/{ticketId}/bump-all:
+    post:
+      operationId: KitchenController_bumpAll
+      parameters:
+        - in: path
+          name: ticketId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The updated ticket and the ids of lines this action bumped.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Wrong station, or no employee identity.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Ticket not found.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Serialization retries exhausted — reload and retry.
+      security:
+        - bearer: []
+      summary: Mark every eligible line on a ticket ready (bump all).
+      tags:
+        - kitchen
+  /kds/tickets/{ticketId}/lines/{lineId}/bump:
+    post:
+      operationId: KitchenController_bumpLine
+      parameters:
+        - in: path
+          name: ticketId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: lineId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The updated ticket and line.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Wrong station, or no employee identity.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Ticket or line not found.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Serialization retries exhausted — reload and retry.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The line is cancelled.
+      security:
+        - bearer: []
+      summary: Mark a ticket line ready (bump item).
+      tags:
+        - kitchen
+  /kds/tickets/{ticketId}/lines/{lineId}/start:
+    post:
+      operationId: KitchenController_startLine
+      parameters:
+        - in: path
+          name: ticketId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: lineId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The updated ticket and line.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Wrong station, or no employee identity.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Ticket or line not found.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The line is cancelled.
+      security:
+        - bearer: []
+      summary: Mark a ticket line started.
+      tags:
+        - kitchen
+  /kds/tickets/{ticketId}/recall:
+    post:
+      operationId: KitchenController_recall
+      parameters:
+        - in: path
+          name: ticketId
+          required: true
+          schema:
+            type: string
+        - description: REQUIRED — recall increments recall_count and is not naturally idempotent.
+          in: header
+          name: idempotency-key
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The recalled ticket.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Wrong station, or no employee identity.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Ticket not found.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Idempotency-Key fingerprint mismatch, concurrent modification, or exhausted serialization retries.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The ticket is not bumped, or the recall window has expired.
+      security:
+        - bearer: []
+      summary: Recall a bumped ticket back to active work.
+      tags:
+        - kitchen
   /modifiers/{modifierId}/recipe-effects:
     get:
       operationId: ProductionController_listModifierRecipeEffects
@@ -14127,6 +14488,60 @@ paths:
       summary: SRS §26.3 — publish. Demotes the incumbent, promotes the target, one txn.
       tags:
         - production
+  /reports/branches/{branchId}/daily-trading/{businessDay}:
+    get:
+      description: Financially-correct, read-only, query-time aggregation over the transactional primary — NOT a read replica, NOT a rollup, NOT a cache (FR-RPT-001/002/003/005 remain NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial (AND). Refused (403) unless the caller's tenant has EXACTLY ONE active branch and the supplied branchId equals it. A future businessDay is 400, never an all-zeros OPEN report. Cash Reconciliation is WHOLE_SESSION scope and PARTIAL (zero-payment/movement-only sessions are not attributable to a business day and are not listed; no day-level variance/expected/counted/movement total is ever emitted). Tax is broken down by class only, never by rate. Money is a decimal (minor-unit) string on the wire, never a JSON number. tenderTotals.completedExcessCapturedTotal (acceptance correction, 2026-08-31) is captured payment value above a completed order’s grand total — P1F-2 permits paidTotal > grandTotal on completion; this term is reconciliation-only, with no revenue/tax/tip/discount/ refund/rounding/variance disposition inferred, and it makes tenderGrandTotal === grossSales + unsettledCapturedTotal + completedExcessCapturedTotal hold exactly.
+      operationId: ReportingController_getDailyTradingReport
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: businessDay
+          required: true
+          schema:
+            pattern: ^\d{4}-\d{2}-\d{2}$
+            type: string
+      responses:
+        '200':
+          description: 'The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Malformed branchId/businessDay, any query parameter, or businessDay is after the branch's current business day ("Future business days are not supported.").
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid bearer token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: A PIN/POS session; no active tenant context; missing either report.view.sales or report.view.financial; the tenant has zero or more than one active branch; or branchId is visible in the tenant but is not that single active branch.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: branchId is unknown or belongs to another tenant — byte-identical response for both, so a caller cannot learn a foreign branch exists.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: More than one transaction currency was observed for this business day, a contributing cash session's currency disagrees with the report's currency, or an internal cash-reconciliation invariant was violated. No partial financial total is ever returned on a 409.
+      security:
+        - bearer: []
+      summary: 'Branch daily-trading report (Internal-MVP: dashboard-only, one tenant, exactly one active branch).'
+      tags:
+        - reporting
   /substitute-groups:
     get:
       operationId: ProductionController_listGroups

@@ -125,6 +125,27 @@ export function cutoverMinutes(
 }
 
 /**
+ * Build the `cutoverFor` lookup {@link resolveBusinessDay} needs from a
+ * branch's `org.operating_hours` rows. A weekday with no row uses `0`
+ * (midnight), matching the column default — "the business day is the
+ * calendar day". This is the ONE place this lookup is built; `OrdersService`
+ * (order creation, FR-FIN-024) and Sales' `DAILY_TRADING_SALES_QUERY`
+ * (reporting's `currentBusinessDay`/future-day check) both import it from
+ * here rather than each keeping their own copy — a second copy would risk
+ * silently diverging from the algorithm that actually decides which
+ * partition an Order lands in.
+ */
+export function cutoverLookup(
+  hours: readonly { dayOfWeek: number; businessDayCutover: Date }[],
+): (weekdayIndex: number) => number {
+  const byWeekday = new Map<number, number>();
+  for (const row of hours) {
+    byWeekday.set(row.dayOfWeek, cutoverMinutes(row.businessDayCutover));
+  }
+  return (weekdayIndex) => byWeekday.get(weekdayIndex) ?? 0;
+}
+
+/**
  * Resolve the business day for an instant at a branch.
  *
  * @param at        the instant to attribute (server clock, or the device time

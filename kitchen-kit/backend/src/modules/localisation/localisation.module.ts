@@ -9,9 +9,13 @@ import {
 } from './country-pack/country-pack.signature';
 import type { CountryPackTrustStore } from './country-pack/country-pack.signature';
 import { ConfiguredCountryPackTrustStore } from './country-pack/country-pack.trust.provider';
-import { PINNED_PAYMENT_POLICY_QUERY } from './contract';
+import {
+  PINNED_PAYMENT_POLICY_QUERY,
+  TAX_CLASS_LABELS_QUERY,
+} from './contract';
 import { PinnedPaymentPolicyQueryService } from './payment-policy/pinned-payment-policy.query.service';
 import { TAX_CLASS_PROVISIONER } from './tax/tax-class.port';
+import { TaxClassLabelsQueryService } from './tax/tax-class-labels.query.service';
 import { TaxClassProvisioningService } from './tax/tax-class.provisioner';
 import { TaxClassService } from './tax/tax-class.service';
 import { TaxEngineRegistry } from './tax/tax-engine.registry';
@@ -69,6 +73,13 @@ import { TaxEngineRegistry } from './tax/tax-engine.registry';
       provide: PINNED_PAYMENT_POLICY_QUERY,
       useExisting: PinnedPaymentPolicyQueryService,
     },
+    // Minimum Operational Reporting (RPT-R1/R2/R3) — labels only (no rate,
+    // no component, no engine config), consumed only by `reporting`.
+    TaxClassLabelsQueryService,
+    {
+      provide: TAX_CLASS_LABELS_QUERY,
+      useExisting: TaxClassLabelsQueryService,
+    },
   ],
   exports: [
     CountryPackService,
@@ -76,6 +87,7 @@ import { TaxEngineRegistry } from './tax/tax-engine.registry';
     TaxClassService,
     TAX_CLASS_PROVISIONER,
     PINNED_PAYMENT_POLICY_QUERY,
+    TAX_CLASS_LABELS_QUERY,
   ],
 })
 export class LocalisationModule {}

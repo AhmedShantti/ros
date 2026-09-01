@@ -8,6 +8,7 @@ import {
 } from '../../sales/contract';
 import { RoutingResolverService } from '../routing/routing-resolver.service';
 import { TicketPersistenceService } from './ticket-persistence.service';
+import { TicketProjectionService } from './ticket-projection.service';
 
 /**
  * `YYYY-MM-DD` -> a UTC-midnight `Date` for a `@db.Date` column. Identical
@@ -50,6 +51,7 @@ export class OrderLineFiredHandler {
   constructor(
     private readonly routingResolver: RoutingResolverService,
     private readonly ticketPersistence: TicketPersistenceService,
+    private readonly projection: TicketProjectionService,
   ) {}
 
   async handle(
@@ -97,21 +99,22 @@ export class OrderLineFiredHandler {
         firedAt,
       });
 
-      const line = await this.ticketPersistence.getOrCreateTicketLine(ctx.tx, {
-        tenantId: event.tenantId,
-        ticketId: ticket.id,
-        fireBatchRowId: batch.id,
-        orderId: payload.orderId,
-        orderLineId: payload.orderLineId,
-        businessDay,
-        itemNameSnapshot: payload.itemNameSnapshot as Prisma.InputJsonValue,
-        quantity: payload.quantity,
-        course: payload.course,
-        sequence: payload.sequence,
-        preparationNotes: payload.preparationNotes,
-        createdAt,
-        routedAt: firedAt,
-      });
+      const { line, wasCreated } =
+        await this.ticketPersistence.getOrCreateTicketLine(ctx.tx, {
+          tenantId: event.tenantId,
+          ticketId: ticket.id,
+          fireBatchRowId: batch.id,
+          orderId: payload.orderId,
+          orderLineId: payload.orderLineId,
+          businessDay,
+          itemNameSnapshot: payload.itemNameSnapshot as Prisma.InputJsonValue,
+          quantity: payload.quantity,
+          course: payload.course,
+          sequence: payload.sequence,
+          preparationNotes: payload.preparationNotes,
+          createdAt,
+          routedAt: firedAt,
+        });
 
       for (const modifier of payload.modifiers) {
         await this.ticketPersistence.ensureTicketLineModifier(
@@ -126,6 +129,33 @@ export class OrderLineFiredHandler {
             quantity: modifier.quantity,
           },
         );
+      }
+
+      // KDS acceptance correction (2026-08-31), Blocker C — an AMENDMENT
+      // fire (FR-POS-038) reuses this SAME Ticket (FR-KDS-028: "never as a
+      // new ticket"). `getOrCreateTicketLine` only ever creates the line
+      // row; nothing else in this handler ever touches `Ticket.status`, so
+      // a Ticket already `bumped`/`ready` would stay `bumped`/`ready`
+      // forever even though it now owns a brand-new `queued` line — the
+      // KDS queue (`TicketReaderService.listStationQueue`) excludes
+      // `bumped`/`served` tickets, making the amendment invisible to the
+      // operator. Recomputing the projection from the CURRENT full line
+      // set (old lines untouched, new line `queued`) pulls the ticket back
+      // to `in_progress`/`queued` exactly when genuinely new work exists —
+      // the SAME `projectTicketStatus` rule `KdsOperationsService` uses for
+      // start/bump, so there is no second, divergent lifecycle rule.
+      //
+      // Gated on `wasCreated`: a replay of the SAME fired line (the natural
+      // at-least-once redelivery this handler is already idempotent
+      // against) must NEVER re-trigger this — `wasCreated` is false for a
+      // replay because `getOrCreateTicketLine`'s `INSERT ... ON CONFLICT DO
+      // NOTHING` finds the row already there. For a brand-new Ticket this
+      // recompute is a harmless no-op (a fresh Ticket already defaults to
+      // `queued`, and its one new line is `queued` too).
+      if (wasCreated) {
+        await this.projection.apply(ctx.tx, event.tenantId, ticket.id, {
+          now: createdAt,
+        });
       }
     }
   }

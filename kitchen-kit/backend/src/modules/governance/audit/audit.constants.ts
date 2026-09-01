@@ -71,6 +71,14 @@ export const AUDIT_ACTION = {
   // audited write in this module); CASH_SESSION_CLOSED remains the
   // separate, later fact that the session actually closed.
   CASH_VARIANCE_DECLARED: 'CASH_VARIANCE_DECLARED',
+  // Migration 35 — DayClose. Two DISTINCT verbs for two distinct durable
+  // state changes (activation-mechanic final correction §7): activating a
+  // branch's DayClose epoch (the FIRST POST for a branch — a durable,
+  // committed, audited outcome, never a disguised failure) and sealing a
+  // business day (a real close). Never conflated into one verb — an
+  // activation writes no DayClose row, and a close never re-activates.
+  DAY_CLOSE_ACTIVATED: 'DAY_CLOSE_ACTIVATED',
+  DAY_CLOSED: 'DAY_CLOSED',
   // D-2 (amended) PIN substrate. Security-sensitive state changes only; a PIN
   // value never appears in any payload.
   EMPLOYEE_CREATED: 'EMPLOYEE_CREATED',
@@ -163,6 +171,20 @@ export const AUDIT_ACTION = {
   SUBSTITUTE_GROUP_UPDATED: 'SUBSTITUTE_GROUP_UPDATED',
   // P1F-2 — D-17-07 resolution: the modifier -> recipe-effect replacement API.
   MODIFIER_RECIPE_EFFECTS_REPLACED: 'MODIFIER_RECIPE_EFFECTS_REPLACED',
+
+  // KDS operator lifecycle (KDS-R11/KDS-R12, ratified 2026-08-30). Same
+  // <ENTITY>_<PAST_TENSE> convention. FR-AUD-001 acceptance correction:
+  // first-viewed IS a state-changing operation (a write-once persisted
+  // stamp) and so IS audited — one entry per newly-viewed Ticket, never a
+  // replay. Bump-all is ONE operator action -> ONE entry (metadata carries
+  // the affected line ids), mirroring CASH_MOVEMENT_RECORDED's own
+  // one-verb-many-instances convention; a per-line echo would be exactly the
+  // audit noise that convention already rejects.
+  TICKET_VIEWED: 'TICKET_VIEWED',
+  TICKET_LINE_STARTED: 'TICKET_LINE_STARTED',
+  TICKET_LINE_BUMPED: 'TICKET_LINE_BUMPED',
+  TICKET_BUMPED: 'TICKET_BUMPED',
+  TICKET_RECALLED: 'TICKET_RECALLED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -174,6 +196,9 @@ export const AUDIT_ENTITY = {
   CASH_MOVEMENT: 'cash_movement',
   // P1G-1 migration 33.
   CASH_CLOSE_POLICY: 'cash_close_policy',
+  // Migration 35 — DayClose.
+  DAY_CLOSE: 'day_close',
+  DAY_CLOSE_ACTIVATION: 'day_close_activation',
   APPROVAL_REQUEST: 'approval_request',
   APPROVAL_DECISION: 'approval_decision',
   DRAWER: 'drawer',
@@ -221,4 +246,8 @@ export const AUDIT_ENTITY = {
   RECIPE: 'recipe',
   RECIPE_VERSION: 'recipe_version',
   SUBSTITUTE_GROUP: 'substitute_group',
+
+  // KDS operator lifecycle entities.
+  TICKET: 'ticket',
+  TICKET_LINE: 'ticket_line',
 } as const;

@@ -12,12 +12,18 @@ import { CashClosePolicyService } from './cash-close-policy/cash-close-policy.se
 import { CashMovementTotalsQueryService } from './cash-movements/cash-movement-totals.query.service';
 import { CashMovementsService } from './cash-movements/cash-movements.service';
 import { CashSessionCloseService } from './cash-session-close/cash-session-close.service';
+import { DailyCashReconciliationQueryService } from './cash-sessions/daily-cash-reconciliation.query.service';
 import { CashSessionFactsQueryService } from './cash-sessions/cash-session-facts.query.service';
 import { CashSessionsService } from './cash-sessions/cash-sessions.service';
 import {
   CASH_MOVEMENT_TOTALS_QUERY,
   CASH_SESSION_FACTS_QUERY,
+  DAILY_CASH_RECONCILIATION_QUERY,
+  DAY_CLOSE_STATE_QUERY,
 } from './contract';
+import { DayCloseController } from './day-close/day-close.controller';
+import { DayCloseStateQueryService } from './day-close/day-close-state.query.service';
+import { DayCloseService } from './day-close/day-close.service';
 import { DrawersService } from './drawers/drawers.service';
 import { TreasuryController } from './treasury.controller';
 
@@ -107,7 +113,11 @@ import { TreasuryController } from './treasury.controller';
     GovernanceModule,
     forwardRef(() => SalesModule),
   ],
-  controllers: [TreasuryController, CashClosePolicyController],
+  controllers: [
+    TreasuryController,
+    CashClosePolicyController,
+    DayCloseController,
+  ],
   providers: [
     DrawersService,
     CashSessionsService,
@@ -125,12 +135,30 @@ import { TreasuryController } from './treasury.controller';
       provide: CASH_MOVEMENT_TOTALS_QUERY,
       useExisting: CashMovementTotalsQueryService,
     },
+    // Minimum Operational Reporting (RPT-R1/R2/R3) — Treasury's THIRD
+    // published `contract/` query, consumed only by the `reporting` module.
+    DailyCashReconciliationQueryService,
+    {
+      provide: DAILY_CASH_RECONCILIATION_QUERY,
+      useExisting: DailyCashReconciliationQueryService,
+    },
+    // Migration 35 (DayClose) — Treasury's FOURTH published `contract/`
+    // query, consumed by Sales' `OrdersService.create` (the shared
+    // Order-create/DayClose cutover fence's Order-create side).
+    DayCloseStateQueryService,
+    {
+      provide: DAY_CLOSE_STATE_QUERY,
+      useExisting: DayCloseStateQueryService,
+    },
+    DayCloseService,
   ],
   exports: [
     DrawersService,
     CashSessionsService,
     CASH_SESSION_FACTS_QUERY,
     CASH_MOVEMENT_TOTALS_QUERY,
+    DAILY_CASH_RECONCILIATION_QUERY,
+    DAY_CLOSE_STATE_QUERY,
     // P1G-1: exported so a future CashSession Close slice (this module) can
     // inject the resolver directly. NOT a `contract/` token — Treasury-only.
     CashClosePolicyResolver,

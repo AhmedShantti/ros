@@ -16,6 +16,7 @@ import { IdempotencyModule } from './common/idempotency/idempotency.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { TreasuryModule } from './modules/treasury/treasury.module';
 import { WorkforceModule } from './modules/workforce/workforce.module';
+import { ReportingModule } from './modules/reporting/reporting.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -65,6 +66,11 @@ import { PrismaModule } from './prisma/prisma.module';
     // Treasury bounded context - Drawer and CashSession OPEN (FR-FIN-001/002,
     // FR-POS-090). No close, no counting, no variance, no day close.
     TreasuryModule,
+    // Reporting bounded context (RPT-R1/R2/R3) — the Internal-MVP branch
+    // daily-trading read surface. Zero tables, zero migrations; reaches
+    // every fact through Sales/Treasury/Organisation/Localisation's own
+    // published contract/ tokens.
+    ReportingModule,
   ],
 })
 export class AppModule {}

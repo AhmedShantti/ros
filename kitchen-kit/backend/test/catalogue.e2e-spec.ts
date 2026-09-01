@@ -1289,9 +1289,14 @@ describe('Catalogue (e2e)', () => {
       // substrate, NOT the generic FR-PLT-025 settings hierarchy) — and
       // P1G-1 migration 34 (CashSession Close), which additionally
       // authorises `treasury.cash_session_close_attempts` and
-      // `treasury.cash_count_denominations` — and NOTHING else in either
-      // schema. The guard is narrowed rather than dropped: the assertion
-      // below proves neither context quietly grew the rest of itself.
+      // `treasury.cash_count_denominations` — and migration 35 (DayClose,
+      // DC-R1/R2/R3), which additionally authorises `treasury.day_closes`,
+      // `treasury.day_close_activations`, `treasury.day_close_sessions`,
+      // `treasury.day_close_tax_class_totals` and
+      // `treasury.day_close_order_type_totals` — and NOTHING else in
+      // either schema. The guard is narrowed rather than dropped: the
+      // assertion below proves neither context quietly grew the rest of
+      // itself.
       const p1dTables = await admin.$queryRawUnsafe<{ qualified: string }[]>(
         `SELECT schemaname || '.' || tablename AS qualified FROM pg_tables
           WHERE schemaname IN ('workforce','treasury') ORDER BY 1`,
@@ -1302,6 +1307,11 @@ describe('Catalogue (e2e)', () => {
         'treasury.cash_movements',
         'treasury.cash_session_close_attempts',
         'treasury.cash_sessions',
+        'treasury.day_close_activations',
+        'treasury.day_close_order_type_totals',
+        'treasury.day_close_sessions',
+        'treasury.day_close_tax_class_totals',
+        'treasury.day_closes',
         'treasury.drawers',
         'workforce.shifts',
       ]);
