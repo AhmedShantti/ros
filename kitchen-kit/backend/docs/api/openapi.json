@@ -1853,6 +1853,104 @@
         ],
         "type": "object"
       },
+      "SyncBatchDto": {
+        "properties": {
+          "batchId": {
+            "description": "SRS §21.5.1 — \"idempotency key for the batch\".",
+            "type": "string"
+          },
+          "deviceId": {
+            "description": "Must equal the authenticated terminal. A mismatch is 403, not a hint.",
+            "type": "string"
+          },
+          "lastServerCursor": {
+            "description": "Opaque to the client; `null` on a first sync. D4-2 gives it meaning.",
+            "maxLength": 80,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/SyncOperationDto"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "protocolVersion": {
+            "maximum": 1,
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "deviceId",
+          "batchId",
+          "operations"
+        ],
+        "type": "object"
+      },
+      "SyncOperationDto": {
+        "properties": {
+          "actorEmployeeId": {
+            "description": "Per-OPERATION, not per-batch: a 72-hour batch spans shift changes\n(`UC-OFF-01` step 8), and a batch-level actor would attribute a whole\noutage to one employee.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "causedBy": {
+            "description": "`FR-OFF-022` — the opId of the causal parent. A child whose parent has not\nbeen applied is DEFERRED, never rejected.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entityId": {
+            "description": "The aggregate this operation concerns. Never reassigned (`FR-OFF-015`).",
+            "type": "string"
+          },
+          "hlc": {
+            "description": "`FR-OFF-041`. Stored verbatim; the server never rewrites it.",
+            "type": "string"
+          },
+          "occurredAt": {
+            "description": "The DEVICE's wall clock, preserved alongside the server's receipt time\n(`FR-OFF-042`). Distinct from `hlc`: one is causal, one is what the receipt\nsays.",
+            "type": "string"
+          },
+          "opId": {
+            "description": "`FR-OFF-021` / SRS §21.5.1 — \"idempotency key for the operation\". There is\nno separate idempotency field: `opId` IS it.",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "Handler-specific. Validated by the registered handler, not here.",
+            "type": "object"
+          },
+          "schemaVersion": {
+            "description": "Payload shape version for THIS operation type.",
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "number"
+          },
+          "type": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "opId",
+          "hlc",
+          "type",
+          "entityId",
+          "occurredAt",
+          "schemaVersion",
+          "payload"
+        ],
+        "type": "object"
+      },
       "Toggle86Dto": {
         "properties": {
           "autoReenableAt": {
@@ -25014,11 +25112,233 @@
           "production"
         ]
       }
+    },
+    "/v1/sync/batch": {
+      "post": {
+        "description": "FR-OFF-020..025. Operations are applied in causal order, each with its own failure isolation, and answered individually as accepted, duplicate, conflict, rejected or deferred. Only the first four are DEFINITIVE: a client may remove an operation from its outbox on those and must retain it on anything else, including deferred, a missing result, and any transport failure. Replaying the same batchId with the same body returns the stored response and re-applies nothing.",
+        "operationId": "SyncController_uploadBatch_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncBatchDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "batchId": {
+                      "description": "The batch id the client supplied, echoed unchanged.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "clockSkewExceededThreshold": {
+                      "description": "True when the skew exceeded the configured threshold (default 5 minutes). The skew is recorded and an alert raised; the operations are still accepted and their original timestamps preserved.",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "clockSkewMs": {
+                      "description": "Largest observed |device HLC physical clock − server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042).",
+                      "example": 1200,
+                      "type": "integer"
+                    },
+                    "counts": {
+                      "description": "Per-status totals for this batch.",
+                      "properties": {
+                        "accepted": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "conflict": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "deferred": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "duplicate": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "rejected": {
+                          "example": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "accepted",
+                        "duplicate",
+                        "conflict",
+                        "rejected",
+                        "deferred"
+                      ],
+                      "type": "object"
+                    },
+                    "protocolVersion": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "receivedAt": {
+                      "description": "The server's own receipt instant.",
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "description": "True when this batch had already been completed and the stored response was replayed verbatim. Nothing was re-applied (FR-OFF-025).",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "results": {
+                      "description": "One result per submitted operation, in submission order.",
+                      "items": {
+                        "properties": {
+                          "conflictId": {
+                            "description": "The sync.conflict_records row raised for this operation, when status is conflict.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "definitive": {
+                            "description": "True exactly when the client may delete this operation from its outbox. Restated as a field so a client never has to hard-code the status vocabulary to decide.",
+                            "example": true,
+                            "type": "boolean"
+                          },
+                          "detail": {
+                            "description": "Handler-supplied result detail, echoed to the client.",
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          },
+                          "opId": {
+                            "description": "The client-generated operation id, echoed back UNCHANGED — FR-OFF-015: the server never reassigns an identifier.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "reasonCode": {
+                            "description": "Machine-readable reason. Always present on rejected, conflict and deferred, so a client can decide between dead-lettering, fixing and resending, or waiting for a causal parent.",
+                            "example": "causal_parent_missing",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonDetail": {
+                            "description": "Human-readable explanation.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "description": "accepted | duplicate | conflict | rejected are DEFINITIVE — the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024).",
+                            "enum": [
+                              "accepted",
+                              "duplicate",
+                              "conflict",
+                              "rejected",
+                              "deferred"
+                            ],
+                            "example": "accepted",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "opId",
+                          "status",
+                          "definitive"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "batchId",
+                    "receivedAt",
+                    "protocolVersion",
+                    "replayed",
+                    "counts",
+                    "clockSkewMs",
+                    "clockSkewExceededThreshold",
+                    "results"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-operation results. Always 200 for a well-formed authorised batch, whatever the individual outcomes."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed envelope, an unknown field, an unsupported protocolVersion, more than the permitted number of operations, or an oversized batch."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No terminal-bound session, the terminal is not active, or deviceId does not match the authenticated terminal."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "This batchId was already used for a different body (a client defect), or it is currently being processed by a live owner."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload a batch of offline operations",
+        "tags": [
+          "sync"
+        ]
+      }
     }
   },
   "servers": [
     {
-      "description": "Current application root — no path prefix. SRS §26.1 specifies /v1 URL versioning; this is NOT implemented by the application (no global prefix registered) and no deployment/proxy configuration exists in this repository to confirm whether an external layer adds one. Confirm the real deployed base URL with deployment/ops before treating any prefix as authoritative.",
+      "description": "Current application root. There is no global path prefix: routes appear here at the exact paths the application serves. Most are unversioned; the Sync routes are versioned under /v1 because their canonical contract requires it, using Nest URI versioning with a VERSION_NEUTRAL default so no other route was moved. Repository-wide /v1 versioning (SRS §26.1) is a Platform decision and is not yet made. No deployment/proxy configuration exists in this repository, so confirm the real deployed base URL with deployment/ops before treating any prefix as authoritative.",
       "url": "/"
     }
   ],

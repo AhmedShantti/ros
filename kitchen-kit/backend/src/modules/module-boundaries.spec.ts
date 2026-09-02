@@ -1261,11 +1261,24 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
       'prisma',
       'migrations',
     );
-    expect(
-      readdirSync(migrationsDir, { withFileTypes: true }).filter((e) =>
-        e.isDirectory(),
-      ).length,
-    ).toBe(35);
+    // D4-1A: this was a bare `toBe(35)` — a GLOBAL migration count standing in
+    // for "Reporting added no migration". Every later slice that legitimately
+    // adds a migration then fails this Reporting test for a reason that has
+    // nothing to do with Reporting (D4-1A's `sync_protocol_kernel` is the first;
+    // concurrent lanes adding their own would each conflict with the others'
+    // number). Asserting the actual intent is both stronger and stable: no
+    // migration in the repository creates a `reporting` schema or a table in
+    // one, whatever the count happens to be.
+    const migrationSql = readdirSync(migrationsDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) =>
+        readFileSync(join(migrationsDir, e.name, 'migration.sql'), 'utf8'),
+      );
+    expect(migrationSql.length).toBeGreaterThan(0);
+    for (const sql of migrationSql) {
+      expect(sql).not.toMatch(/CREATE\s+SCHEMA[^;]*"?reporting"?/i);
+      expect(sql).not.toMatch(/"reporting"\./i);
+    }
   });
 
   /**

@@ -18,6 +18,7 @@ import { TreasuryModule } from './modules/treasury/treasury.module';
 import { WorkforceModule } from './modules/workforce/workforce.module';
 import { ReportingModule } from './modules/reporting/reporting.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SyncModule } from './modules/sync/sync.module';
 
 @Module({
   imports: [
@@ -71,6 +72,12 @@ import { PrismaModule } from './prisma/prisma.module';
     // every fact through Sales/Treasury/Organisation/Localisation's own
     // published contract/ tokens.
     ReportingModule,
+    // Offline/Sync bounded context (D4-1A, migration 37) — the protocol kernel
+    // behind POST /v1/sync/batch: operation dedup, history, crash-recoverable
+    // batch reservation, HLC, causal ordering and per-operation failure
+    // isolation. Ships ZERO domain operation handlers by design; domains attach
+    // in D4-1B via `@SyncOperationHandlerFor`.
+    SyncModule,
   ],
 })
 export class AppModule {}

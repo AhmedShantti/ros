@@ -1,0 +1,54 @@
+{
+  "corpusVersion": "1",
+  "description": "CT-10 — 'Device clock set 3 hours ahead. Pass criterion: HLC ordering preserved; skew alerted; original timestamps retained.' These vectors grade the ORDERING half, which is the part that must be byte-identical on client and server. Skew alerting and timestamp retention are server-side behaviours proved by test/sync-protocol.e2e-spec.ts, not by a shared corpus.",
+  "nodes": {
+    "server": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    "skewedDevice": "1a2b3c4d5e6f708192a3b4c5d6e7f809",
+    "healthyDevice": "00000000000000000000000000000001"
+  },
+  "skewMs": "10800000",
+  "serverRealTimeMs": "1722765753000",
+  "deviceClaimedTimeMs": "1722776553000",
+  "sequence": [
+    {
+      "id": "ct10-step-1-server-adopts-skewed-physical",
+      "description": "The skewed device's first operation. l' == l_msg, so the server's clock is dragged forward by three hours and c' = c_msg + 1. This is the algorithm as written; bounding it (GD-D1-03) is DEFERRED and deliberately not implemented, so this expectation must not be 'corrected'.",
+      "state": "1722765753000.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "message": "1722776553000.00000.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "physicalMs": "1722765753100",
+      "expected": "1722776553000.00001.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "ct10-step-2-second-operation-still-ordered",
+      "description": "The device's second operation, one logical tick later. l' == l == l_msg -> max(c, c_msg) + 1. Causality between the device's own two operations survives the skew.",
+      "state": "1722776553000.00001.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "message": "1722776553000.00001.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "physicalMs": "1722765753200",
+      "expected": "1722776553000.00002.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "ct10-step-3-healthy-device-not-reordered-among-itself",
+      "description": "A healthy device on the same branch keeps producing operations at real time. Its own two operations remain correctly ordered relative to each other regardless of the skewed peer.",
+      "state": "1722776553000.00002.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "message": "1722765753500.00000.00000000000000000000000000000001",
+      "physicalMs": "1722765753600",
+      "expected": "1722776553000.00003.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    }
+  ],
+  "ordering": [
+    {
+      "id": "ct10-skewed-sorts-after-healthy",
+      "description": "The skewed device's operations sort AFTER the healthy device's. That is the honest, detectable consequence of a wrong clock — not a defect in the algorithm — and it is exactly why FR-OFF-042 requires the skew to be recorded and the branch manager alerted.",
+      "a": "1722765753500.00000.00000000000000000000000000000001",
+      "b": "1722776553000.00000.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "expected": "lt"
+    },
+    {
+      "id": "ct10-device-internal-order-preserved",
+      "description": "The skewed device's own two operations remain in the order it produced them.",
+      "a": "1722776553000.00000.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "b": "1722776553000.00001.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "expected": "lt"
+    }
+  ]
+}

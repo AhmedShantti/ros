@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import * as yaml from 'js-yaml';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
+import { applyApiVersioning } from './../src/common/http/api-versioning';
 import { classifyPathParamName } from './../src/common/openapi/oas31.util';
 
 /**
@@ -151,6 +152,13 @@ describe('OpenAPI document (e2e)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleFixture.createNestApplication();
+    // This suite compares the document against the LIVE route surface, so the
+    // app under test must be configured exactly as `main.ts` configures the
+    // real one. Without this, URI versioning is absent here and every
+    // versioned route (today: Sync) reads as drift — which is precisely what
+    // this suite is for, and precisely why it must not be configured
+    // differently from production.
+    applyApiVersioning(app);
     await app.init();
   });
 
