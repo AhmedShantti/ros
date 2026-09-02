@@ -209,13 +209,12 @@ describe('MovementsService.post — real Postgres concurrency + exact-decimal co
       where: { stockItemId, locationId: locationA },
       select: { quantity: true },
     });
-    return rows.reduce(
-      (sum, r) => sum.plus(r.quantity),
-      new Prisma.Decimal(0),
-    );
+    return rows.reduce((sum, r) => sum.plus(r.quantity), new Prisma.Decimal(0));
   };
 
-  const levelQuantity = async (stockItemId: string): Promise<Prisma.Decimal> => {
+  const levelQuantity = async (
+    stockItemId: string,
+  ): Promise<Prisma.Decimal> => {
     const level = await admin.stockLevel.findUniqueOrThrow({
       where: { stockItemId_locationId: { stockItemId, locationId: locationA } },
     });
