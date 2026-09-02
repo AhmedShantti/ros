@@ -3,7 +3,12 @@
   "rootDir": ".",
   "testEnvironment": "node",
   "setupFiles": ["<rootDir>/setup-e2e.ts"],
+  "globalSetup": "<rootDir>/e2e-db-isolation/global-setup.ts",
+  "globalTeardown": "<rootDir>/e2e-db-isolation/global-teardown.ts",
+  "setupFilesAfterEnv": ["<rootDir>/e2e-db-isolation/jest-hooks.ts"],
   "testRegex": ".e2e-spec.ts$",
+  "testTimeout": 30000,
+  "maxWorkers": 4,
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },

@@ -134,3 +134,45 @@ jobs:
 
       - name: Confirm clean migration status
         run: npx prisma migrate status
+
+  e2e:
+    name: E2E (isolated per-suite databases, G1-2 harness)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ros_migrator
+          POSTGRES_PASSWORD: ci_ephemeral_not_a_secret
+          POSTGRES_DB: ros_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ros_migrator -d ros_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      # test/e2e-db-isolation/env.ts only reads these to derive host/port/
+      # credentials for its own admin connection and to build every scratch
+      # database's URL — the app never connects to "ros_ci" itself. The
+      # ros_app role does not need to be pre-provisioned here (unlike
+      # migrate-from-zero above): the harness's own globalSetup creates it
+      # idempotently (test/e2e-db-isolation/provision.ts `ensureAppRole`),
+      # mirroring docker/postgres/init/01-init-app-role.sh itself.
+      DATABASE_URL: postgresql://ros_migrator:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+      APP_DATABASE_URL: postgresql://ros_app:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: kitchen-kit/backend/package-lock.json
+
+      - name: Install dependencies (from lockfile)
+        run: npm ci
+
+      - name: E2E — per-suite ephemeral database (G1-2)
+        run: npm run test:e2e
