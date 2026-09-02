@@ -215,7 +215,7 @@ describe('Sales P1C line capture (e2e)', () => {
       stockItemId,
       locationId: locationA,
       movementType: 'purchase_receipt',
-      quantity,
+      quantity: String(quantity),
       unitCost,
       batchId: batch.id,
       referenceType: 'goods_receipt',

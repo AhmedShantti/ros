@@ -56,3 +56,4 @@ Examples: `2026-09-02_A1-1_inventory-write-path-correctness.md` ·
 
 | Date | Slice | Lane | Type | Baseline | Result Commit | Status | Report |
 |---|---|---|---|---|---|---|---|
+| 2026-09-02 | A1-1 — Inventory movement write-path correctness | A | Implementation + tests + acceptance | `63d3b7c2` | `fix(inventory): make movement projection atomic` (this commit — see `git log` on this path) | COMPLETE — atomic projection, exact decimal, concurrency + exact-fold regression tests added and verified to fail against the pre-fix code; 815/815 unit, 1156/1157 e2e (1 pre-existing, confirmed-unrelated `NFR-PERF-006` failure, reproduced identically at baseline); zero schema/migration/API/permission change | [2026-09-02_A1-1_inventory-write-path-correctness.md](2026-09-02_A1-1_inventory-write-path-correctness.md) |

@@ -26,16 +26,38 @@ import {
   applyCostConsumption,
   lockLayers,
   planFifoCostConsumption,
+  toDecimal6,
 } from '../costing/fifo-cost-ledger';
-import { fromExactDecimal } from '../../../common/money/rational';
+import {
+  Rational,
+  fromExactDecimal,
+  isNegative,
+  isZero,
+} from '../../../common/money/rational';
 import { parseExactDecimal } from '../../../common/money/rounding';
+
+function exact(value: string): Rational {
+  return fromExactDecimal(parseExactDecimal(value));
+}
+
+/** Render a SIGNED Rational as an exact DECIMAL(18,6) string (`toDecimal6` is magnitude-only). */
+function toSignedDecimal6(value: Rational): string {
+  return isNegative(value)
+    ? `-${toDecimal6({ num: -value.num, den: value.den })}`
+    : toDecimal6(value);
+}
 
 export interface PostMovementInput {
   locationId: string;
   stockItemId: string;
   movementType: MovementType;
-  /** Signed: negative = out of stock. Must be non-zero (DB CHECK). */
-  quantity: number;
+  /**
+   * Signed exact decimal string (BR-CORE-003, up to 6 dp), e.g. "-2.125000".
+   * Must be non-zero (DB CHECK). Internal write-path type only — the public
+   * `PostMovementDto.quantity` was already a validated decimal string; this
+   * removes the `Number()` conversion that used to sit between the two.
+   */
+  quantity: string;
   referenceType: string;
   referenceId: string;
   occurredAt?: Date;
@@ -97,9 +119,16 @@ export class MovementsService {
     actorId: string,
     input: PostMovementInput,
   ): Promise<PostedMovement> {
-    if (input.quantity === 0) {
+    const qty = exact(input.quantity);
+    if (isZero(qty)) {
       throw new BadRequestException('Movement quantity must be non-zero.');
     }
+    const outbound = isNegative(qty);
+    const qtyAbs: Rational = outbound ? { num: -qty.num, den: qty.den } : qty;
+    // Pre-existing valuation/batch-selection axis (costing.ts) is unchanged —
+    // it already computed off a JS `number`; only the persisted quantity
+    // projection below moves to exact/atomic arithmetic (CG-01).
+    const qtyAbsNumber = Number(toDecimal6(qtyAbs));
 
     const item = await tx.stockItem.findUnique({
       where: { id: input.stockItemId },
@@ -116,6 +145,12 @@ export class MovementsService {
       throw new NotFoundException('Location not found.');
     }
 
+    // Pre-read used ONLY for valuation (weighted-average cost input) — never
+    // for the persisted quantity projection, which is computed atomically
+    // below. A concurrent receipt racing this read can still produce a
+    // slightly stale `averageCost`; that valuation-axis race is tracked as a
+    // residual risk (A1-4), same as `SaleDepletionService` never needing to
+    // touch `averageCost` at all.
     const level = await tx.stockLevel.findUnique({
       where: {
         stockItemId_locationId: {
@@ -126,7 +161,6 @@ export class MovementsService {
     });
     const currentQty = level ? Number(level.quantityOnHand) : 0;
     const currentAvg = level ? level.averageCost : 0n;
-    const outbound = input.quantity < 0;
 
     // ---- batch selection (outbound only) --------------------------------
     // P1F-2: batch access is routed through the SAME private fifo-cost-ledger
@@ -155,18 +189,14 @@ export class MovementsService {
           expiryDate: b.expiryDate,
         }));
       // FR-INV-014: a shortfall is recorded, never blocked.
-      consumed = selectBatches(
-        lots,
-        Math.abs(input.quantity),
-        item.batchStrategy,
-      ).consumed;
+      consumed = selectBatches(lots, qtyAbsNumber, item.batchStrategy).consumed;
     }
 
     // ---- valuation -------------------------------------------------------
     const unitCost = outbound
       ? valuationUnitCost({
           costingMethod: item.costingMethod,
-          quantity: Math.abs(input.quantity),
+          quantity: qtyAbsNumber,
           averageCost: currentAvg,
           standardCost: item.standardCost,
           consumed,
@@ -174,7 +204,24 @@ export class MovementsService {
       : (input.unitCost ?? currentAvg);
 
     const occurredAt = input.occurredAt ?? new Date();
-    const balanceAfter = currentQty + input.quantity;
+
+    // ---- projection (BR-INV-003, ATOMIC, same transaction) ---------------
+    // The additive delta is applied by PostgreSQL itself — never read-then-
+    // absolute-write — so two concurrent movements on the same (item,
+    // location) can never lose an update (CG-01), and `balanceAfter` below
+    // is the database's own returned value, not a JS-computed guess. Mirrors
+    // the already-accepted `SaleDepletionService.writeAllocation` pattern.
+    const deltaText = toSignedDecimal6(qty);
+    const projected = await tx.$queryRaw<{ quantityOnHand: string }[]>`
+      INSERT INTO "inventory"."stock_levels"
+        ("tenant_id", "stock_item_id", "location_id", "quantity_on_hand")
+      VALUES (${tenantId}::uuid, ${input.stockItemId}::uuid, ${input.locationId}::uuid,
+              ${deltaText}::numeric)
+      ON CONFLICT ("stock_item_id", "location_id") DO UPDATE
+        SET "quantity_on_hand" = "inventory"."stock_levels"."quantity_on_hand" + EXCLUDED."quantity_on_hand"
+      RETURNING "quantity_on_hand"::text AS "quantityOnHand"
+    `;
+    const balanceAfter = projected[0].quantityOnHand;
 
     const movement = await tx.stockMovement.create({
       data: {
@@ -186,11 +233,11 @@ export class MovementsService {
         batchId:
           input.batchId ?? (consumed.length === 1 ? consumed[0].batchId : null),
         movementType: input.movementType,
-        quantity: input.quantity,
+        quantity: new Prisma.Decimal(input.quantity),
         unitId: item.baseUnitId,
         unitCost,
-        totalCost: totalCost(input.quantity, unitCost),
-        balanceAfter,
+        totalCost: totalCost(qtyAbsNumber, unitCost),
+        balanceAfter: new Prisma.Decimal(balanceAfter),
         referenceType: input.referenceType,
         referenceId: input.referenceId,
         counterpartMovementId: input.counterpartMovementId ?? null,
@@ -201,28 +248,26 @@ export class MovementsService {
       },
     });
 
-    // ---- projection (BR-INV-003, same transaction) -----------------------
+    // ---- valuation pointer (average cost + last-movement, same tx) -------
+    // `quantity_on_hand` is NOT written here — it was already applied
+    // atomically above. `averageCost` retains its pre-existing (unlocked,
+    // out-of-scope-for-A1-1) concurrent-receipt race; see comment above.
     const nextAvg = outbound
       ? currentAvg
-      : weightedAverageCost(currentQty, currentAvg, input.quantity, unitCost);
-    await tx.stockLevel.upsert({
+      : weightedAverageCost(
+          currentQty,
+          currentAvg,
+          Number(input.quantity),
+          unitCost,
+        );
+    await tx.stockLevel.update({
       where: {
         stockItemId_locationId: {
           stockItemId: input.stockItemId,
           locationId: input.locationId,
         },
       },
-      create: {
-        tenantId,
-        stockItemId: input.stockItemId,
-        locationId: input.locationId,
-        quantityOnHand: balanceAfter,
-        averageCost: nextAvg,
-        lastMovementId: movement.id,
-        lastMovementOccurredAt: movement.occurredAt,
-      },
-      update: {
-        quantityOnHand: balanceAfter,
+      data: {
         averageCost: nextAvg,
         lastMovementId: movement.id,
         lastMovementOccurredAt: movement.occurredAt,
@@ -248,10 +293,7 @@ export class MovementsService {
     // never reads the counter) and is a documented residual — only Sale
     // Completion requires full valued coverage and fails closed on it.
     if (outbound && item.isBatchTracked && item.costingMethod === 'fifo') {
-      const requiredQty = fromExactDecimal(
-        parseExactDecimal(Math.abs(input.quantity).toFixed(6)),
-      );
-      const plan = planFifoCostConsumption(lockedLayers, requiredQty);
+      const plan = planFifoCostConsumption(lockedLayers, qtyAbs);
       await applyCostConsumption(tx, plan.slices);
     }
 
@@ -266,9 +308,9 @@ export class MovementsService {
         movementType: input.movementType,
         stockItemId: input.stockItemId,
         locationId: input.locationId,
-        quantity: String(input.quantity),
+        quantity: input.quantity,
         unitCost: unitCost.toString(),
-        balanceAfter: String(balanceAfter),
+        balanceAfter,
       },
       ...(input.reasonCodeId ? { reasonCode: 'inventory_reason_code' } : {}),
     });
@@ -287,7 +329,11 @@ export class MovementsService {
     return {
       id: movement.id,
       occurredAt: movement.occurredAt,
-      balanceAfter,
+      // Transport-only conversion (PostMovementDto/postedMovementSchema
+      // already document `balanceAfter` as a JS `number`, unchanged here —
+      // see `docs/reports/claude/full-srs-4day/...A1-1...md` §API impact).
+      // The PERSISTED value above is the exact atomic DB result.
+      balanceAfter: Number(balanceAfter),
       unitCost: unitCost.toString(),
       totalCost: movement.totalCost.toString(),
       consumedBatches: consumed.map((c) => ({

@@ -263,7 +263,7 @@ export class CountsService {
             locationId: session.locationId,
             stockItemId: line.stockItemId,
             movementType: 'count_adjustment',
-            quantity: variance,
+            quantity: variance.toFixed(6),
             referenceType: 'count',
             referenceId: sessionId,
           });

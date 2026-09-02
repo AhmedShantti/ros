@@ -189,7 +189,7 @@ describe('Order Completion (P1F-2 e2e)', () => {
       stockItemId,
       locationId: locationA,
       movementType: 'purchase_receipt',
-      quantity: Number(qty),
+      quantity: qty,
       unitCost,
       batchId: batch.id,
       referenceType: 'goods_receipt',

@@ -369,7 +369,7 @@ describe('Structural FK negative proofs — C-20 (P1F-2 acceptance closure §3)'
       stockItemId,
       locationId,
       movementType: 'purchase_receipt',
-      quantity: Number(qty),
+      quantity: qty,
       unitCost,
       batchId: batch.id,
       referenceType: 'goods_receipt',
