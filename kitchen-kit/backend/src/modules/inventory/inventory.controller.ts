@@ -566,7 +566,7 @@ export class InventoryController {
       stockItemId: dto.stockItemId,
       fromLocationId: dto.fromLocationId,
       toLocationId: dto.toLocationId,
-      quantity: Number(dto.quantity),
+      quantity: dto.quantity,
       reasonCodeId: dto.reasonCodeId,
       notes: dto.notes,
     });
@@ -592,7 +592,7 @@ export class InventoryController {
   ) {
     return this.transfers.receive(c.tenantId, c.userId, dto.toLocationId, {
       transferReferenceId: dto.transferReferenceId,
-      receivedQuantity: Number(dto.receivedQuantity),
+      receivedQuantity: dto.receivedQuantity,
       discrepancyReasonCodeId: dto.discrepancyReasonCodeId,
     });
   }
@@ -655,7 +655,7 @@ export class InventoryController {
       c.tenantId,
       c.userId,
       lineId,
-      Number(dto.countedQuantity),
+      dto.countedQuantity,
     );
   }
 
@@ -711,7 +711,7 @@ export class InventoryController {
       reasonCodeId: dto.reasonCodeId,
       lines: dto.lines.map((l) => ({
         stockItemId: l.stockItemId,
-        quantity: Number(l.quantity),
+        quantity: l.quantity,
       })),
       requiresApproval: dto.requiresApproval,
       notes: dto.notes,
