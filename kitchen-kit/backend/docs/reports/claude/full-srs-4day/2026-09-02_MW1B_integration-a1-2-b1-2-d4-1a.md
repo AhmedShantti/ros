@@ -357,6 +357,19 @@ this migration should guess about for ambiguous legacy data). Legacy
 `branch_id` values were nulled (matching that production fact) and the
 migration retried after `prisma migrate resolve --rolled-back`.
 
+**Clarified 35→37 upgrade result, stated as two distinct cases rather than
+one pass/fail outcome:**
+- **Valid legacy production shape (legacy `branch_id` NULL on every
+  `membership_roles` row, matching the B1-2 report's own claim about
+  `ros`'s actual state): PASS.** This is the case verified end-to-end below.
+- **A legacy shape with a populated `branch_id` on one or more
+  `membership_roles` rows: the migration intentionally fails closed**,
+  refusing to guess whether that legacy value was ever a real grant, and
+  requires explicit manual remediation/review before it will proceed. This
+  is correct, deliberate migration behaviour — not a defect and not part of
+  the PASS result above — and was exercised directly (see the `P0001` error
+  above) before the seed was corrected to the valid (NULL) shape.
+
 Both migrations then applied, in the order Prisma resolved them:
 `..._identity_scoped_role_assignments` first, then `..._sync_protocol_kernel`
 — **PASS**. Verified:
@@ -550,20 +563,26 @@ this repository.
   full runs).
 - **Run 7:** 76/77 suites, 1280/1281 tests — 1 failure, captured in full.
 
-**6 of 7 full runs fully green.** The single reproducible failure (seen
-twice, in different runs, both times in `cash-session-close.e2e-spec.ts`):
-run 7's captured failure was `'tenant B cannot read or reference a tenant A
+**5 of 7 full runs fully green (runs 1, 3, 4, 5, 6). 2 of 7 runs (run 2 and
+run 7) contained the same Class-C, contention-only failure** — both times
+in `cash-session-close.e2e-spec.ts`, both 76/77 suites, 1280/1281 tests.
+Run 7's captured failure was `'tenant B cannot read or reference a tenant A
 close attempt'` — a `PrismaClientValidationError` from `id: undefined` being
 passed into a `findUnique`, traced to `(res.body as
 DeclareBody).closeAttemptId` being `undefined`, i.e. an HTTP response body
 shape mismatch consistent with the request itself being affected by heavy
 concurrent host load (this specific line is far from anything touched by
 A1-2/B1-2/D4-1A — the only B1-2 change to this file is an unrelated
-`assign()`-helper formatting fix at line ~388, verified in §11). Re-run
-**3/3 clean, 35/35 tests** in isolation immediately after. This file and
-this general area (cash-session-close under full-suite concurrent load) has
-a documented history of exactly this contention-only failure mode in every
-prior session's own report on this branch (MW1A, MW1A-CORRECTION).
+`assign()`-helper formatting fix at line ~388, verified in §11). Run 2's
+failure was not captured with the same file-level detail (only the
+tail-summary counts, 1 failed/1280 passed, were retained at the time), but
+matches the identical supertest-assertion signature and the identical
+76/77-suites/1280/1281-tests shape, and is treated as the same failure mode
+rather than a distinct one. Re-run **3/3 clean, 35/35 tests** in isolation
+immediately after. This file and this general area (cash-session-close
+under full-suite concurrent load) has a documented history of exactly this
+contention-only failure mode in every prior session's own report on this
+branch (MW1A, MW1A-CORRECTION).
 
 **Failure classification: Class C** (known/environmental,
 performance/resource-sensitive) — not Class A (no correctness regression:
