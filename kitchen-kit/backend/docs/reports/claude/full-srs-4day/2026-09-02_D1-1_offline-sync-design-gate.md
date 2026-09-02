@@ -1795,3 +1795,54 @@ Single documentation commit on `full-srs/lane-d-kds-offline`.
 **Contents:** this report + the one INDEX row. **Not pushed. Not deployed.**
 
 The resulting HEAD is recorded in the INDEX row and in the final response.
+
+---
+
+## POST-REVIEW ACCEPTANCE NOTE — appended 2026-09-02
+
+*Appended after acceptance review. **Nothing above this line has been altered**; the analysis,
+the proposals and the reasoning are retained verbatim as historical design evidence.*
+
+**This report is no longer the authoritative implementation direction.** The authoritative
+outcome is the governance register entry *"D1-1 — Offline / Sync Protocol Foundation
+Ratification — 2026-09-02"* in `docs/governance/GOVERNANCE_DECISION_REGISTER.md`, with its
+reasoning recorded in
+`docs/reports/claude/full-srs-4day/2026-09-02_D1-1_offline-sync-ratification.md`.
+
+**Design gate status: ACCEPTED WITH CORRECTIONS.**
+
+| Proposal | Outcome |
+|---|---|
+| `GD-D1-01` — UUID-hex wire form | **RATIFIED** |
+| `GD-D1-02` — HLC representation | **RATIFIED WITH CORRECTION** — §7.2's example printed a 16-digit physical segment; the canonical form is 13 digits (`1722765753000.00042.<32-hex>`). The semantic algorithm is unchanged. Column width is demoted to a `D4-1` implementation detail |
+| `GD-D1-03` — bounded server HLC adoption | **DEFERRED** — must not alter the normative shared algorithm without a separate design and conformance proof |
+| `GD-D1-04` — `deferred` status + proposed conflict rules | **RATIFIED** |
+| `GD-D1-05` — reconciliation-exception ownership | **RATIFIED → `sync.revalidation_exceptions`**, not `governance.anomaly_flags`; §11.5's recommendation is overturned |
+| `GD-D1-06` — shaping bundle | **RATIFIED WITH ARCHITECTURE CORRECTIONS** (dedup/partitioning, crash recovery) |
+| `GD-D1-07` — revoked-terminal backlog loss | **REJECTED** |
+
+**Five corrections supersede specific statements above:**
+
+1. **§11.1 / §16.3 — dedup vs partitioning.** `UNIQUE (tenant_id, op_id)` on a table
+   RANGE-partitioned by `received_at` is **not enforceable in PostgreSQL** (the constraint must
+   include the partition key). Global operation identity moves to a small **non-partitioned dedup
+   registry**; the partitioned history relation is never the sole uniqueness mechanism.
+2. **§16.2 — "reused unchanged" is withdrawn.** `sync.idempotency_keys` may be the *foundation*
+   for batch idempotency, but batch processing must be **crash-recoverable** (lease/owner/reclaim).
+   A crash between `reserve()` and `complete()` must not strand a batch at `409` forever.
+3. **§9.4 — per-operation transactions are not an SRS requirement.** `FR-OFF-023` requires
+   **per-operation failure isolation**, not per-operation physical commit. `D4-1` may use chunked
+   transactions, savepoints and a pinned connection to meet `NFR-PERF-032`.
+4. **§17.5 — committed backlog loss is not accepted behaviour.** Lossless revoked-terminal
+   recovery is a **hard follow-up gate** with nine binding invariants.
+5. **§9.1 — the root-only endpoint is not the permanent contract.** The canonical Sync API is
+   versioned: `POST /v1/sync/batch`, `GET /v1/sync/changes`, `GET /v1/sync/status`, coordinated
+   with platform-owned repository-wide versioning.
+
+**`D4-1` CORE is authorised.** It may not be closed as fully complete until three residual hard
+gates close: lossless revoked-terminal recovery · `P-D4-01` (`NFR-PERF-032` measured) ·
+`P-D4-02` (audit-chain contention measured).
+
+**The frontend handoff in §21 remains valid** except where the five corrections above apply —
+most visibly the canonical `/v1` route prefix and the withdrawal of §21.4's guidance to *"assume
+your backlog is lost on revocation"*, which is **no longer accepted behaviour**.
