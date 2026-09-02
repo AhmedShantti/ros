@@ -11,6 +11,15 @@ import { ReconciliationService } from './reconciliation/reconciliation.service';
 import { SaleDepletionService } from './sale-depletion/sale-depletion.service';
 import { StockItemsService } from './stock-items/stock-items.service';
 import { WasteService } from './waste/waste.service';
+import {
+  CountLineTargetResolver,
+  CountSessionTargetResolver,
+} from './counts/scope-target.resolvers';
+import {
+  INVENTORY_COUNT_LINE_TARGET_RESOLVER,
+  INVENTORY_COUNT_SESSION_TARGET_RESOLVER,
+} from './contract';
+import { OrganisationModule } from '../organisation/organisation.module';
 
 /**
  * Inventory bounded context (D-INV-01 … D-INV-09, B-1, B-2).
@@ -23,9 +32,21 @@ import { WasteService } from './waste/waste.service';
   // FR-MNU-046: a valuation change must recompute the recipe costs that depend
   // on it. The dependency is one narrow port (RECIPE_COST_RECOMPUTER), not a
   // reach into Production internals, and Production imports nothing back.
-  imports: [IdentityModule, AuditModule, ProductionModule],
+  imports: [IdentityModule, AuditModule, ProductionModule, OrganisationModule],
   controllers: [InventoryController],
   providers: [
+    // B1-3 resource-derived authorization targets. They answer "which location
+    // does this row belong to?"; Organisation answers what that location is.
+    CountSessionTargetResolver,
+    {
+      provide: INVENTORY_COUNT_SESSION_TARGET_RESOLVER,
+      useExisting: CountSessionTargetResolver,
+    },
+    CountLineTargetResolver,
+    {
+      provide: INVENTORY_COUNT_LINE_TARGET_RESOLVER,
+      useExisting: CountLineTargetResolver,
+    },
     StockItemsService,
     MovementsService,
     TransfersService,

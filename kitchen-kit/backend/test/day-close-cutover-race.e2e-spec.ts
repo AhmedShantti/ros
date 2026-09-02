@@ -20,6 +20,7 @@ import { DayCloseService } from './../src/modules/treasury/day-close/day-close.s
 import { TREASURY_PERMISSIONS } from './../src/modules/treasury/treasury.permissions';
 import { createMigratorClient } from './rls-admin';
 import {
+  dayCloseAuthorization,
   activatePastEpoch,
   branchBusinessDay,
   createDayCloseFixture,
@@ -114,7 +115,6 @@ describe('DayClose x Order-create — cutover race (e2e)', () => {
   const seed = () => `${stamp}${(seedN++).toString(36)}`;
   let orderSeq = 0;
 
-  const DAY_CLOSE_PERMISSIONS = new Set([TREASURY_PERMISSIONS.CASH_DAY_CLOSE]);
 
   async function mkFx(): Promise<{ fx: DayCloseFixture; target: Date }> {
     const fx = await createDayCloseFixture(app, admin, seed());
@@ -148,7 +148,7 @@ describe('DayClose x Order-create — cutover race (e2e)', () => {
       fx.tenantId,
       fx.employeeUserId,
       { employeeId: fx.employeeId, terminalId: fx.terminalId },
-      DAY_CLOSE_PERMISSIONS,
+      dayCloseAuthorization(fx),
       { branchId: fx.branchId, businessDay: target },
     );
   }

@@ -83,6 +83,13 @@ import type {
 import { DAY_CLOSED_EVENT_TYPE, DAY_CLOSED_EVENT_VERSION } from '../contract';
 import type { DayClosedPayload } from '../contract';
 import { TREASURY_PERMISSIONS } from '../treasury.permissions';
+import {
+  SCOPE_AUTHORIZATION,
+  SCOPE_REVIEW_QUERY,
+  type ScopeAuthorizationActor,
+  type ScopeAuthorizationPort,
+  type ScopeReviewQuery,
+} from '../../identity/contract';
 
 const FENCE_KEY = 'ros_order_number';
 const MAX_ATTEMPTS = 5;
@@ -225,6 +232,10 @@ export class DayCloseService {
     private readonly prisma: PrismaService,
     private readonly unitOfWork: UnitOfWork,
     private readonly audit: AuditService,
+    @Inject(SCOPE_REVIEW_QUERY)
+    private readonly scopeReview: ScopeReviewQuery,
+    @Inject(SCOPE_AUTHORIZATION)
+    private readonly scopeAuthorization: ScopeAuthorizationPort,
     @Inject(BRANCH_REPORTING_SCOPE_QUERY)
     private readonly branchScope: BranchReportingScopeQuery,
     @Inject(BRANCH_CURRENCY_QUERY)
@@ -241,7 +252,7 @@ export class DayCloseService {
     tenantId: string,
     actorUserId: string,
     actor: DayCloseActor,
-    permissions: ReadonlySet<string>,
+    auth: ScopeAuthorizationActor,
     input: PostDayCloseInput,
   ): Promise<DayClosePostResult> {
     const correlationId = newId();
@@ -250,7 +261,7 @@ export class DayCloseService {
         return await this.unitOfWork.execute(
           { userId: actorUserId, tenantId },
           (ctx) =>
-            this.attempt(tenantId, actorUserId, actor, permissions, input, ctx),
+            this.attempt(tenantId, actorUserId, actor, auth, input, ctx),
           { correlationId },
         );
       } catch (err) {
@@ -271,7 +282,7 @@ export class DayCloseService {
     tenantId: string,
     actorUserId: string,
     actor: DayCloseActor,
-    permissions: ReadonlySet<string>,
+    auth: ScopeAuthorizationActor,
     input: PostDayCloseInput,
     ctx: UnitOfWorkContext,
   ): Promise<DayClosePostResult> {
@@ -285,26 +296,40 @@ export class DayCloseService {
     if (!branch) {
       throw new NotFoundException('Branch not found.');
     }
-    const activeBranches = await this.branchScope.operativeBranches(tx, {
-      tenantId,
-      limit: 2,
-    });
-    if (activeBranches.length === 0) {
+    // ── M-4+ GATE, then the operative-branch assertion — B1-3 §11 ─────────
+    //
+    // The Internal-MVP SINGLE-ACTIVE-BRANCH mask is RETIRED here, on the same
+    // ratified conditions as Reporting's (clause 13 / ADR 0009 D-11): the scoped
+    // foundation exists, this route now carries a BRANCH target, and a tenant
+    // whose INHERITED grants are still unreviewed fails CLOSED — because those
+    // migration-originated TENANT assignments cover every branch, so lifting the
+    // mask for such a tenant would hand it authority nobody reviewed.
+    if (await this.scopeReview.hasUnreviewedInheritedAssignments(tx)) {
       throw new ForbiddenException(
-        'No active branch is configured for this tenant.',
+        'This tenant still holds role assignments inherited from the ' +
+          'pre-scoped-RBAC migration that have not been reviewed. Review or ' +
+          're-scope them before closing a business day — GET /auth/permissions ' +
+          'reports scopeReviewRequired, and POST ' +
+          '/auth/role-assignments/{assignmentId}/review records the outcome.',
       );
     }
-    if (activeBranches.length > 1) {
-      throw new ForbiddenException(
-        'DayClose is not supported for a tenant with more than one active branch in this release.',
-      );
+    if (!(await this.branchScope.isOperativeBranch(tx, { tenantId, branchId }))) {
+      throw new ForbiddenException('This branch is not active.');
     }
-    if (activeBranches[0] !== branchId) {
-      throw new ForbiddenException(
-        "This branch is not the tenant's single active branch.",
-      );
-    }
-    if (!permissions.has(TREASURY_PERMISSIONS.CASH_DAY_CLOSE)) {
+    // Defence in depth, IN THIS TRANSACTION and AT THIS BRANCH. The route guard
+    // already authorized `cash.day.close` against the same branch target; doing
+    // it again inside the write transaction closes the window between the
+    // guard's decision and the close itself, and — since B1-2 narrowed the flat
+    // permission set to TENANT scope — it is the only form of this check that a
+    // legitimately branch-scoped closer can satisfy.
+    if (
+      !(await this.scopeAuthorization.isAuthorized(
+        auth,
+        { codes: [TREASURY_PERMISSIONS.CASH_DAY_CLOSE], mode: 'all' },
+        { type: 'branch', branchId },
+        tx,
+      ))
+    ) {
       throw new ForbiddenException(
         `Closing the business day requires '${TREASURY_PERMISSIONS.CASH_DAY_CLOSE}'.`,
       );

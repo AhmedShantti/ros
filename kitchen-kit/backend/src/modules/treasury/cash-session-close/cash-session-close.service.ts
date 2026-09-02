@@ -81,6 +81,11 @@ import type {
   CashVarianceDetectedPayload,
 } from '../contract';
 import { TREASURY_PERMISSIONS } from '../treasury.permissions';
+import {
+  SCOPE_AUTHORIZATION,
+  type ScopeAuthorizationActor,
+  type ScopeAuthorizationPort,
+} from '../../identity/contract';
 
 const LOCK_KEY = 'ros_cash_session';
 
@@ -136,6 +141,13 @@ export class CashSessionCloseService {
      */
     @Inject(DAILY_TRADING_SALES_QUERY)
     private readonly businessDayQuery: DailyTradingSalesQuery,
+    /**
+     * B1-3 — the SAME `permission + target scope` primitive the route guard
+     * uses. Injected through Identity's published contract, so there is one
+     * lattice and one place non-leakage is decided.
+     */
+    @Inject(SCOPE_AUTHORIZATION)
+    private readonly scopeAuthorization: ScopeAuthorizationPort,
   ) {}
 
   // ============================================================ CONTEXT ===
@@ -155,12 +167,12 @@ export class CashSessionCloseService {
   async getCloseContext(
     tenantId: string,
     actor: CloseActor,
-    permissions: ReadonlySet<string>,
+    auth: ScopeAuthorizationActor,
     cashSessionId: string,
   ) {
     return this.prisma.withAuthContext({ tenantId }, async (tx) => {
       const session = await this.loadSession(tx, cashSessionId);
-      this.assertCloseAuthority(session, actor, permissions);
+      await this.assertCloseAuthority(tx, auth, session, actor);
 
       if (session.status === 'open') {
         // Acceptance closure correction: ONE policy resolve, not two, and
@@ -230,7 +242,7 @@ export class CashSessionCloseService {
     tenantId: string,
     actorUserId: string,
     actor: CloseActor,
-    permissions: ReadonlySet<string>,
+    auth: ScopeAuthorizationActor,
     input: DeclareCloseInput,
   ) {
     const denominations = this.parseDenominations(input.denominations);
@@ -268,7 +280,7 @@ export class CashSessionCloseService {
         }
 
         const session = await this.loadSession(tx, input.cashSessionId);
-        this.assertCloseAuthority(session, actor, permissions);
+        await this.assertCloseAuthority(tx, auth, session, actor);
         if (session.status !== 'open') {
           throw new ConflictException(
             'That cash session is not open — a close is already declared or ' +
@@ -474,7 +486,7 @@ export class CashSessionCloseService {
     tenantId: string,
     actorUserId: string,
     actor: CloseActor,
-    permissions: ReadonlySet<string>,
+    auth: ScopeAuthorizationActor,
     approver: VerifiedTerminalPrincipal,
     input: FinalizeCloseInput,
   ) {
@@ -488,7 +500,7 @@ export class CashSessionCloseService {
         );
 
         const session = await this.loadSession(tx, input.cashSessionId);
-        this.assertCloseAuthority(session, actor, permissions);
+        await this.assertCloseAuthority(tx, auth, session, actor);
 
         // ── Idempotent-replay of an ALREADY-APPROVED finalize. ────────────
         if (session.status === 'closed') {
@@ -692,21 +704,40 @@ export class CashSessionCloseService {
   }
 
   /**
-   * §15.2's own/other split, enforced against the RESOLVED permission set
+   * §15.2's own/other split, enforced against the RESOLVED authority
    * (guard-level `@RequireAnyPermission` only proves the actor holds AT
    * LEAST ONE of the two codes; this proves the SPECIFIC one their
    * relationship to the session requires).
+   *
+   * ── B1-3: SCOPED, AND AT THE SESSION'S OWN BRANCH ─────────────────────
+   * This used to consult the flat permission set. After B1-2 that set holds
+   * TENANT-scoped permissions ONLY, so a branch-scoped shift manager legitimately
+   * holding `cash.session.close_other` AT THIS BRANCH would have passed the route
+   * guard and then been refused here — the route would have been converted in
+   * name only. It now asks the same question the guard asks, through the same
+   * primitive, against the session's own `branch_id`.
+   *
+   * It runs inside the caller's transaction (`tx`), so the authority decision and
+   * the write it protects share one snapshot: authority cannot be revoked between
+   * the check and the close.
    */
-  private assertCloseAuthority(
-    session: { employeeId: string },
+  private async assertCloseAuthority(
+    tx: Prisma.TransactionClient,
+    auth: ScopeAuthorizationActor,
+    session: { employeeId: string; branchId: string },
     actor: CloseActor,
-    permissions: ReadonlySet<string>,
-  ): void {
+  ): Promise<void> {
     const isOwner = session.employeeId === actor.employeeId;
     const required = isOwner
       ? TREASURY_PERMISSIONS.CASH_SESSION_CLOSE
       : TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER;
-    if (!permissions.has(required)) {
+    const authorized = await this.scopeAuthorization.isAuthorized(
+      auth,
+      { codes: [required], mode: 'all' },
+      { type: 'branch', branchId: session.branchId },
+      tx,
+    );
+    if (!authorized) {
       throw new ForbiddenException(
         isOwner
           ? "Closing your own cash session requires 'cash.session.close'."

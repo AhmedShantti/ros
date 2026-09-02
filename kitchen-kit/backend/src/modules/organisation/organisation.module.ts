@@ -5,9 +5,19 @@ import { BranchCurrencyQueryService } from './branches/branch-currency.query.ser
 import { BranchBrandQueryService } from './branches/branch-brand.query.service';
 import { BranchReportingScopeQueryService } from './branches/branch-reporting-scope.query.service';
 import { BranchesService } from './branches/branches.service';
+import {
+  LocationTargetResolver,
+  StationTargetResolver,
+  TableTargetResolver,
+  WarehouseTargetResolver,
+} from './branches/scope-target.resolvers';
 import { BrandsService } from './brands/brands.service';
 import { CentralKitchensService } from './central-kitchens/central-kitchens.service';
 import {
+  ORG_LOCATION_TARGET_RESOLVER,
+  ORG_STATION_TARGET_RESOLVER,
+  ORG_TABLE_TARGET_RESOLVER,
+  ORG_WAREHOUSE_TARGET_RESOLVER,
   BRANCH_BRAND_QUERY,
   BRANCH_CURRENCY_QUERY,
   BRANCH_REPORTING_SCOPE_QUERY,
@@ -86,6 +96,22 @@ import { WarehousesService } from './warehouses/warehouses.service';
     // authorization decision; grants nothing.
     BranchBrandQueryService,
     { provide: BRANCH_BRAND_QUERY, useExisting: BranchBrandQueryService },
+    // B1-3 resource-derived authorization targets. These answer "what does this
+    // row belong to?"; they never decide authorization.
+    StationTargetResolver,
+    { provide: ORG_STATION_TARGET_RESOLVER, useExisting: StationTargetResolver },
+    TableTargetResolver,
+    { provide: ORG_TABLE_TARGET_RESOLVER, useExisting: TableTargetResolver },
+    WarehouseTargetResolver,
+    {
+      provide: ORG_WAREHOUSE_TARGET_RESOLVER,
+      useExisting: WarehouseTargetResolver,
+    },
+    LocationTargetResolver,
+    {
+      provide: ORG_LOCATION_TARGET_RESOLVER,
+      useExisting: LocationTargetResolver,
+    },
   ],
   exports: [
     LocationsService,
@@ -105,6 +131,10 @@ import { WarehousesService } from './warehouses/warehouses.service';
     KDS_BRANCH_CONFIG_QUERY,
     BRANCH_REPORTING_SCOPE_QUERY,
     BRANCH_BRAND_QUERY,
+    ORG_STATION_TARGET_RESOLVER,
+    ORG_TABLE_TARGET_RESOLVER,
+    ORG_WAREHOUSE_TARGET_RESOLVER,
+    ORG_LOCATION_TARGET_RESOLVER,
   ],
 })
 export class OrganisationModule {}

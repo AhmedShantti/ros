@@ -9,6 +9,8 @@ import { TicketPersistenceService } from './tickets/ticket-persistence.service';
 import { TicketProjectionService } from './tickets/ticket-projection.service';
 import { TicketReaderService } from './tickets/ticket-reader.service';
 import { RoutingResolverService } from './routing/routing-resolver.service';
+import { TicketTargetResolver } from './tickets/scope-target.resolver';
+import { KDS_TICKET_TARGET_RESOLVER } from './contract';
 
 /**
  * Kitchen Ops bounded context (P1E-3, P1E-5, KDS operator lifecycle).
@@ -46,6 +48,8 @@ import { RoutingResolverService } from './routing/routing-resolver.service';
   imports: [IdentityModule, OrganisationModule],
   controllers: [KitchenController],
   providers: [
+    TicketTargetResolver,
+    { provide: KDS_TICKET_TARGET_RESOLVER, useExisting: TicketTargetResolver },
     RoutingResolverService,
     TicketPersistenceService,
     TicketProjectionService,
@@ -54,6 +58,7 @@ import { RoutingResolverService } from './routing/routing-resolver.service';
     KdsOperationsService,
     KdsStationGuard,
   ],
-  exports: [RoutingResolverService, TicketReaderService],
+  exports: [
+    KDS_TICKET_TARGET_RESOLVER,RoutingResolverService, TicketReaderService],
 })
 export class KitchenModule {}

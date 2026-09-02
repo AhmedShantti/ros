@@ -71,6 +71,15 @@ import { SalesFireService } from './sales-fire.service';
 import { SalesPaymentService } from './sales-payment.service';
 import { ReceiptService } from './receipt.service';
 import { receiptSchema } from './receipt.openapi';
+import {
+  AuthorizationTarget,
+  branchFromQueryOrTenant,
+  businessDayFromParam,
+  fromParam,
+  resourceTarget,
+  sessionTerminalBranchTarget,
+} from '../../identity/contract';
+import { SALES_ORDER_TARGET_RESOLVER } from '../contract';
 
 /**
  * Order capture + Fire API.
@@ -322,6 +331,7 @@ export class OrdersController {
    * with `Idempotent-Replay: true`.
    */
   @Post()
+  @AuthorizationTarget(sessionTerminalBranchTarget())
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
@@ -379,6 +389,7 @@ export class OrdersController {
   }
 
   @Get()
+  @AuthorizationTarget(branchFromQueryOrTenant('branchId'))
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
   @ApiOperation({ summary: 'List orders, cursor-paginated.' })
   @ApiOkResponse({
@@ -436,6 +447,7 @@ export class OrdersController {
    * partition.
    */
   @Get(':businessDay/:id')
+  @AuthorizationTarget(resourceTarget(SALES_ORDER_TARGET_RESOLVER, { orderId: fromParam('id'), businessDay: businessDayFromParam('businessDay') }, 'sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order\'s real owning branch.'))
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
   @ApiOperation({ summary: 'One order, with its persisted line snapshots.' })
   @ApiOkResponse({
@@ -481,6 +493,7 @@ export class OrdersController {
    * mechanism Fire/Payment's own domain errors already use).
    */
   @Get(':businessDay/:id/receipt')
+  @AuthorizationTarget(resourceTarget(SALES_ORDER_TARGET_RESOLVER, { orderId: fromParam('id'), businessDay: businessDayFromParam('businessDay') }, 'sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order\'s real owning branch.'))
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
   @ApiOperation({
     summary: 'An itemized, INTERNAL, NON-FISCAL receipt for a completed order.',
@@ -515,6 +528,7 @@ export class OrdersController {
    * different request arriving late.
    */
   @Post(':businessDay/:id/lines')
+  @AuthorizationTarget(resourceTarget(SALES_ORDER_TARGET_RESOLVER, { orderId: fromParam('id'), businessDay: businessDayFromParam('businessDay') }, 'sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order\'s real owning branch.'))
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
@@ -596,6 +610,7 @@ export class OrdersController {
    * Requires `pos.order.fire`, deliberately separate from `pos.order.create`.
    */
   @Post(':businessDay/:id/fire')
+  @AuthorizationTarget(resourceTarget(SALES_ORDER_TARGET_RESOLVER, { orderId: fromParam('id'), businessDay: businessDayFromParam('businessDay') }, 'sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order\'s real owning branch.'))
   @HttpCode(HttpStatus.OK)
   @Idempotent()
   @RequirePermission(SALES_PERMISSIONS.ORDER_FIRE)
@@ -669,6 +684,7 @@ export class OrdersController {
    * Order CAS to `completed`, all before this call returns.
    */
   @Post(':businessDay/:id/payments')
+  @AuthorizationTarget(resourceTarget(SALES_ORDER_TARGET_RESOLVER, { orderId: fromParam('id'), businessDay: businessDayFromParam('businessDay') }, 'sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order\'s real owning branch.'))
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(SALES_PERMISSIONS.PAYMENT_CAPTURE)
@@ -768,6 +784,7 @@ export class OrdersController {
    * implemented rather than approximated.
    */
   @Delete(':businessDay/:id/lines/:lineId')
+  @AuthorizationTarget(resourceTarget(SALES_ORDER_TARGET_RESOLVER, { orderId: fromParam('id'), businessDay: businessDayFromParam('businessDay') }, 'sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order\'s real owning branch.'))
   @HttpCode(HttpStatus.OK)
   @RequirePermission(SALES_PERMISSIONS.ORDER_VOID_LINE_PREFIRE)
   @ApiOperation({

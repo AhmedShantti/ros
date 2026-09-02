@@ -11,6 +11,12 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { OrganisationModule } from '../organisation/organisation.module';
 import { AuthorizationSnapshotService } from './authz/authorization-snapshot.service';
 import { ScopeAuthorizationService } from './authz/scope-authorization.service';
+import { AuthorizationTargetResolver } from './authz/authorization-target.resolver';
+import { TerminalTargetResolver } from './terminals/scope-target.resolver';
+import {
+  IDENTITY_TERMINAL_TARGET_RESOLVER,
+  SCOPE_AUTHORIZATION,
+} from './contract/authorization-target';
 import { ScopeReviewQueryService } from './authz/scope-review.query.service';
 import { SCOPE_REVIEW_QUERY } from './contract/scope-review.query';
 import { PermissionGuard } from './authz/guards/permission.guard';
@@ -136,6 +142,13 @@ import { UsersService } from './users/users.service';
     MembershipRolesService,
     AuthorizationSnapshotService,
     ScopeAuthorizationService,
+    { provide: SCOPE_AUTHORIZATION, useExisting: ScopeAuthorizationService },
+    AuthorizationTargetResolver,
+    TerminalTargetResolver,
+    {
+      provide: IDENTITY_TERMINAL_TARGET_RESOLVER,
+      useExisting: TerminalTargetResolver,
+    },
     ScopeReviewQueryService,
     { provide: SCOPE_REVIEW_QUERY, useExisting: ScopeReviewQueryService },
     TenantContextService,
@@ -178,9 +191,15 @@ import { UsersService } from './users/users.service';
     TERMINAL_FACTS_QUERY,
     // B1-2 scoped RBAC.
     AuthorizationSnapshotService,
-    // The generic `permission + target scope` primitive B1-3 will apply to
-    // every business operation.
+    // The generic `permission + target scope` primitive, applied by
+    // `PermissionGuard` to every converted business operation (B1-3).
     ScopeAuthorizationService,
+    // Published so a module can make a SECOND, in-transaction scoped decision
+    // the route-level guard cannot express (a different approver; a check that
+    // must be atomic with the write it protects).
+    SCOPE_AUTHORIZATION,
+    AuthorizationTargetResolver,
+    IDENTITY_TERMINAL_TARGET_RESOLVER,
     // M-4+ inherited-scope review state, consumed by Organisation's
     // second-active-branch gate.
     SCOPE_REVIEW_QUERY,
