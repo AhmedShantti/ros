@@ -1177,3 +1177,50 @@ All at HEAD `63d3b7c2ea5f999bb9ba7277d51a5da3c6950a71`, by direct file inspectio
 | **Pushed** | **NO** |
 | **Deployed** | **NO** |
 | **Status** | **COMPLETE** — awaiting user governance decision on §14's seven items. |
+
+---
+
+## POST-REVIEW ACCEPTANCE NOTE (appended 2026-09-02)
+
+**The analysis body above is preserved unchanged as historical evidence. It is NOT the
+authoritative governance outcome.**
+
+The authoritative outcome is the register amendment
+**`AMENDMENT — D-2 REOPENED IN PART (2): BRANCH-SCOPED RBAC`** (RATIFIED **2026-09-02**,
+`docs/governance/GOVERNANCE_DECISION_REGISTER.md`, under **D-2**), with the acceptance
+correction recorded in
+`docs/reports/claude/full-srs-4day/2026-09-02_B1-1_branch-rbac-ratification.md`.
+
+**Where §14 of this report differs from that amendment, THE AMENDMENT GOVERNS.** Five
+differences:
+
+1. **The §14 / §6 `T-2` token recommendation was NOT ratified. `T-4-LIVE` was ratified
+   instead** — the token carries the SRS-required snapshot (subject, tenant, scope set,
+   permitted branch set) **plus a scope epoch/version**, while **live server-side
+   resolution remains the authoritative authorization source** and no decision may rely
+   solely on a claim. `FR-API-012` is recorded **RATIFIED DESIGN — NOT YET IMPLEMENTED**,
+   and the `DECISION REQUIRED — 3` escalation is thereby closed.
+2. **A generic target-scope lattice was ratified**, replacing this report's
+   `permission + branchId` framing: every protected operation carries a required
+   permission **and** a target scope `S` ∈ {`TENANT`, `BRAND(id)`, `BRANCH(id)`}, with
+   strictly **downward** coverage. Scope is derived from the **resource / operation
+   target**, never from any classification of permission codes.
+3. **`M-4` was strengthened to `M-4+`**, adding the **already-multi-branch tenant case**:
+   do not fail the migration, do not declare such a tenant branch-RBAC-ready, mark it as
+   requiring scope review, and do not retire the single-active-branch mask for it until
+   inherited assignments are reviewed or re-scoped.
+4. **`BRANCH_GROUP` is deferred from B1-2 but explicitly NOT rejected** — it is a
+   **mandatory Full-SRS follow-up** under `FR-BRN-005` once the canonical `BranchGroup`
+   entity exists, and the B1-2 data model must remain additively extensible to it. §8 and
+   the §14 NON-GOALS of this report should be read subject to that clarification.
+5. **`FR-SEC-028` is corrected from COMPLETE to `PARTIAL` globally.** Server-side
+   registration, revocation and immediate credential invalidation are implemented; the
+   *"wiping its local data on next contact"* limb is **not**. Every reference to
+   `FR-SEC-028` as COMPLETE in the body above (§2 tables and §15 item 20 context) is
+   superseded by that correction.
+
+**Unchanged and carried forward:** the C-1 authorization model; scope types
+`TENANT`/`BRAND`/`BRANCH` only; the rejection of a polymorphic `scope_id`; the
+`membership_roles` table-identity migration; the missing `UPDATE` RLS policy finding; the
+application-layer (not RLS) branch-authorization boundary; and the `R-1 … R-13` fail-closed
+rules, corrected to the generic target-scope model.

@@ -157,6 +157,338 @@ Database (3 columns). No RLS change. Authorization: `required_permission` become
 > · P-1 · D-10 · D-17-05 · SB-1 / SB-2 / SB-3 unresolved portions. **No new
 > numbered decision is created.**
 
+> ---
+>
+> **AMENDMENT — D-2 REOPENED IN PART (2): BRANCH-SCOPED RBAC.**
+> **RATIFIED 2026-09-02, by explicit user governance action in the Full-SRS 4-Day
+> execution.** The originally ratified D-2 text and the 2026-08-19 amendment above
+> are **unchanged, not reinterpreted, and not deleted**; this amendment is recorded
+> forward in the register's established manner. **No new numbered decision is
+> created and no decision is renumbered** — the 20-decision tally is unchanged.
+>
+> **Evidence base:** the B1-1 design gate,
+> `docs/reports/claude/full-srs-4day/2026-09-02_B1-1_branch-rbac-governance-gate.md`,
+> and the acceptance correction,
+> `docs/reports/claude/full-srs-4day/2026-09-02_B1-1_branch-rbac-ratification.md`.
+> **Those reports are non-authoritative evidence; this register entry is the
+> authoritative outcome, and where the B1-1 report's §14 proposal differs from the
+> clauses below, THESE CLAUSES GOVERN.**
+>
+> **Defer LIFTED for exactly these requirements:**
+>
+> - **`FR-SEC-002`** [M] — role assignments SHALL carry a scope (tenant, brand, a
+>   set of branches, or a single branch);
+> - **`FR-SEC-003`** [M] — a user MAY hold multiple assignments with different
+>   scopes;
+> - **`FR-SEC-004`** [M] — effective permissions are the union **within each
+>   assignment's own scope**; permissions SHALL NOT leak across scopes;
+> - **`FR-SEC-005`** [S] — assignments SHALL support validity dates enabling
+>   auto-expiring temporary elevation;
+> - **the branch/scope authorization portions of `FR-API-012`** [M] — the scope set
+>   and permitted branch set the token carries, and the requirement that every
+>   request be authorised against **both** the permission and the scope.
+>
+> The 2026-08-19 amendment's sentence *"permission resolution is **not** made
+> branch-aware by this amendment"* is **superseded, for these requirements only, by
+> this amendment.** Permission resolution **becomes scope-aware.**
+>
+> ---
+>
+> **1. AUTHORIZATION MODEL — C-1 RATIFIED.**
+> **Scoped role assignment is the SOLE source of authorization grant.** Authority is
+> derived only from `Membership → scoped MembershipRole assignment → Role →
+> RolePermission → Permission`.
+> **`EmployeeBranch` and `Employee.homeBranchId` MUST NOT grant, widen, infer or
+> imply authorization.** They remain HR (`FR-HRM-001`/`FR-HRM-005`) and
+> authentication-integrity (`FR-SEC-021`/`FR-SEC-022`) substrate. For POS sessions
+> they MAY **narrow** authority as an additional **AND** condition; they are
+> **NEVER** an `OR` grant. **Formal invariant: authorization cannot exist merely
+> because an employee belongs to a branch.**
+>
+> **2. GENERIC TARGET-SCOPE LATTICE — RATIFIED (CRITICAL SECURITY INVARIANT).**
+> The architecture is **NOT** limited to `permission + branchId`. A protected
+> operation carries a **required permission `P`** and a **target resource scope
+> `S`**, where `S` is one of `TENANT`, `BRAND(id)`, `BRANCH(id)`. Coverage is
+> **directional downward only**:
+>
+> | Assignment scope | COVERS | DOES NOT COVER |
+> |---|---|---|
+> | **`TENANT`** | `TENANT`; **all** `BRAND` targets in that tenant; **all** `BRANCH` targets in that tenant | anything outside the tenant |
+> | **`BRAND X`** | `BRAND X`; `BRANCH` targets whose **parent brand = X** | `TENANT`; another brand; branches of another brand |
+> | **`BRANCH X`** | `BRANCH X` **only** | `TENANT`; `BRAND`; any other branch |
+>
+> Coverage never flows upward or sideways. A narrower assignment **never** satisfies
+> a broader target.
+>
+> **3. PERMISSION *AND* TARGET SCOPE — RATIFIED.**
+> Authorization SHALL be evaluated against **both** the required permission **and**
+> the resource target scope. **A permission code by itself is never sufficient where
+> the target scope is narrower than, or outside, the actor's authorized scope.**
+> This prevents a branch-scoped assignment holding a powerful permission from
+> becoming tenant-wide authority.
+> **The permission catalogue SHALL NOT be classified into tenant-only / branch-only
+> classes.** SRS **Appendix C is absent**, so any such classification would be
+> authored rather than derived. **Scope MUST be derived from the protected
+> RESOURCE / operation target, not from invented classifications of permission
+> codes.** This is the ratified architectural correction to the B1-1 §14 proposal.
+>
+> **4. SCOPE TYPES — RATIFIED: `TENANT`, `BRAND`, `BRANCH` — and no others.**
+> **`WAREHOUSE`, `CENTRAL_KITCHEN` and `LOCATION` are NOT authorised now.** A *"set
+> of branches"* (`FR-SEC-002`) is represented as **multiple `BRANCH`-scoped
+> role-assignment rows** — **not** an array inside one assignment, **not** a
+> polymorphic branch-set object, and **not** an invented branch-group surrogate.
+>
+> **5. `BRANCH_GROUP` — DEFERRED FROM B1-2, EXPLICITLY *NOT* REJECTED.**
+> `BRANCH_GROUP` is not authorised for B1-2 **only because the canonical
+> `BranchGroup` domain entity does not yet exist**. It is **not** rejected from the
+> Full SRS. **`FR-BRN-005`** [M] requires branch groups as *"a reporting and
+> **permission-scoping** dimension"*, so **`BRANCH_GROUP` permission scoping is a
+> MANDATORY FOLLOW-UP** once the canonical `BranchGroup` domain model is
+> implemented. **The B1-2 data model MUST remain additively extensible to a future
+> `BRANCH_GROUP` scope type without reinterpretation of existing scope semantics.**
+>
+> **6. POS SESSION NARROWING — RATIFIED.**
+> For a POS session targeting Branch `B`, authorization requires **all three**:
+> **(a)** the scoped role-assignment model authorizes permission `P` at Branch `B`;
+> **AND (b)** `B` equals `branch_of(session terminal)`; **AND (c)** the employee
+> associated with the POS session is permitted for `B` under the already-ratified
+> `EmployeeBranch` authentication-integrity model.
+> **A `TENANT`-scoped role MUST NOT let a POS session act on another terminal's
+> branch.** `EmployeeBranch` remains an **AND-only restriction, never a source of
+> authority.**
+>
+> **7. TOKEN STRATEGY — `T-4-LIVE` RATIFIED. The B1-1 report's `T-2` recommendation
+> is NOT ratified.**
+> The access token SHALL carry the SRS-required authorization snapshot — **subject,
+> tenant, scope set, permitted branch set** — plus an **authorization/scope version
+> or epoch** sufficient to detect a stale authorization snapshot. **Exact claim
+> names are NOT ratified here.**
+> **SECURITY RULE — TOKEN CLAIMS ARE NOT THE AUTHORITATIVE AUTHORIZATION SOURCE.**
+> Every request SHALL still resolve the current scoped assignments **server-side**,
+> and **the server-side database resolution is authoritative**. The token carries
+> the SRS-required snapshot and epoch; the server re-resolves live authorization on
+> every request and validates freshness. **If a role assignment changes, expires, is
+> revoked, or is re-scoped, the stale token MUST NOT retain authority**: the next
+> protected request MUST fail closed or require token renewal, per the B1-2
+> implementation design. **No authorization decision may rely solely on the claim.**
+>
+> **8. TOKEN SIZE / UNBOUNDED BRANCH SETS — RATIFIED INVARIANT.**
+> The SRS permits large multi-branch tenants (`FR-BRN-001` [M]), so the `T-4-LIVE`
+> token contract **MUST support the SRS-required permitted-branch set without
+> creating an unbounded unsafe header.** B1-2 MUST choose a **bounded,
+> deterministic** representation — a versioned compact or bounded encoding, or
+> another mechanism preserving the literal SRS-visible token contract while
+> **failing closed on overflow**. **No concrete encoding is ratified here.**
+> **SILENT TRUNCATION IS PROHIBITED.** If the required permitted-branch
+> representation cannot be carried safely: **fail closed; do not silently omit
+> authority; and never interpret omission as unrestricted.**
+>
+> **9. `FR-API-012` — DESIGN INTENT AND STATUS.**
+> Under `T-4-LIVE` the design intent is to satisfy **both** clauses: clause 1 (the
+> token carries subject, tenant, scope set and permitted branch set) and clause 2
+> (every request is authorised against permission **and** scope).
+> **`FR-API-012` MUST NOT be marked COMPLETE on the strength of this governance
+> choice.** Completion requires B1-2/B1-3 implementation **and** verification. Its
+> status as of this entry is **RATIFIED DESIGN — NOT YET IMPLEMENTED**.
+>
+> **10. DATA MODEL DIRECTION — RATIFIED.**
+> The B1-1 recommendation **against a single polymorphic `scope_id`** is ratified:
+> **a single untyped/polymorphic scope UUID that cannot carry a real foreign key is
+> NOT authorised**, because it would reintroduce the unenforced-UUID defect the
+> 2026-08-19 amendment (item 3) fixed on `Terminal.branch_id` and would break the
+> **ADR 0008 D-09** tenant-safe composite-FK posture. Authorization persistence
+> **MUST preserve referential integrity** and SHALL include: a **stable
+> role-assignment identity capable of multiple assignments for the same
+> membership/role at different scopes**; **local tenant identity** sufficient for
+> tenant-safe references; **scope type**; **typed scope references** where
+> necessary; **effective validity**; **constraints making inconsistent scope rows
+> impossible**; and a **tenant-safe composite FK posture consistent with existing
+> governance**. **Exact table names, column names, enum spellings and indexes remain
+> B1-2 implementation details and are NOT ratified here.**
+>
+> **11. `membership_roles` TABLE IDENTITY — MIGRATION AUTHORISED.**
+> The shipped `@@id([membershipId, roleId])` **cannot remain the effective identity
+> of scoped role assignments**: it prevents the same role at multiple branches,
+> prevents multiple scope assignments, and makes `FR-SEC-003`'s own worked example
+> class unrepresentable — as **ADR 0008 D-02** already recorded (*"a change to the
+> RBAC table's identity, not an additive column"*). **B1-2 is authorised to perform
+> the required table-identity migration.** It is a coordinated identity-schema
+> change and **MUST remain isolated from the concurrent `B2-5` and `F2-1`
+> migrations.**
+>
+> **12. `FR-SEC-005` / `UPDATE` RLS POLICY — CORRECTION AUTHORISED.**
+> The verified runtime inability to `UPDATE identity.membership_roles` under `FORCE`
+> RLS (the table carries `SELECT`/`INSERT`/`DELETE` policies only) **MUST be
+> corrected by B1-2**, which SHALL add the necessary **tenant-safe `UPDATE` policy
+> with fail-closed `USING` and `WITH CHECK` semantics.** This authorization is
+> **limited to making scoped and effective-dated assignments work. Tenant RLS MUST
+> NOT be weakened.**
+>
+> **13. MIGRATION POSTURE — `M-4+` RATIFIED.**
+>
+> **A.** Existing role assignments are backfilled as **`TENANT` scope**, because
+> that is the actual legacy behaviour.
+> **B.** Every migrated assignment MUST retain **provenance** distinguishing
+> **migration-originated inherited `TENANT` authority** from **a deliberately
+> granted `TENANT` scope**. The mechanism is an implementation detail.
+> **C.** **A tenant MUST NOT activate a second active branch while it still holds
+> unreviewed migration-originated `TENANT` assignments.** Fail closed, with an
+> actionable re-scope requirement.
+> **D. Already-multi-branch tenants.** Where migration encounters a tenant that
+> **already** has more than one active branch **and** unreviewed
+> migration-originated `TENANT` assignments: **DO NOT fail the entire migration**;
+> **DO NOT silently declare the tenant branch-RBAC-ready**; **preserve existing
+> behaviour during migration**; **mark or derive the tenant as requiring scope
+> review**; **the tenant MUST NOT be considered multi-branch authorization-ready**;
+> and **the Internal-MVP single-active-branch safety posture MUST NOT be retired for
+> that tenant** until its inherited assignments have been explicitly reviewed or
+> re-scoped. Exact persistence of the review-required state is an implementation
+> detail.
+> **E.** **Re-scoping is audited**, using the existing audit architecture and
+> permission semantics.
+> **Inherited access MUST NOT be silently widened when a tenant moves into
+> multi-branch operation.**
+>
+> **14. RLS BOUNDARY — RATIFIED AND UNCHANGED.**
+> **Tenant RLS continues to answer: *"does this database row belong to the
+> tenant?"*** **Application authorization answers: *"may this actor perform
+> permission `P` against target scope `S`?"*** Branch- and brand-scoped
+> authorization **stays in the application layer for B1-2 and B1-3**.
+> **Branch-aware RLS is NOT introduced by this decision.** A future branch-aware RLS
+> defence-in-depth layer **requires its own explicit ADR and governance review**.
+> **Tenant RLS MUST remain `ENABLE`d and `FORCE`d and MUST NOT be weakened.**
+>
+> **15. FAIL-CLOSED INVARIANTS — RATIFIED.**
+> The B1-1 report's rules **R-1 … R-13** are carried forward, **corrected to the
+> generic target-scope model** of clause 2. Additionally ratified: **unknown target
+> scope → deny**; **unsupported scope type → deny**; **missing required target
+> scope → deny**; **empty effective assignments → zero authority** (never
+> unrestricted); **expired or not-yet-valid assignment → deny**; **tenant mismatch →
+> preserve the tenant-safe non-enumeration posture** (a foreign id remains a
+> tenant-safe 404, never a 403); **stale token scope snapshot → deny or refresh,
+> never retain authority**; **permission present but outside the target scope →
+> deny**; **`BRAND` scope expands only to branches belonging to that brand**; **no
+> default to home branch**; **no default to the sole active branch**; **no fail-open
+> on resolver errors.**
+>
+> **16. B1-2 — RATIFIED IMPLEMENTATION AUTHORITY.**
+> B1-2 is authorised to own: **(1)** the `MembershipRole` persistence and
+> table-identity migration; **(2)** `TENANT`/`BRAND`/`BRANCH` scope persistence;
+> **(3)** tenant-safe scope FKs and integrity constraints; **(4)** `valid_from` /
+> `valid_to` semantics; **(5)** the `membership_roles` `UPDATE` RLS policy;
+> **(6)** the `M-4+` migration and backfill; **(7)** scope-aware authorization
+> resolution; **(8)** a **generic scope-authorization primitive keyed on permission
+> + target scope**; **(9)** a branch-specific specialisation of that primitive where
+> useful; **(10)** POS terminal branch derivation and AND-only `EmployeeBranch`
+> narrowing; **(11)** the `T-4-LIVE` token contract — scope snapshot, permitted
+> branch set, scope epoch/version, with **live server-side authorization remaining
+> authoritative**; **(12)** the assignment create/change/remove APIs required to
+> manage scoped assignments; **(13)** an **effective-scope read contract** for
+> authenticated clients; **(14)** audit events for role-assignment scope changes
+> using the existing audit architecture and permission semantics; **(15)** the
+> **superseding ADR required by ADR 0008 D-02** for the relevant parts of **ADR
+> 0002** and **ADR 0004**; and **(16)** B1-2-specific tests.
+> **B1-2 MUST NOT begin implementing branch enforcement across unrelated business
+> controllers and services — that is B1-3.**
+>
+> **17. B1-3 — RATIFIED IMPLEMENTATION AUTHORITY.**
+> B1-3 SHALL own: **(1)** applying scope enforcement across **every applicable
+> business operation — not merely routes containing `:branchId`** — covering
+> explicit branch path parameters, branch ids in request bodies, **resources whose
+> branch is implicit through the referenced entity**, **`BRAND`-target operations**,
+> and **`TENANT`-target operations where narrower assignments must not leak
+> upward**; **(2)** a **generated/enumerated authorization-coverage gate** so future
+> scoped surfaces cannot ship unprotected; **(3)** the cross-branch E2E matrix;
+> **(4)** preservation of cross-tenant isolation; **(5)** confirmation of the scope
+> lattice across `TENANT`, `BRAND` and `BRANCH`; **(6)** confirmation of POS branch
+> narrowing; **(7)** the **security review required by ADR 0008 D-02**; and
+> **(8)** explicit retirement of the Internal-MVP single-active-branch mask.
+>
+> **18. INTERNAL-MVP SINGLE-ACTIVE-BRANCH POSTURE — FINAL DISPOSITION.**
+> **The intended Full-SRS product is multi-branch. The single-active-branch posture
+> is a TEMPORARY SAFETY MASK, NOT a permanent product constraint**, and MUST NOT be
+> retained globally once real branch authorization is proven. It is retired only
+> when **all three** hold: **B1-2 is complete**; **B1-3 enforcement is complete**;
+> and **the `M-4+` migration scope-review conditions are satisfied for the tenant.**
+> **For tenants still blocked by `M-4+` review requirements, fail closed until the
+> review is complete.** This disposition concerns the **posture** recorded as an
+> implementation consequence under the **MINIMUM REPORTING** and **DAY CLOSE**
+> entries; **`RPT-R1 … RPT-R3` and `DC-R1 … DC-R3` are otherwise unchanged, and no
+> permission code is created, extended or re-scoped by this clause.**
+>
+> **19. FRONTEND CONTRACT.**
+> The frontend must eventually be able to determine **effective scope-qualified
+> authority**; **B1-2 owns that backend/shared contract**, and **no final route or
+> DTO is invented here.** The external frontend team **MUST NOT infer branch
+> authority from `EmployeeBranch` alone, from the home branch, from a role name, or
+> from a client-side permission list alone.** **Client-side permission checks remain
+> presentation only (`FR-SEC-045`).**
+>
+> **20. APPENDIX C DEFECT — UNRESOLVED, AND DELIBERATELY NOT DEPENDED UPON.**
+> **SRS Appendix C remains absent.** Therefore: **do NOT invent new permission
+> codes**; **do NOT classify current permission codes as branch-only or
+> tenant-only**; and **do NOT claim `FR-SEC-010` or any other Appendix-C-dependent
+> completion.** The generic target-scope model of clause 2 was chosen **specifically
+> so that branch authorization does not depend on reconstructing the missing
+> catalogue.**
+>
+> **21. ACCEPTANCE CORRECTION — `FR-SEC-028` IS `PARTIAL` GLOBALLY.**
+> An overclaim carried in prior evidence is corrected here. **`FR-SEC-028` MUST NOT
+> be described as COMPLETE.** The requirement reads: *"Terminals SHALL be
+> individually registered, and the System SHALL support revoking a terminal's
+> registration, **immediately invalidating its credentials and wiping its local data
+> on next contact**."* Distinguish:
+>
+> - **Server-side credential revocation** — **implemented and supported by existing
+>   evidence**: individual terminal registration, status transition to
+>   `disabled` / `revoked`, and immediate refusal of a non-`active` terminal on the
+>   authentication path.
+> - **Global `FR-SEC-028`** — **`PARTIAL`**, because the **device / local-data
+>   consequence on next contact** is not implemented.
+>
+> **No product code is changed to address that residual under this entry, and
+> `FR-SEC-028` MUST NOT be closed.**
+>
+> ---
+>
+> **STATUS OF THE REOPENED REQUIREMENTS AS OF THIS ENTRY — governance approval is
+> NOT implementation credit:**
+>
+> | Requirement | Status |
+> |---|---|
+> | **`FR-SEC-002`** [M] | **RATIFIED FOR IMPLEMENTATION — NOT IMPLEMENTED** |
+> | **`FR-SEC-003`** [M] | **RATIFIED FOR IMPLEMENTATION — NOT IMPLEMENTED** |
+> | **`FR-SEC-004`** [M] | **RATIFIED FOR IMPLEMENTATION — NOT IMPLEMENTED** |
+> | **`FR-SEC-005`** [S] | **RATIFIED FOR IMPLEMENTATION — NOT IMPLEMENTED** |
+> | **`FR-API-012`** [M] | **RATIFIED DESIGN — NOT YET COMPLETE** |
+> | **`FR-SEC-028`** [M] | **PARTIAL** (server-side revocation implemented; device local-data wipe on next contact not implemented) |
+>
+> **Defer REMAINS IN FORCE, and this amendment does NOT authorise:**
+>
+> - **`FR-SEC-032`** — the manager-PIN-for-**approvals** and push-notification
+>   portions remain **knowingly unmet**. **D-11** (notifications: strict none) is
+>   untouched, and no notification-system expansion is authorised.
+> - **MFA** — `FR-SEC-023` / `FR-SEC-024` (board `G4-2`).
+> - **API keys / machine clients** — `FR-API-011` / `FR-API-014` (board `B2-5`),
+>   which **MUST NOT** run concurrently with B1-2's identity migration.
+> - **The full missing Appendix C catalogue** — and therefore `FR-SEC-010` /
+>   `FR-SEC-012`.
+> - **Branch-aware RLS** — clause 14.
+> - **`BRANCH_GROUP` scope in B1-2** — clause 5 (deferred, mandatory follow-up, not
+>   rejected).
+> - **`WAREHOUSE` / `CENTRAL_KITCHEN` / `LOCATION` scope types** — clause 4.
+> - **Unrelated Workforce completion** — the wider `FR-HRM-*` domain and board
+>   `F2-1` stay deferred as before; **B1-2 requires nothing from them.**
+> - **Any other unrelated security-platform requirement.**
+>
+> **Unchanged by this amendment:** **D-16 OPEN · D-12 BLOCKED · D-3 RATIFIED IN PART
+> · P-1 · D-10 · D-17-05 · D-19 · D-20 · SB-1 / SB-2 / SB-3 unresolved portions ·
+> the P0, P1A, P1C, P1D, P1E, P1F and P1G carried items · `R-1(a) … R-6` ·
+> `KDS-R1 … KDS-R12` · `RPT-R1 … RPT-R3` · `DC-R1 … DC-R3`.** **No numbered decision
+> is created, amended or renumbered. No schema, migration, route, permission code or
+> token is created or changed by this entry, and no implementation is performed by
+> it.** **B1-2 is GOVERNANCE-UNBLOCKED and authorised to start; B1-3 follows B1-2.**
+
 ### Question
 Is the **synchronous** half of `FR-SEC-032` ("manager PIN on the terminal") in scope for the first Governance phase — which would pull in PIN authentication (`FR-SEC-021`, `FR-SEC-022`) and branch-scoped RBAC (`FR-SEC-002`, deferred by ADR 0008 D-02)?
 
