@@ -215,7 +215,11 @@ describe('Cash session open (e2e)', () => {
     const membershipA = await admin.membership.findFirstOrThrow({
       where: { userId: userA, tenantId: tenantA },
     });
-    await membershipRoles.assign(tenantA, membershipA.id, cashier.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: membershipA.id,
+      roleId: cashier.id,
+      scope: { type: 'tenant' },
+    });
 
     // A role with NO cash permission, to prove the guard.
     const noPerm = await roles.createTenantRole(tenantA, {
@@ -224,7 +228,11 @@ describe('Cash session open (e2e)', () => {
     const membershipB = await admin.membership.findFirstOrThrow({
       where: { userId: userB, tenantId: tenantA },
     });
-    await membershipRoles.assign(tenantA, membershipB.id, noPerm.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: membershipB.id,
+      roleId: noPerm.id,
+      scope: { type: 'tenant' },
+    });
 
     const pins = app.get(PinService);
     await pins.setPin(tenantA, userA, employeeA, PIN_A);

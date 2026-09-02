@@ -9,6 +9,7 @@ import { UsersRepository } from '../users/users.repository';
 import { AccessTokenService } from './access-token.service';
 import { AuditService } from '../../governance/audit/audit.service';
 import { PinService } from '../employees/pin.service';
+import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { AuthService } from './auth.service';
 
 function activeUser(overrides: Record<string, unknown> = {}) {
@@ -57,6 +58,16 @@ describe('AuthService refresh/logout', () => {
     // PIN authentication has its own suites; these password/refresh specs only
     // need the dependency to exist.
     const pins = { authenticate: jest.fn() } as unknown as PinService;
+    // B1-2: the T-4-LIVE snapshot builder. A refreshed tenant-bound token
+    // re-mints the snapshot; this spec asserts refresh mechanics, so an empty
+    // snapshot (zero authority — a real state, never a wildcard) suffices.
+    const snapshots = {
+      build: jest.fn().mockResolvedValue({
+        scp: [],
+        pbr: { v: 1, all: false, brands: [], branches: [] },
+        epo: 0,
+      }),
+    } as unknown as AuthorizationSnapshotService;
 
     service = new AuthService(
       {} as unknown as PrismaService,
@@ -68,6 +79,7 @@ describe('AuthService refresh/logout', () => {
       terminals,
       audit,
       pins,
+      snapshots,
       config,
     );
   });

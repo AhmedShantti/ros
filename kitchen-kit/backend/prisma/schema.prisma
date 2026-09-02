@@ -270,6 +270,15 @@ model Membership {
   userId    String           @map("user_id") @db.Uuid
   tenantId  String           @map("tenant_id") @db.Uuid
   status    MembershipStatus @default(active)
+  /// B1-2 (D-2 REOPENED IN PART (2), clause 7 — T-4-LIVE). Monotonic
+  /// authorization/scope epoch. Bumped transactionally whenever this
+  /// membership's scoped role-assignment authority changes (create, remove,
+  /// re-scope, validity change, inherited-grant review). An access token
+  /// carries the epoch it was minted at; a token whose epoch differs from the
+  /// live row is a STALE SNAPSHOT and is refused. The token is never the
+  /// authorization source — live resolution is — so this detects staleness, it
+  /// does not grant.
+  authzEpoch Int             @default(0) @map("authz_epoch")
   createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -279,6 +288,9 @@ model Membership {
   membershipRoles MembershipRole[]
 
   @@unique([userId, tenantId])
+  /// B1-2: D-09 composite-FK target, so `membership_roles(tenant_id,
+  /// membership_id)` can be made structurally same-tenant.
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@map("memberships")
   @@schema("identity")
@@ -338,19 +350,108 @@ model RolePermission {
   @@schema("identity")
 }
 
+/// Scope of a role assignment — FR-SEC-002 [M]: "Role assignments SHALL carry a
+/// scope, restricting the assignment to a tenant, a brand, a set of branches, or
+/// a single branch."
+///
+/// EXACTLY three members are authorised (D-2 REOPENED IN PART (2), clause 4).
+/// `WAREHOUSE`, `CENTRAL_KITCHEN` and `LOCATION` are NOT authorised.
+/// `BRANCH_GROUP` is DEFERRED (clause 5) — not rejected: it is a MANDATORY
+/// follow-up under FR-BRN-005 once the canonical BranchGroup entity exists, and
+/// the enum is additively extensible to it without reinterpreting these three.
+///
+/// "A set of branches" is represented as MULTIPLE `branch`-scoped rows — never
+/// an array, never a polymorphic branch-set object, never a surrogate group.
+enum RoleScopeType {
+  tenant
+  brand
+  branch
+
+  @@schema("identity")
+}
+
+/// Provenance of a role assignment — M-4+ clause B (D-2 REOPENED IN PART (2),
+/// clause 13). Distinguishes authority a human deliberately granted from
+/// authority the B1-2 migration inherited from the pre-scope world. Without
+/// this the two are indistinguishable forever and no targeted remediation is
+/// possible.
+enum MembershipRoleOrigin {
+  /// Created explicitly through the assignment API with a stated scope.
+  explicit
+  /// Backfilled by the B1-2 migration as `tenant` scope because that is what
+  /// the legacy unscoped assignment actually meant. Until reviewed, the tenant
+  /// is NOT multi-branch authorization-ready (M-4+ clauses C and D).
+  migration
+
+  @@schema("identity")
+}
+
+/// A single scoped role assignment (FR-SEC-002/003/004/005).
+///
+/// ── IDENTITY ────────────────────────────────────────────────────────────────
+/// The shipped `@@id([membershipId, roleId])` is REPLACED by a stable surrogate
+/// `id`. ADR 0008 D-02 recorded why: that key admits one row per
+/// membership+role, so FR-SEC-003's own worked example ("Branch Manager at
+/// Branch 1 and Cashier at Branch 2") was only half-representable and "Cashier
+/// at Branch 1 AND Cashier at Branch 2" was not representable at all. Fixing it
+/// is a change to the table's identity, not an additive column — authorised by
+/// D-2 REOPENED IN PART (2) clause 11.
+///
+/// ── SCOPE REFERENCES ────────────────────────────────────────────────────────
+/// TYPED columns, each with its own tenant-safe composite FK. A single
+/// polymorphic `scope_id` is NOT authorised (clause 10): it cannot carry a real
+/// FK, and PostgreSQL evaluates referential integrity with row security
+/// DISABLED, so RLS alone can never make a cross-tenant scope reference
+/// impossible (ADR 0008 D-09). Consistency between `scopeType` and the
+/// reference columns is enforced by a database CHECK, not only by TypeScript.
+///
+/// The legacy `branch_id` column is DROPPED, not left beside `scope_branch_id`
+/// (clause 8 of the B1-2 brief): it was never written and never read by any
+/// authorization path, and two branch-shaped columns with different authority
+/// would be a permanent ambiguity.
 model MembershipRole {
+  /// Stable per-assignment identity (ULID-as-UUID, `common/ids`).
+  id           String   @id @db.Uuid
+  /// Local tenant, so scope references can carry tenant-safe composite FKs and
+  /// RLS can predicate directly instead of joining `memberships`.
+  tenantId     String   @map("tenant_id") @db.Uuid
   membershipId String   @map("membership_id") @db.Uuid
   roleId       String   @map("role_id") @db.Uuid
-  // Optional branch scoping carried from the approved user_roles design; not yet
-  // consumed by permission resolution (branch context arrives with org/RLS).
-  branchId     String?  @map("branch_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  scopeType RoleScopeType @map("scope_type")
+  /// Set iff `scopeType = brand`. Composite FK — can never point at another
+  /// tenant's brand.
+  scopeBrandId  String? @map("scope_brand_id") @db.Uuid
+  /// Set iff `scopeType = branch`. Composite FK — can never point at another
+  /// tenant's branch.
+  scopeBranchId String? @map("scope_branch_id") @db.Uuid
 
-  @@id([membershipId, roleId])
+  /// FR-SEC-005 [S] effective dating. Evaluated LIVE at request time against
+  /// the DATABASE clock; expiry needs no sweep job for authority to disappear.
+  validFrom DateTime  @default(now()) @map("valid_from") @db.Timestamptz(6)
+  validTo   DateTime? @map("valid_to") @db.Timestamptz(6)
+
+  /// M-4+ provenance and review state.
+  origin     MembershipRoleOrigin @default(explicit)
+  reviewedAt DateTime?            @map("reviewed_at") @db.Timestamptz(6)
+  reviewedBy String?              @map("reviewed_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// D-09 composite FK: the assignment can never hang off another tenant's
+  /// membership.
+  membership  Membership @relation(fields: [tenantId, membershipId], references: [tenantId, id], onDelete: Cascade)
+  /// Roles may be SYSTEM roles (`tenant_id IS NULL`), so this edge stays a
+  /// single-column FK — there is no composite target to point at.
+  role        Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  scopeBrand  Brand?     @relation(fields: [tenantId, scopeBrandId], references: [tenantId, id], onDelete: Restrict)
+  scopeBranch Branch?    @relation(fields: [tenantId, scopeBranchId], references: [tenantId, id], onDelete: Restrict)
+
+  @@index([tenantId, membershipId])
   @@index([roleId])
+  @@index([tenantId, scopeBranchId])
+  @@index([tenantId, scopeBrandId])
   @@map("membership_roles")
   @@schema("identity")
 }
@@ -590,6 +691,9 @@ model Brand {
   tenant   Tenant   @relation(fields: [tenantId], references: [id])
   branches Branch[]
 
+  // B1-2 scoped RBAC back-relation (virtual; no DDL impact on this model).
+  roleAssignments MembershipRole[]
+
   // D-09 composite-FK target.
 
   // Production Spec back-relations (virtual; no DDL impact).
@@ -644,6 +748,9 @@ model Branch {
 
   // Production Spec back-relations (virtual; no DDL impact).
   recipes Recipe[]
+
+  // B1-2 scoped RBAC back-relation (virtual; no DDL impact on this model).
+  roleAssignments   MembershipRole[]
 
   // D-2 (amended) PIN substrate back-relations.
   terminals         Terminal[]

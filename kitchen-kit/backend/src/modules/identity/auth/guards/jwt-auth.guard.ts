@@ -46,6 +46,12 @@ export class JwtAuthGuard implements CanActivate {
         // Employee identity is only present for PIN-issued POS sessions.
         ...(payload.emp ? { employeeId: payload.emp } : {}),
         ...(payload.typ === 'pos' ? { sessionType: 'pos' as const } : {}),
+        // T-4-LIVE: carried through so TenantContextService can DETECT a stale
+        // snapshot. The scope set (`scp`) and permitted branch set (`pbr`) are
+        // deliberately NOT copied onto the principal — nothing server-side may
+        // read them to authorize, and the surest way to guarantee that is for
+        // the authorization path never to receive them.
+        ...(payload.epo !== undefined ? { authzEpoch: payload.epo } : {}),
       };
     } catch {
       throw new UnauthorizedException();

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessTokenService } from '../auth/access-token.service';
 import { TenantContext } from '../context/tenant-context';
+import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { TerminalSessionService } from './terminal-session.service';
 import { TerminalsService } from './terminals.service';
 
@@ -44,7 +45,21 @@ describe('TerminalSessionService.bind', () => {
     const config = {
       getOrThrow: jest.fn().mockReturnValue('15m'),
     } as unknown as ConfigService;
-    service = new TerminalSessionService(prisma, terminals, tokens, config);
+    // B1-2: the T-4-LIVE snapshot builder. These specs assert token SHAPE and
+    // session mechanics, not scope resolution, so an empty snapshot suffices —
+    // and an empty snapshot is a real state (zero authority), never a wildcard.
+    const snapshots = {
+      build: jest
+        .fn()
+        .mockResolvedValue({ scp: [], pbr: { v: 1, all: false, brands: [], branches: [] }, epo: 0 }),
+    } as unknown as AuthorizationSnapshotService;
+    service = new TerminalSessionService(
+      prisma,
+      terminals,
+      tokens,
+      snapshots,
+      config,
+    );
   });
 
   it('binds the session and mints a terminal-scoped token for an active terminal', async () => {
@@ -62,6 +77,11 @@ describe('TerminalSessionService.bind', () => {
       tid: 't-1',
       mid: 'm-1',
       trm: 'term-1',
+      // B1-2 T-4-LIVE: a tenant-bound token also carries the SRS-required
+      // snapshot (scope set + permitted branch set) and its epoch.
+      scp: [],
+      pbr: { v: 1, all: false, brands: [], branches: [] },
+      epo: 0,
     });
     expect(result).toMatchObject({
       accessToken: 'terminal-scoped-token',

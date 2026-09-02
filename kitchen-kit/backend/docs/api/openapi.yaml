@@ -102,8 +102,36 @@ components:
       properties:
         roleId:
           type: string
+        scope:
+          $ref: '#/components/schemas/AssignmentScopeDto'
+        validFrom:
+          description: FR-SEC-005 — defaults to now when omitted.
+          type: string
+        validTo:
+          description: FR-SEC-005 — omit or null for an open-ended assignment.
+          type:
+            - string
+            - 'null'
       required:
         - roleId
+        - scope
+      type: object
+    AssignmentScopeDto:
+      properties:
+        branchId:
+          description: Required iff `type = branch`.
+          type: string
+        brandId:
+          description: Required iff `type = brand`.
+          type: string
+        type:
+          enum:
+            - tenant
+            - brand
+            - branch
+          type: string
+      required:
+        - type
       type: object
     BindTerminalDto:
       properties:
@@ -571,9 +599,9 @@ components:
         scopeType:
           description: 'C-06: `branch_group` is intentionally absent from the enum.'
           enum:
-            - branch
             - tenant
             - brand
+            - branch
           type: string
         status:
           enum:
@@ -1384,6 +1412,17 @@ components:
       required:
         - isManual86
       type: object
+    UpdateAssignmentDto:
+      properties:
+        scope:
+          $ref: '#/components/schemas/AssignmentScopeDto'
+        validFrom:
+          type: string
+        validTo:
+          type:
+            - string
+            - 'null'
+      type: object
     UpdateBranchDto:
       properties:
         address:
@@ -1779,8 +1818,8 @@ paths:
       tags:
         - auth
   /auth/memberships/{membershipId}/roles:
-    post:
-      operationId: RbacController_assignRole
+    get:
+      operationId: RbacController_listAssignments
       parameters:
         - in: path
           name: membershipId
@@ -1789,59 +1828,76 @@ paths:
             example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
             format: uuid
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssignRoleDto'
-        required: true
       responses:
-        '204':
-          description: Role assigned.
-        '401':
+        '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Missing/invalid/expired token.
-        '403':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: The role is a system role and cannot be assigned here.
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: The membership or role does not exist in this tenant.
-      security:
-        - bearer: []
-      summary: Assign a role to a membership.
-      tags:
-        - rbac
-  /auth/memberships/{membershipId}/roles/{roleId}:
-    delete:
-      operationId: RbacController_removeRole
-      parameters:
-        - in: path
-          name: membershipId
-          required: true
-          schema:
-            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-            format: uuid
-            type: string
-        - in: path
-          name: roleId
-          required: true
-          schema:
-            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-            format: uuid
-            type: string
-      responses:
-        '204':
-          description: Role removed.
+                items:
+                  properties:
+                    createdAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    id:
+                      description: Stable assignment identity (FR-SEC-003).
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    membershipId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    origin:
+                      description: migration = inherited by the B1-2 backfill and not deliberately granted.
+                      enum:
+                        - explicit
+                        - migration
+                      type: string
+                    reviewedAt:
+                      description: When an inherited grant was explicitly reviewed.
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type:
+                        - string
+                        - 'null'
+                    roleId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    scopeBranchId:
+                      description: Set iff scopeType = branch.
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type:
+                        - string
+                        - 'null'
+                    scopeBrandId:
+                      description: Set iff scopeType = brand.
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type:
+                        - string
+                        - 'null'
+                    scopeType:
+                      enum:
+                        - tenant
+                        - brand
+                        - branch
+                      type: string
+                    validFrom:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    validTo:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type:
+                        - string
+                        - 'null'
+                  type: object
+                type: array
+          description: Assignments, oldest first.
         '401':
           content:
             application/json:
@@ -1862,7 +1918,179 @@ paths:
           description: The membership does not exist in this tenant.
       security:
         - bearer: []
-      summary: Remove a role from a membership.
+      summary: A membership's scoped role assignments, including expired ones.
+      tags:
+        - rbac
+    post:
+      description: FR-SEC-002/003/005. `scope` is mandatory — a new assignment is never silently tenant-scoped. The same role may be assigned at several scopes; each is a separate assignment with its own id and its own validity window.
+      operationId: RbacController_assignRole
+      parameters:
+        - in: path
+          name: membershipId
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRoleDto'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                properties:
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  id:
+                    description: Stable assignment identity (FR-SEC-003).
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  membershipId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  origin:
+                    description: migration = inherited by the B1-2 backfill and not deliberately granted.
+                    enum:
+                      - explicit
+                      - migration
+                    type: string
+                  reviewedAt:
+                    description: When an inherited grant was explicitly reviewed.
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type:
+                      - string
+                      - 'null'
+                  roleId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  scopeBranchId:
+                    description: Set iff scopeType = branch.
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                  scopeBrandId:
+                    description: Set iff scopeType = brand.
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                  scopeType:
+                    enum:
+                      - tenant
+                      - brand
+                      - branch
+                    type: string
+                  validFrom:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  validTo:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type:
+                      - string
+                      - 'null'
+                type: object
+          description: The created assignment.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Scope shape invalid, or validTo not after validFrom.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing/invalid/expired token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The role is a system role and cannot be assigned here.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The membership, role, brand or branch does not exist in this tenant.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: This role is already assigned at this exact scope for an overlapping validity window.
+      security:
+        - bearer: []
+      summary: Assign a role to a membership at an EXPLICIT scope (tenant, brand or branch).
+      tags:
+        - rbac
+  /auth/memberships/{membershipId}/roles/{roleId}:
+    delete:
+      deprecated: true
+      description: Before B1-2 a membership+role pair identified exactly one row. FR-SEC-003 exists so it no longer does. This route therefore FAILS CLOSED with 409 when the role is held at more than one scope, rather than silently revoking several grants. Use DELETE /auth/role-assignments/{assignmentId}.
+      operationId: RbacController_removeRole
+      parameters:
+        - in: path
+          name: membershipId
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+        - in: path
+          name: roleId
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+      responses:
+        '204':
+          description: Role removed (or already absent).
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing/invalid/expired token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No tenant context / insufficient permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The membership does not exist in this tenant.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The role is held at several scopes; remove a specific assignment by its id.
+      security:
+        - bearer: []
+      summary: DEPRECATED — remove a role from a membership by role id.
       tags:
         - rbac
   /auth/password/change:
@@ -1964,12 +2192,71 @@ paths:
             application/json:
               schema:
                 properties:
+                  authorizationEpoch:
+                    description: Live authorization epoch. A client holding a token minted at an older epoch must refresh.
+                    type: integer
                   permissions:
+                    description: TENANT-scoped permission codes only — what an unscoped, target-less endpoint authorises today.
                     items:
                       type: string
                     type: array
+                  permittedBranches:
+                    description: 'SYMBOLIC permitted-branch set. `all: true` means every branch in the tenant; `all: false` with empty lists means NO branches. Omission never means unrestricted.'
+                    properties:
+                      all:
+                        type: boolean
+                      branches:
+                        items:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        type: array
+                      brands:
+                        items:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        type: array
+                      v:
+                        type: integer
+                    type: object
+                  scopeReviewRequired:
+                    description: M-4+ — the tenant still holds unreviewed migration-originated TENANT grants.
+                    type: boolean
+                  scopes:
+                    description: Every effective assignment, scope-qualified.
+                    items:
+                      properties:
+                        assignmentId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        branchId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type:
+                            - string
+                            - 'null'
+                        brandId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type:
+                            - string
+                            - 'null'
+                        permissions:
+                          items:
+                            type: string
+                          type: array
+                        scopeType:
+                          enum:
+                            - tenant
+                            - brand
+                            - branch
+                          type: string
+                      type: object
+                    type: array
                 type: object
-          description: The caller's effective permission codes, sorted.
+          description: Tenant-scoped permission codes, every scoped grant, the symbolic permitted-branch set, the live authorization epoch, and whether inherited-scope review is still outstanding.
         '401':
           content:
             application/json:
@@ -1984,7 +2271,7 @@ paths:
           description: No tenant context / insufficient permission.
       security:
         - bearer: []
-      summary: Effective permissions of the caller's active membership.
+      summary: The caller's effective, scope-qualified authority (presentation only).
       tags:
         - rbac
   /auth/pin:
@@ -2151,6 +2438,266 @@ paths:
       summary: Rotate a refresh token for a new access + refresh token pair.
       tags:
         - auth
+  /auth/role-assignments/{assignmentId}:
+    delete:
+      operationId: RbacController_removeAssignment
+      parameters:
+        - in: path
+          name: assignmentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Assignment removed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing/invalid/expired token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No tenant context / insufficient permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The assignment does not exist in this tenant.
+      security:
+        - bearer: []
+      summary: Remove ONE scoped assignment by its stable id.
+      tags:
+        - rbac
+    patch:
+      description: 'Both are authority changes: each bumps the membership authorization epoch, so access tokens minted before it are refused until refreshed.'
+      operationId: RbacController_updateAssignment
+      parameters:
+        - in: path
+          name: assignmentId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAssignmentDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  id:
+                    description: Stable assignment identity (FR-SEC-003).
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  membershipId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  origin:
+                    description: migration = inherited by the B1-2 backfill and not deliberately granted.
+                    enum:
+                      - explicit
+                      - migration
+                    type: string
+                  reviewedAt:
+                    description: When an inherited grant was explicitly reviewed.
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type:
+                      - string
+                      - 'null'
+                  roleId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  scopeBranchId:
+                    description: Set iff scopeType = branch.
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                  scopeBrandId:
+                    description: Set iff scopeType = brand.
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                  scopeType:
+                    enum:
+                      - tenant
+                      - brand
+                      - branch
+                    type: string
+                  validFrom:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  validTo:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type:
+                      - string
+                      - 'null'
+                type: object
+          description: The updated assignment.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No change requested, invalid scope shape, or validTo not after validFrom.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing/invalid/expired token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No tenant context / insufficient permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The assignment, brand or branch does not exist in this tenant.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The requested scope/validity overlaps an existing assignment of the same role at the same scope.
+      security:
+        - bearer: []
+      summary: Re-scope an assignment and/or change its validity window.
+      tags:
+        - rbac
+  /auth/role-assignments/{assignmentId}/review:
+    post:
+      description: 'M-4+ outcome A: record that a tenant-wide grant the B1-2 migration inherited is intentionally correct, clearing the review condition WITHOUT forcing a scope change. Outcome B is to re-scope it instead (PATCH). Idempotent: reviewing an already-reviewed assignment changes nothing and does not bump the epoch.'
+      operationId: RbacController_reviewAssignment
+      parameters:
+        - in: path
+          name: assignmentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  id:
+                    description: Stable assignment identity (FR-SEC-003).
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  membershipId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  origin:
+                    description: migration = inherited by the B1-2 backfill and not deliberately granted.
+                    enum:
+                      - explicit
+                      - migration
+                    type: string
+                  reviewedAt:
+                    description: When an inherited grant was explicitly reviewed.
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type:
+                      - string
+                      - 'null'
+                  roleId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  scopeBranchId:
+                    description: Set iff scopeType = branch.
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                  scopeBrandId:
+                    description: Set iff scopeType = brand.
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                  scopeType:
+                    enum:
+                      - tenant
+                      - brand
+                      - branch
+                    type: string
+                  validFrom:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  validTo:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type:
+                      - string
+                      - 'null'
+                type: object
+          description: The reviewed assignment.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The assignment was not migration-originated.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing/invalid/expired token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No tenant context / insufficient permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The assignment does not exist in this tenant.
+      security:
+        - bearer: []
+      summary: Explicitly review an INHERITED (migration-originated) tenant-wide assignment.
+      tags:
+        - rbac
   /auth/roles:
     get:
       operationId: RbacController_listRoles

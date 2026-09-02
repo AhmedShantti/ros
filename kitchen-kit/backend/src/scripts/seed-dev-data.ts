@@ -160,7 +160,13 @@ async function main(): Promise<void> {
     ...Object.values(KDS_PERMISSIONS),
     ...Object.values(REPORTING_PERMISSIONS),
   ]);
-  await membershipRoles.assign(tenant.id, ownerMembership.id, ownerRole.id);
+  // B1-2: scope is MANDATORY and never defaulted. The dev seed grants
+  // TENANT scope explicitly, which is what these bootstrap roles mean.
+  await membershipRoles.create(tenant.id, owner.id, {
+    membershipId: ownerMembership.id,
+    roleId: ownerRole.id,
+    scope: { type: 'tenant' },
+  });
 
   const cashierRole = await roles.createTenantRole(tenant.id, {
     name: 'Cashier',
@@ -179,7 +185,11 @@ async function main(): Promise<void> {
     CATALOGUE_PERMISSIONS.PRICE_READ,
     CATALOGUE_PERMISSIONS.AVAILABILITY_READ,
   ]);
-  await membershipRoles.assign(tenant.id, cashierMembership.id, cashierRole.id);
+  await membershipRoles.create(tenant.id, owner.id, {
+    membershipId: cashierMembership.id,
+    roleId: cashierRole.id,
+    scope: { type: 'tenant' },
+  });
 
   // ------------------------------------------------------ brand / branch --
   const brand = await brands.create(tenant.id, owner.id, {

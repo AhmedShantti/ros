@@ -121,7 +121,11 @@ describe('Audit trail (e2e)', () => {
       IDENTITY_PERMISSIONS.TERMINAL_MANAGE,
       IDENTITY_PERMISSIONS.TERMINAL_READ,
     ]);
-    await membershipRoles.assign(tenantId, adminMembership.id, role.id);
+    await membershipRoles.create(tenantId, null, {
+      membershipId: adminMembership.id,
+      roleId: role.id,
+      scope: { type: 'tenant' },
+    });
 
     const targetUserId = (
       await users.createUser({ email: emailUser, password, displayName: 'U' })
@@ -186,8 +190,10 @@ describe('Audit trail (e2e)', () => {
             where: { tenantId, name: 'auditor' },
           })
         ).id,
+        // B1-2: scope is mandatory on an assignment, and is never defaulted.
+        scope: { type: 'tenant' },
       })
-      .expect(204);
+      .expect(201);
     // A real branch: `terminals` now carries a tenant-safe composite FK to
     // `org.branches` (D-2 amendment item 3), so a fabricated UUID is rejected.
     const auditBrand = await admin.brand.create({
