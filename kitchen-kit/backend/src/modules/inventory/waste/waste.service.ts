@@ -69,7 +69,7 @@ export class WasteService {
               locationId: input.locationId,
               stockItemId: line.stockItemId,
               movementType: 'waste',
-              quantity: -Math.abs(line.quantity),
+              quantity: (-Math.abs(line.quantity)).toFixed(6),
               referenceType: 'waste',
               referenceId: recordId,
               reasonCodeId: input.reasonCodeId,

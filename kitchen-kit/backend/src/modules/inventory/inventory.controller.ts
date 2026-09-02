@@ -518,7 +518,7 @@ export class InventoryController {
       locationId: dto.locationId,
       stockItemId: dto.stockItemId,
       movementType: dto.movementType,
-      quantity: Number(dto.quantity),
+      quantity: dto.quantity,
       referenceType: dto.referenceType,
       referenceId: dto.referenceId,
       reasonCodeId: dto.reasonCodeId,
