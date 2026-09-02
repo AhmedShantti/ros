@@ -56,3 +56,4 @@ Examples: `2026-09-02_A1-1_inventory-write-path-correctness.md` ·
 
 | Date | Slice | Lane | Type | Baseline | Result Commit | Status | Report |
 |---|---|---|---|---|---|---|---|
+| 2026-09-02 | D1-1 | D — KDS + Offline/Sync | DESIGN / CONTRACT / GOVERNANCE-DEPENDENCY | `63d3b7c` | *(see report §28)* | COMPLETE — 7 governance decisions required (4 block D4-1); fiscal deferred to D4-3 | [2026-09-02_D1-1_offline-sync-design-gate.md](2026-09-02_D1-1_offline-sync-design-gate.md) |
