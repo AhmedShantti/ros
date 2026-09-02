@@ -361,7 +361,19 @@ export class OrganisationController {
 
   /** Explicit status transition (D-03) — never a generic PATCH field. */
   @Post('branches/:branchId/status')
-  @AuthorizationTarget(branchFromParam('branchId'))
+  @AuthorizationTarget(
+    branchFromParam('branchId', {
+      reason:
+        'T-12 EXEMPTION — this route IS the branch lifecycle. A non-active ' +
+        'branch is denied for every scope on every other route, and the ' +
+        'operation that returns it to `active` addresses that same branch, so ' +
+        'without this exemption a deactivated branch could never be ' +
+        'reactivated: deactivation would be a one-way door. The exemption is ' +
+        'narrow on purpose — it covers the status transition ONLY, not reading ' +
+        'or editing an inactive branch, and every business operation against ' +
+        'the branch stays refused until it is active again.',
+    }),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiOperation({ summary: 'Set a branch active/inactive.' })
   @ApiOkResponse({ description: 'The updated branch.', schema: branchSchema })
@@ -439,7 +451,7 @@ export class OrganisationController {
   }
 
   @Get('warehouses/:warehouseId')
-  @AuthorizationTarget(resourceTarget(ORG_WAREHOUSE_TARGET_RESOLVER, { warehouseId: fromParam('warehouseId') }, 'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.'))
+  @AuthorizationTarget(resourceTarget(ORG_WAREHOUSE_TARGET_RESOLVER, { warehouseId: fromParam('warehouseId') }, 'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.', 'Warehouse not found.'))
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({ description: 'The warehouse.', schema: warehouseSchema })
   @ApiNotFoundResponse({ description: 'Warehouse not found.' })
@@ -451,7 +463,7 @@ export class OrganisationController {
   }
 
   @Patch('warehouses/:warehouseId')
-  @AuthorizationTarget(resourceTarget(ORG_WAREHOUSE_TARGET_RESOLVER, { warehouseId: fromParam('warehouseId') }, 'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.'))
+  @AuthorizationTarget(resourceTarget(ORG_WAREHOUSE_TARGET_RESOLVER, { warehouseId: fromParam('warehouseId') }, 'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.', 'Warehouse not found.'))
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiOkResponse({
     description: 'The updated warehouse.',
@@ -576,7 +588,7 @@ export class OrganisationController {
   }
 
   @Get('stations/:stationId')
-  @AuthorizationTarget(resourceTarget(ORG_STATION_TARGET_RESOLVER, { stationId: fromParam('stationId') }, 'A station is branch-owned and carries no tenant_id; its branch comes from the row.'))
+  @AuthorizationTarget(resourceTarget(ORG_STATION_TARGET_RESOLVER, { stationId: fromParam('stationId') }, 'A station is branch-owned and carries no tenant_id; its branch comes from the row.', 'Station not found.'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({ description: 'The station.', schema: stationSchema })
   @ApiNotFoundResponse({ description: 'Station not found.' })
@@ -588,7 +600,7 @@ export class OrganisationController {
   }
 
   @Patch('stations/:stationId')
-  @AuthorizationTarget(resourceTarget(ORG_STATION_TARGET_RESOLVER, { stationId: fromParam('stationId') }, 'A station is branch-owned and carries no tenant_id; its branch comes from the row.'))
+  @AuthorizationTarget(resourceTarget(ORG_STATION_TARGET_RESOLVER, { stationId: fromParam('stationId') }, 'A station is branch-owned and carries no tenant_id; its branch comes from the row.', 'Station not found.'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiOkResponse({ description: 'The updated station.', schema: stationSchema })
   @ApiNotFoundResponse({
@@ -641,7 +653,7 @@ export class OrganisationController {
   }
 
   @Patch('tables/:tableId')
-  @AuthorizationTarget(resourceTarget(ORG_TABLE_TARGET_RESOLVER, { tableId: fromParam('tableId') }, 'A table is branch-owned and carries no tenant_id; its branch comes from the row.'))
+  @AuthorizationTarget(resourceTarget(ORG_TABLE_TARGET_RESOLVER, { tableId: fromParam('tableId') }, 'A table is branch-owned and carries no tenant_id; its branch comes from the row.', 'Table not found.'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiOkResponse({ description: 'The updated table.', schema: tableSchema })
   @ApiNotFoundResponse({ description: 'Table not found.' })

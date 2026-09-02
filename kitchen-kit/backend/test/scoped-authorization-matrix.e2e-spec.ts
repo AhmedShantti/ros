@@ -812,33 +812,206 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
     });
   });
 
-  // ═════════════════ TOKEN SIZE AT THE 128-UNIT BOUNDARY ══════════════════
+  // ══════════ F-2 CORRECTION: NO UNSCOPED HANDLER EXECUTION ═══════════════
+
+  describe('an unresolvable target NEVER reaches a business handler', () => {
+    /**
+     * The route the acceptance correction names. Before the correction an
+     * unknown branch here answered `200 []` — harmless in content, but the
+     * business operation ran with no scope decision at all, and "the handler
+     * will refuse it anyway" is a claim the guard is not entitled to make about
+     * every handler in the repository.
+     */
+    it('GET /catalogue/branches/:branchId/menus — foreign and absent are byte-identical 404s', async () => {
+      const token = await actor('f2-catalogue', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'tenant' } },
+      ]);
+
+      const absent = await GET(token, `/catalogue/branches/${newId()}/menus`);
+      const foreign = await GET(token, `/catalogue/branches/${branchB1}/menus`);
+
+      expect(absent.status).toBe(404);
+      expect(foreign.status).toBe(404);
+      expect((foreign.body as { message: string }).message).toBe(
+        (absent.body as { message: string }).message,
+      );
+      // The operation did NOT run: no menu list of any shape came back.
+      expect(absent.body).not.toHaveProperty('menus');
+      expect(foreign.body).not.toHaveProperty('menus');
+    });
+
+    it('a branch-scoped FILTER naming an invisible branch is a 404, not an empty page', async () => {
+      // `branchOrTenant`: omitting the filter is a tenant-wide question, but
+      // naming a branch that is not visible must not quietly return "nothing".
+      const token = await actor('f2-orders', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'tenant' } },
+      ]);
+      const absent = await GET(token, `/orders?branchId=${newId()}`);
+      const foreign = await GET(token, `/orders?branchId=${branchB1}`);
+      expect(absent.status).toBe(404);
+      expect(foreign.status).toBe(404);
+      expect((foreign.body as { message: string }).message).toBe(
+        (absent.body as { message: string }).message,
+      );
+    });
+
+    it('a resource-derived target that is invisible is the route’s OWN tenant-safe 404', async () => {
+      const token = await actor('f2-resource', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'tenant' } },
+      ]);
+      // Station (branch-owned, no tenant_id of its own) and price list, both
+      // addressed by their own id.
+      const station = await GET(token, `/org/stations/${newId()}`);
+      expect(station.status).toBe(404);
+      expect((station.body as { message: string }).message).toBe(
+        'Station not found.',
+      );
+
+      const priceList = await GET(token, `/catalogue/price-lists/${newId()}`);
+      expect(priceList.status).toBe(404);
+      expect((priceList.body as { message: string }).message).toBe(
+        'Price list not found.',
+      );
+    });
+
+    it('input that cannot denote a resource is a 400, and still never reaches the handler', async () => {
+      const token = await actor('f2-malformed', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'tenant' } },
+      ]);
+      await GET(token, '/org/branches/not-a-uuid').expect(400);
+      await GET(token, '/catalogue/branches/not-a-uuid/menus').expect(400);
+    });
+  });
+
+  // ═══════════ T-12: A NON-ACTIVE BRANCH IS DENIED FOR EVERY SCOPE ════════
+
+  describe('T-12 — a branch moved away from active is denied for EVERY scope', () => {
+    let inactiveBranch: string;
+
+    beforeAll(async () => {
+      // A fourth branch of brand X, created active and then deactivated, so the
+      // three actors below differ ONLY in scope.
+      const branches = app.get(BranchesService);
+      inactiveBranch = (
+        await branches.create(tenantA, adminUserId, {
+          brandId: brandX,
+          code: `T12${stamp % 100000}`,
+          name: 'T12',
+          timezone: 'Africa/Cairo',
+          baseCurrency: 'EGP',
+          countryCode: 'EG',
+        })
+      ).id;
+      await admin.branch.update({
+        where: { id: inactiveBranch },
+        data: { status: 'inactive' },
+      });
+    });
+
+    it('TENANT scope is denied on an inactive branch', async () => {
+      const token = await actor('t12-tenant', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'tenant' } },
+      ]);
+      // Tenant-wide is the widest authority the lattice has, and it is the case
+      // most likely to have been overlooked — so it is asserted first.
+      await GET(token, branchUrl(inactiveBranch)).expect(403);
+      await GET(token, reportUrl(inactiveBranch)).expect(403);
+      // The SAME actor on an ACTIVE branch still succeeds, so the refusal is
+      // about the branch's status and not about a broken actor.
+      await GET(token, branchUrl(branchX1)).expect(200);
+    });
+
+    it('BRAND scope is denied on an inactive branch of its own brand', async () => {
+      const token = await actor('t12-brand', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'brand', brandId: brandX } },
+      ]);
+      await GET(token, branchUrl(inactiveBranch)).expect(403);
+      await GET(token, branchUrl(branchX1)).expect(200);
+    });
+
+    it('BRANCH scope is denied on the very branch it is scoped to', async () => {
+      const token = await actor('t12-branch', tenantA, [
+        {
+          roleId: roleBusiness,
+          scope: { type: 'branch', branchId: inactiveBranch },
+        },
+      ]);
+      await GET(token, branchUrl(inactiveBranch)).expect(403);
+    });
+
+    it('the refusal is route-wide, not Reporting/DayClose-only', async () => {
+      const token = await actor('t12-routewide', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'tenant' } },
+      ]);
+      // Organisation branch-owned configuration…
+      await GET(token, `/org/branches/${inactiveBranch}/stations`).expect(403);
+      await GET(token, `/org/branches/${inactiveBranch}/tables`).expect(403);
+      // …Catalogue…
+      await GET(token, `/catalogue/branches/${inactiveBranch}/menus`).expect(
+        403,
+      );
+      // …and Treasury.
+      await request(http)
+        .post(`/branches/${inactiveBranch}/day-closes/${today()}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({})
+        .expect(403);
+    });
+
+    it('an inactive branch is still DISTINCT from an invisible one (403 vs 404)', async () => {
+      // Non-enumeration is about hiding OTHER TENANTS' data. Hiding a tenant's
+      // own deactivated branch from that tenant would be a different bug, so the
+      // two answers stay deliberately different.
+      const token = await actor('t12-oracle', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'tenant' } },
+      ]);
+      await GET(token, branchUrl(inactiveBranch)).expect(403);
+      await GET(token, branchUrl(branchB1)).expect(404);
+      await GET(token, branchUrl(newId())).expect(404);
+    });
+
+    it('the branch lifecycle route is the ONE exemption — reactivation is possible', async () => {
+      // Without this exemption deactivation would be a one-way door: the
+      // operation that returns a branch to `active` addresses that same branch.
+      const token = await actor('t12-lifecycle', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'tenant' } },
+      ]);
+      await request(http)
+        .post(`/org/branches/${inactiveBranch}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'active' })
+        .expect(201);
+      // Reactivated, every other route works again…
+      await GET(token, branchUrl(inactiveBranch)).expect(200);
+      // …and deactivating it again is equally permitted.
+      await request(http)
+        .post(`/org/branches/${inactiveBranch}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'inactive' })
+        .expect(201);
+      await GET(token, branchUrl(inactiveBranch)).expect(403);
+    });
+  });
+
+  // ═════════════════ TOKEN SIZE AT THE BUDGET, MEASURED   ══════════════════
 
   describe('T-4-LIVE token size, MEASURED (not estimated)', () => {
-    it('a worst-allowed 128-unit tenant-bound token, in real serialized bytes', async () => {
-      // ── FINDING B1-3/F-1 — THE "~6 KB" ESTIMATE WAS WRONG ─────────────────
+    it('a worst-allowed tenant-bound token FITS the strictest common header limit', async () => {
+      // ── B1-3 ACCEPTANCE CORRECTION — F-1 RESOLVED ────────────────────────
       //
       // B1-2 reasoned about token size as "roughly 45 bytes per rendered entry
-      // ... caps the two claims near 6 KB — inside the ~8 KB header budget of
-      // common reverse proxies". The brief forbids claiming safety from that
-      // estimate, so this measures instead. The estimate is low by about 2.6x,
-      // for two compounding reasons it did not account for:
+      // ... near 6 KB, comfortably inside the ~8 KB header budget". B1-3
+      // measured a 128-unit token at 15,037 bytes (15,061-byte header, 113.3
+      // B/unit) — low by ~2.6x, because an explicit branch id is carried TWICE
+      // (`scp` entry AND `pbr.branches`) and the payload is then base64url
+      // encoded (+4/3). The measured break-even was 67 units, an EDGE.
       //
-      //   1. an explicit branch id is carried TWICE — once as a `branch:<uuid>`
-      //      scope-set entry and again as a raw uuid in `pbr.branches`;
-      //   2. the JWT payload is base64url-encoded, which expands it by 4/3.
-      //
-      // The consequence is OPERATIONAL, not an authorization defect: overflow
-      // still fails closed (next test), nothing is truncated, and no authority
-      // is misdescribed. But a worst-allowed token does NOT fit the DEFAULT
-      // per-header limit of nginx (`large_client_header_buffers` 8k) or Apache
-      // (`LimitRequestFieldSize` 8190) — such a deployment would answer 431/400
-      // and the holder would simply be unable to use the system.
-      //
-      // This test therefore asserts the MEASURED reality, including the part
-      // that is uncomfortable. It is deliberately written so that changing
-      // `MAX_SNAPSHOT_UNITS`, or the claim encoding, fails it and forces the
-      // question back through review rather than letting it drift.
+      // `MAX_SNAPSHOT_UNITS` is now 64. This test asserts the property that
+      // actually matters — the worst token a deployment can ever be handed FITS
+      // the strictest default per-header limit in common use (Apache's
+      // `LimitRequestFieldSize` 8190; nginx's `large_client_header_buffers` 8k).
+      // It is written against the CONSTANT, not the number 64, so changing the
+      // budget re-runs the measurement instead of silently invalidating it.
       const sign = async (units: number): Promise<string> => {
         const branchIds = Array.from({ length: units }, () => newId());
         return app.get(AccessTokenService).sign({
@@ -857,7 +1030,7 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
         });
       };
 
-      // Worst-allowed = MAX_SNAPSHOT_UNITS units, all of the LONGEST kind. A
+      // Worst-allowed = MAX_SNAPSHOT_UNITS units of the LONGEST kind. A
       // `branch:<uuid>` entry is one byte longer than `brand:<uuid>`, and a
       // branch id is carried in BOTH claims, so this is the largest snapshot
       // that can ever be issued.
@@ -870,35 +1043,57 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
         'utf8',
       );
       const baselineBytes = Buffer.byteLength(baseline, 'utf8');
-      const bytesPerUnit = (jwtBytes - baselineBytes) / MAX_SNAPSHOT_UNITS;
 
       // eslint-disable-next-line no-console
-      console.log('B1-3 MEASURED worst-allowed token size:', {
+      console.log('B1-3 CORRECTION — measured worst-allowed token size:', {
         units: MAX_SNAPSHOT_UNITS,
         serializedJwtBytes: jwtBytes,
         authorizationHeaderBytes: headerBytes,
         emptySnapshotJwtBytes: baselineBytes,
-        bytesPerUnit: Number(bytesPerUnit.toFixed(1)),
-        unitsThatFitAn8190ByteHeader: Math.floor(
-          (8190 - (headerBytes - jwtBytes) - baselineBytes) / bytesPerUnit,
+        bytesPerUnit: Number(
+          ((jwtBytes - baselineBytes) / MAX_SNAPSHOT_UNITS).toFixed(1),
         ),
       });
 
-      // The finding, asserted so it cannot quietly stop being true in either
-      // direction. If a future change makes the worst token FIT 8190, this line
-      // fails and the finding gets closed deliberately rather than by accident.
-      expect(headerBytes).toBeGreaterThan(8190);
-
-      // The actionable deployment requirement: a 16 KB header allowance is
-      // sufficient with room to spare. This is what the report records as the
-      // operating constraint until the budget itself is revisited.
-      expect(headerBytes).toBeLessThan(16384);
+      expect(MAX_SNAPSHOT_UNITS).toBe(64);
+      expect(headerBytes).toBeLessThan(8190);
 
       // And the token is genuinely well-formed at that size — a size test that
       // measured an unusable token would prove nothing.
       const decoded = await app.get(AccessTokenService).verify(worst);
       expect(decoded.scp).toHaveLength(MAX_SNAPSHOT_UNITS);
       expect(decoded.pbr?.branches).toHaveLength(MAX_SNAPSHOT_UNITS);
+    });
+
+    it('the SYMBOLIC compression is unchanged: tenant-wide is ONE unit, brand-wide one per brand', async () => {
+      // The budget moved; the representation did not. If a tenant-wide actor
+      // ever started costing one unit per branch, 64 would become a branch-count
+      // limit — which is exactly what clause 8 and FR-BRN-001 forbid.
+      const token = await actor('f1-symbolic', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'tenant' } },
+      ]);
+      const res = await GET(token, '/auth/permissions').expect(200);
+      const body = res.body as {
+        permittedBranches: {
+          v: number;
+          all: boolean;
+          brands: string[];
+          branches: string[];
+        };
+      };
+      // Tenant A has at least three active branches by this point.
+      expect(body.permittedBranches.all).toBe(true);
+      expect(body.permittedBranches.branches).toEqual([]);
+      expect(body.permittedBranches.brands).toEqual([]);
+
+      const brandActor = await actor('f1-symbolic-brand', tenantA, [
+        { roleId: roleBusiness, scope: { type: 'brand', brandId: brandX } },
+      ]);
+      const brandBody = (
+        await GET(brandActor, '/auth/permissions').expect(200)
+      ).body as { permittedBranches: { brands: string[]; branches: string[] } };
+      expect(brandBody.permittedBranches.brands).toEqual([brandX]);
+      expect(brandBody.permittedBranches.branches).toEqual([]);
     });
 
     it('OVERFLOW STILL FAILS CLOSED: no token is issued, and nothing is truncated', async () => {
@@ -938,10 +1133,13 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
       for (let i = 0; i < MAX_SNAPSHOT_UNITS; i += 1) {
         await mkBrandAssignment(i);
       }
-      // Exactly at the budget: a token is issued.
-      await expect(tokenFor(email, tenantA)).resolves.toEqual(
-        expect.any(String),
-      );
+      // Exactly at the budget: a token is issued, and LIVE DB resolution — not
+      // the snapshot it carries — is still what authorises. This actor holds
+      // only `settings.branch.read`, at brands that own no branches, so a
+      // branch target is refused despite a full 64-unit snapshot.
+      const atBudget = await tokenFor(email, tenantA);
+      expect(atBudget).toEqual(expect.any(String));
+      await GET(atBudget, branchUrl(branchX1)).expect(403);
 
       // One over: REFUSED. Not truncated to 128, not issued understating the
       // holder's authority — a token that silently described less authority than

@@ -42,18 +42,37 @@ export interface AuthorizationSnapshot {
  * units, and those are bounded by how many role assignments an administrator
  * actually created for one person.
  *
- * 128 units is therefore a guard against pathological assignment data, not a
- * product limit: at roughly 45 bytes per rendered entry it caps the two claims
- * near 6 KB, comfortably inside the ~8 KB header budget of common reverse
- * proxies while leaving room for the rest of the token. An actor who exceeds it
- * is expressing per-branch authority that a BRAND or TENANT scope would express
- * in one unit.
+ * 64 units is therefore a guard against pathological assignment data, not a
+ * product limit. An actor who exceeds it is expressing per-branch authority
+ * that a BRAND or TENANT scope would express in one unit.
+ *
+ * ── WHY 64, AND NOT THE 128 THIS FILE ORIGINALLY CARRIED ────────────────────
+ * B1-2 set 128 on an ESTIMATE — "roughly 45 bytes per rendered entry ... near
+ * 6 KB, comfortably inside the ~8 KB header budget of common reverse proxies".
+ * B1-3 measured it instead, and the estimate was low by about 2.6x: a
+ * worst-allowed 128-unit token serialised to **15,037 bytes**, a **15,061-byte**
+ * `Authorization` header, at **113.3 bytes per unit**. The estimate counted a
+ * rendered entry once; in fact an explicit branch id is carried TWICE — as a
+ * `branch:<uuid>` scope-set entry AND as a raw uuid in `pbr.branches` — and the
+ * payload is then base64url-encoded, expanding it by a further 4/3.
+ *
+ * A 128-unit token therefore did NOT fit the DEFAULT per-header limit of nginx
+ * (`large_client_header_buffers` 8k) or Apache (`LimitRequestFieldSize` 8190);
+ * such a deployment would answer 431/400 and the holder simply could not use the
+ * system. The measured break-even is 67 units, which is an EDGE, not a budget —
+ * 64 is the nearest power of two below it and leaves real margin.
+ *
+ * The ratified amendment fixed no concrete number. Clause 8 requires a BOUNDED,
+ * DETERMINISTIC representation with fail-closed overflow and no truncation, and
+ * all three are unchanged: this is an implementation detail moving to match
+ * measured reality, not a change of contract. The `FR-API-012` token SHAPE is
+ * untouched.
  *
  * Overflow FAILS CLOSED (clause 8): the token is refused, never truncated.
  * Silent truncation would hand out a token whose snapshot understates authority
  * — and, worse, would train readers to treat an incomplete set as complete.
  */
-export const MAX_SNAPSHOT_UNITS = 128;
+export const MAX_SNAPSHOT_UNITS = 64;
 
 @Injectable()
 export class AuthorizationSnapshotService {

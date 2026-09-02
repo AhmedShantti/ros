@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   CanActivate,
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
@@ -104,18 +106,23 @@ export class PermissionGuard implements CanActivate {
 
     if (resolution.outcome === 'deny') {
       // Uniform message: the refusal must not disclose WHICH condition failed.
+      // A branch that is not active, a POS session off its terminal's branch,
+      // and a plain scope refusal are indistinguishable here on purpose.
       throw new ForbiddenException('Insufficient permission for this scope.');
     }
 
-    if (resolution.outcome === 'defer') {
-      // The addressed resource is not identifiable (malformed id) or not
-      // visible in this tenant. The route's own validation / tenant-safe 404
-      // answers, and it answers identically for "another tenant's" and "does
-      // not exist". Recorded on the request so a test can assert that the
-      // deferral happened for the stated reason rather than being inferred.
-      (request as unknown as Record<string, unknown>).authorizationTargetDeferred =
-        resolution.reason;
-      return true;
+    if (resolution.outcome === 'notFound') {
+      // The addressed resource is not visible in this tenant — another
+      // tenant's, or nobody's. The route's OWN tenant-safe wording is used, so
+      // the two cases are byte-identical to each other and to what the handler
+      // would have said. Raised HERE so the operation never runs unscoped.
+      throw new NotFoundException(resolution.message);
+    }
+
+    if (resolution.outcome === 'badRequest') {
+      // Input that cannot denote a resource at all. Nothing can be authorized
+      // against it, and the handler must not see it.
+      throw new BadRequestException(resolution.message);
     }
 
     await this.scopeAuthorization.assertAuthorized(

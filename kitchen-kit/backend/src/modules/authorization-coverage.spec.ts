@@ -281,6 +281,16 @@ describe('Authorization coverage gate (B1-3)', () => {
           if (spec.reason.trim().length < 20) invalid.push(route.id);
           break;
         case 'branch':
+          if (!spec.key) invalid.push(route.id);
+          // A T-12 exemption without a written reason is exactly the kind of
+          // quiet opt-out the correction exists to prevent.
+          if (
+            spec.allowInactive !== undefined &&
+            spec.allowInactive.reason.trim().length < 40
+          ) {
+            invalid.push(route.id);
+          }
+          break;
         case 'brand':
         case 'branchOrTenant':
           if (!spec.key) invalid.push(route.id);
@@ -298,7 +308,11 @@ describe('Authorization coverage gate (B1-3)', () => {
           if (
             typeof spec.token !== 'symbol' ||
             Object.keys(spec.keys).length === 0 ||
-            spec.description.trim().length < 20
+            spec.description.trim().length < 20 ||
+            // The tenant-safe 404 wording is load-bearing: it is what the guard
+            // raises INSTEAD of letting an unresolvable resource reach the
+            // handler, so a missing one would reintroduce the defer hole.
+            spec.notFound.trim().length === 0
           ) {
             invalid.push(route.id);
           }
@@ -309,6 +323,17 @@ describe('Authorization coverage gate (B1-3)', () => {
       }
     }
     expect(invalid).toEqual([]);
+  });
+
+  it('the T-12 inactive-branch exemption is used by exactly the branch lifecycle route', () => {
+    // A census, not a spot check. T-12 denies every scope on a non-active
+    // branch; the ONLY route allowed to opt out is the one that reactivates it.
+    // If a future slice adds a second exemption, this fails and that exemption
+    // gets argued for explicitly instead of appearing in a diff.
+    const exempt = routes
+      .filter((r) => r.target?.kind === 'branch' && r.target.allowInactive)
+      .map((r) => r.id);
+    expect(exempt).toEqual(['POST /org/branches/:branchId/status']);
   });
 
   it('reports the target classification totals (evidence for the B1-3 report)', () => {

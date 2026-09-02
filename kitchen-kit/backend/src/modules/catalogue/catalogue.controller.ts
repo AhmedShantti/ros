@@ -409,6 +409,12 @@ export class CatalogueController {
 
   /** FR-MNU-003: priority-ordered resolution with an ambiguity warning. */
   @Get('branches/:branchId/menus')
+  @ApiNotFoundResponse({
+    description:
+      'The named branch is not visible in this tenant — unknown, or another ' +
+      "tenant's. Byte-identical for both, so a caller cannot learn that a " +
+      'foreign branch exists.',
+  })
   @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
@@ -825,7 +831,7 @@ export class CatalogueController {
   }
 
   @Get('price-lists/:priceListId')
-  @AuthorizationTarget(resourceTarget(CATALOGUE_PRICE_LIST_TARGET_RESOLVER, { priceListId: fromParam('priceListId') }, 'catalogue.price_lists carries its own scope_type + scope_id.'))
+  @AuthorizationTarget(resourceTarget(CATALOGUE_PRICE_LIST_TARGET_RESOLVER, { priceListId: fromParam('priceListId') }, 'catalogue.price_lists carries its own scope_type + scope_id.', 'Price list not found.'))
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_READ)
   @ApiOkResponse({ description: 'The price list.', schema: priceListSchema })
   @ApiNotFoundResponse({ description: 'Price list not found.' })
@@ -837,7 +843,7 @@ export class CatalogueController {
   }
 
   @Post('price-lists/:priceListId/entries')
-  @AuthorizationTarget(resourceTarget(CATALOGUE_PRICE_LIST_TARGET_RESOLVER, { priceListId: fromParam('priceListId') }, 'catalogue.price_lists carries its own scope_type + scope_id.'))
+  @AuthorizationTarget(resourceTarget(CATALOGUE_PRICE_LIST_TARGET_RESOLVER, { priceListId: fromParam('priceListId') }, 'catalogue.price_lists carries its own scope_type + scope_id.', 'Price list not found.'))
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_CHANGE)
   @ApiOperation({
     summary:
@@ -860,7 +866,7 @@ export class CatalogueController {
   }
 
   @Get('price-lists/:priceListId/entries')
-  @AuthorizationTarget(resourceTarget(CATALOGUE_PRICE_LIST_TARGET_RESOLVER, { priceListId: fromParam('priceListId') }, 'catalogue.price_lists carries its own scope_type + scope_id.'))
+  @AuthorizationTarget(resourceTarget(CATALOGUE_PRICE_LIST_TARGET_RESOLVER, { priceListId: fromParam('priceListId') }, 'catalogue.price_lists carries its own scope_type + scope_id.', 'Price list not found.'))
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_READ)
   @ApiOkResponse({
     description: 'Price entries in this list.',
@@ -911,7 +917,7 @@ export class CatalogueController {
 
   /** FR-MNU-030/032: manual 86 and authorised override, both audited. */
   @Post('availability-rules/:ruleId/86')
-  @AuthorizationTarget(resourceTarget(CATALOGUE_AVAILABILITY_RULE_TARGET_RESOLVER, { ruleId: fromParam('ruleId') }, 'The rule\'s own branch_id; NULL means every branch, which is a TENANT target (FR-MNU-030).'))
+  @AuthorizationTarget(resourceTarget(CATALOGUE_AVAILABILITY_RULE_TARGET_RESOLVER, { ruleId: fromParam('ruleId') }, 'The rule\'s own branch_id; NULL means every branch, which is a TENANT target (FR-MNU-030).', 'Availability rule not found.'))
   @RequirePermission(CATALOGUE_PERMISSIONS.AVAILABILITY_TOGGLE)
   @ApiCreatedResponse({
     description: 'The updated availability rule.',

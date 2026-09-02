@@ -1,4 +1,9 @@
-import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ExecutionContext,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import {
   AUTHORIZATION_TARGET_KEY,
@@ -180,22 +185,70 @@ describe('PermissionGuard', () => {
     expect(scopeAuthorization.assertAuthorized).not.toHaveBeenCalled();
   });
 
-  it('defers to the route on an unresolvable target, and records why', async () => {
-    const request: Record<string, unknown> = {};
+  /**
+   * ── THE ACCEPTANCE CORRECTION, IN ONE PAIR OF TESTS ─────────────────────
+   * B1-3 originally let an unresolvable target fall through to the handler on
+   * the reasoning that the handler's own lookup would refuse it. That is a
+   * claim about every handler in the repository, and the guard is not entitled
+   * to make it. An unresolvable target now TERMINATES here, before the handler,
+   * using the route's own tenant-safe wording so foreign and non-existent stay
+   * byte-identical.
+   */
+  it('404s an unresolvable target with the route’s own wording — the handler never runs', async () => {
     metadata(requireAll('a'), branchFromParam('branchId'));
     tenantContext.require.mockResolvedValue({
       context: {},
       permissions: new Set<string>(),
     });
     targetResolver.resolve.mockResolvedValue({
-      outcome: 'defer',
-      reason: 'resource not visible in tenant',
+      outcome: 'notFound',
+      message: 'Branch not found.',
     });
-    await expect(guard.canActivate(ctx(request))).resolves.toBe(true);
-    expect(request.authorizationTargetDeferred).toBe(
-      'resource not visible in tenant',
+    await expect(guard.canActivate(ctx())).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    await expect(guard.canActivate(ctx())).rejects.toMatchObject({
+      message: 'Branch not found.',
+    });
+    expect(scopeAuthorization.assertAuthorized).not.toHaveBeenCalled();
+  });
+
+  it('400s input that cannot denote a resource — the handler never runs', async () => {
+    metadata(requireAll('a'), branchFromParam('branchId'));
+    tenantContext.require.mockResolvedValue({
+      context: {},
+      permissions: new Set<string>(),
+    });
+    targetResolver.resolve.mockResolvedValue({
+      outcome: 'badRequest',
+      message: 'branchId must be a UUID.',
+    });
+    await expect(guard.canActivate(ctx())).rejects.toBeInstanceOf(
+      BadRequestException,
     );
     expect(scopeAuthorization.assertAuthorized).not.toHaveBeenCalled();
+  });
+
+  it('has NO outcome that reaches the handler without a scope decision', async () => {
+    // The property the correction actually requires, asserted directly: the
+    // guard returns `true` for a declared target ONLY after the primitive has
+    // decided. Every other outcome throws.
+    const outcomes = [
+      { outcome: 'deny', reason: 'x' },
+      { outcome: 'notFound', message: 'Branch not found.' },
+      { outcome: 'badRequest', message: 'branchId must be a UUID.' },
+    ];
+    for (const outcome of outcomes) {
+      jest.clearAllMocks();
+      metadata(requireAll('a'), branchFromParam('branchId'));
+      tenantContext.require.mockResolvedValue({
+        context: {},
+        permissions: new Set(['a']),
+      });
+      targetResolver.resolve.mockResolvedValue(outcome);
+      await expect(guard.canActivate(ctx())).rejects.toBeDefined();
+      expect(scopeAuthorization.assertAuthorized).not.toHaveBeenCalled();
+    }
   });
 
   it('sends an explicit TENANT target through the primitive, not the flat set', async () => {
