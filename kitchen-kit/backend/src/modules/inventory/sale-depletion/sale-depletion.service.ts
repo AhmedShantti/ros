@@ -50,6 +50,20 @@ function exact(value: string): Rational {
   return fromExactDecimal(parseExactDecimal(value));
 }
 
+/**
+ * A1-3A — the canonical business identity for one depletion effect, matching
+ * `sale_depletion_effects`'s real unique constraint
+ * `(tenant_id, order_line_id, stock_item_id, location_id)` (tenant is
+ * constant for the whole call, so it is omitted from the key).
+ */
+function effectIdentityKey(
+  orderLineId: string,
+  stockItemId: string,
+  locationId: string,
+): string {
+  return `${orderLineId}::${stockItemId}::${locationId}`;
+}
+
 interface PhysicalSlice {
   readonly physicalBatchId: string | null;
   readonly quantity: Rational;
@@ -118,6 +132,41 @@ export class SaleDepletionService implements SaleDepletionCommand {
           : 0;
     });
 
+    // A1-3A — reject a duplicate business identity WITHIN this single
+    // request BEFORE any SQL at all. Without this, a payload duplicate
+    // would let the set-oriented `ON CONFLICT DO NOTHING` reservation below
+    // silently insert only ONE of the two identically-keyed rows while both
+    // call sites believe they reserved a distinct effect — the exact
+    // "masquerade as success" the design gate (§16.1) forbids.
+    {
+      const seen = new Set<string>();
+      const duplicates: DepletionTriple[] = [];
+      for (const triple of triples) {
+        const key = effectIdentityKey(
+          triple.orderLineId,
+          triple.stockItemId,
+          locationId,
+        );
+        if (seen.has(key)) {
+          duplicates.push(triple);
+        } else {
+          seen.add(key);
+        }
+      }
+      if (duplicates.length > 0) {
+        throw new SaleDepletionEffectConflictError(
+          `Duplicate depletion effect identity requested within the same call: ` +
+            duplicates
+              .map(
+                (t) =>
+                  `(order line ${t.orderLineId}, stock item ${t.stockItemId}, location ${locationId})`,
+              )
+              .join('; ') +
+            '.',
+        );
+      }
+    }
+
     const stockItemIds = [...new Set(triples.map((t) => t.stockItemId))];
     const stockItems = await tx.stockItem.findMany({
       where: { id: { in: stockItemIds } },
@@ -131,6 +180,119 @@ export class SaleDepletionService implements SaleDepletionCommand {
       },
     });
     const stockItemById = new Map(stockItems.map((i) => [i.id, i]));
+    // Validate BEFORE the reservation INSERT: a missing stock item would
+    // otherwise surface as a raw FK violation from the reservation
+    // statement (it targets every triple in one round trip) instead of this
+    // clean 404 — no Inventory row has been touched yet either way.
+    for (const triple of triples) {
+      if (!stockItemById.has(triple.stockItemId)) {
+        throw new NotFoundException(
+          `Stock item ${triple.stockItemId} not found.`,
+        );
+      }
+    }
+
+    // A1-3A — STEP 1, hoisted: reserve EVERY business identity for this
+    // call in ONE set-oriented statement, strictly before any Inventory
+    // lock or mutation (design gate §5.2/§10). `effectId` is still
+    // generated in JS with `newId()`, never `gen_random_uuid()`. Exact
+    // numeric transport: `quantity` travels as the STRING already carried
+    // by `triple.quantityInBaseUnit`, cast in SQL — never a JS float.
+    const effectIds = triples.map(() => newId());
+    if (triples.length > 0) {
+      const reservationPayload = triples.map((t, i) => ({
+        ord: i,
+        effect_id: effectIds[i],
+        order_line_id: t.orderLineId,
+        stock_item_id: t.stockItemId,
+        quantity: t.quantityInBaseUnit,
+        unit_id: t.unitId,
+      }));
+      const reserved = await tx.$queryRaw<
+        { orderLineId: string; stockItemId: string }[]
+      >`
+        WITH req AS (
+          SELECT v.ord::int             AS ord,
+                 v.effect_id::uuid      AS effect_id,
+                 v.order_line_id::uuid  AS order_line_id,
+                 v.stock_item_id::uuid  AS stock_item_id,
+                 v.quantity::numeric    AS quantity,
+                 v.unit_id::uuid        AS unit_id
+          FROM jsonb_to_recordset(${JSON.stringify(reservationPayload)}::jsonb)
+               AS v(ord int, effect_id text, order_line_id text,
+                    stock_item_id text, quantity text, unit_id text)
+        )
+        INSERT INTO "inventory"."sale_depletion_effects"
+          ("id", "tenant_id", "order_id", "business_day", "order_line_id",
+           "stock_item_id", "location_id", "quantity_in_base_unit", "unit_id", "created_at")
+        SELECT req.effect_id, ${input.tenantId}::uuid, ${input.orderId}::uuid,
+               ${input.businessDay}::date, req.order_line_id,
+               req.stock_item_id, ${locationId}::uuid, req.quantity, req.unit_id,
+               ${input.occurredAt}::timestamptz
+        FROM req
+        ORDER BY req.ord
+        ON CONFLICT ("tenant_id", "order_line_id", "stock_item_id", "location_id") DO NOTHING
+        RETURNING "order_line_id" AS "orderLineId", "stock_item_id" AS "stockItemId"
+      `;
+
+      // STEP 2 — identity-based conflict detection, NOT cardinality: a row
+      // absent from RETURNING is a genuine pre-existing conflict. Report
+      // EVERY missing identity, not only the first. Zero Inventory state —
+      // no `stock_batches` lock, no `stock_levels`/`stock_movements`/
+      // `sale_depletion_allocations` write — has been touched at this point.
+      const reservedKeys = new Set(
+        reserved.map((r) =>
+          effectIdentityKey(r.orderLineId, r.stockItemId, locationId),
+        ),
+      );
+      const conflicts = triples.filter(
+        (t) =>
+          !reservedKeys.has(
+            effectIdentityKey(t.orderLineId, t.stockItemId, locationId),
+          ),
+      );
+      if (conflicts.length > 0) {
+        throw new SaleDepletionEffectConflictError(
+          `A depletion effect already exists for ${conflicts.length} of ${triples.length} ` +
+            `requested effect(s): ` +
+            conflicts
+              .map(
+                (t) =>
+                  `(order line ${t.orderLineId}, stock item ${t.stockItemId}, location ${locationId})`,
+              )
+              .join('; ') +
+            '.',
+        );
+      }
+    }
+
+    // A1-3A — hoist the weighted-average `current_cost` lookup: `average_
+    // cost` is never written by this service (design gate §9.3), so its
+    // value cannot change during this call. ONE lookup for every distinct
+    // weighted-average stock item instead of one read per effect. FIFO and
+    // standard-cost items never consult this map, and cost strategy
+    // selection itself is untouched (still decided per-triple below).
+    const weightedAverageStockItemIds = [
+      ...new Set(
+        triples
+          .map((t) => stockItemById.get(t.stockItemId))
+          .filter(
+            (item): item is NonNullable<typeof item> =>
+              !!item && item.costingMethod === 'weighted_average',
+          )
+          .map((item) => item.id),
+      ),
+    ];
+    const averageCostByStockItemId = new Map<string, bigint>();
+    if (weightedAverageStockItemIds.length > 0) {
+      const levels = await tx.stockLevel.findMany({
+        where: { stockItemId: { in: weightedAverageStockItemIds }, locationId },
+        select: { stockItemId: true, averageCost: true },
+      });
+      for (const level of levels) {
+        averageCostByStockItemId.set(level.stockItemId, level.averageCost);
+      }
+    }
 
     const effectsByLine = new Map<string, SaleDepletionEffectResult[]>();
     const distinctFifoStockItemIds = new Set<string>();
@@ -147,37 +309,21 @@ export class SaleDepletionService implements SaleDepletionCommand {
     let currentGroupKey: string | null = null;
     let lockedLayers: LockedBatchLayer[] = [];
 
-    for (const triple of triples) {
+    for (let i = 0; i < triples.length; i++) {
+      const triple = triples[i];
       const item = stockItemById.get(triple.stockItemId);
       if (!item) {
+        // Unreachable: every triple's stock item was validated to exist
+        // above, before the hoisted reservation statement even ran.
         throw new NotFoundException(
           `Stock item ${triple.stockItemId} not found.`,
         );
       }
       const requested = exact(triple.quantityInBaseUnit);
-
-      // STEP 1 — reserve the business identity FIRST, before ANY Inventory
-      // mutation. `ON CONFLICT ... DO NOTHING`, never insert-catch-P2002.
-      const effectId = newId();
-      const inserted = await tx.$queryRaw<{ id: string }[]>`
-        INSERT INTO "inventory"."sale_depletion_effects"
-          ("id", "tenant_id", "order_id", "business_day", "order_line_id",
-           "stock_item_id", "location_id", "quantity_in_base_unit", "unit_id", "created_at")
-        VALUES (${effectId}::uuid, ${input.tenantId}::uuid, ${input.orderId}::uuid,
-                ${input.businessDay}::date, ${triple.orderLineId}::uuid,
-                ${triple.stockItemId}::uuid, ${locationId}::uuid,
-                ${triple.quantityInBaseUnit}::numeric, ${triple.unitId}::uuid, ${input.occurredAt}::timestamptz)
-        ON CONFLICT ("tenant_id", "order_line_id", "stock_item_id", "location_id") DO NOTHING
-        RETURNING "id"
-      `;
-      // STEP 2 — 0 rows: a genuine conflict. No Inventory state touched.
-      if (inserted.length === 0) {
-        throw new SaleDepletionEffectConflictError(
-          `A depletion effect already exists for order line ${triple.orderLineId}, ` +
-            `stock item ${triple.stockItemId}, location ${locationId}.`,
-        );
-      }
-      const winningEffectId = inserted[0].id;
+      // STEP 1/2 (reservation + identity-based conflict detection) already
+      // ran, hoisted, for EVERY triple before this loop — see above. Every
+      // `triples[i]` reaching this point is a proven winner.
+      const winningEffectId = effectIds[i];
 
       // STEP 3 — WINNER ONLY.
       // 3a — lock layers, one ordering for both axes. ONCE per distinct
@@ -241,7 +387,7 @@ export class SaleDepletionService implements SaleDepletionCommand {
         const unitCost =
           item.costingMethod === 'standard'
             ? (item.standardCost ?? 0n)
-            : await this.currentAverageCost(tx, triple.stockItemId, locationId);
+            : (averageCostByStockItemId.get(triple.stockItemId) ?? 0n);
         cost = [{ batchId: null, quantity: requested, unitCost }];
       } else {
         distinctFifoStockItemIds.add(triple.stockItemId);
@@ -472,18 +618,6 @@ export class SaleDepletionService implements SaleDepletionCommand {
       }
     }
     return out;
-  }
-
-  private async currentAverageCost(
-    tx: Prisma.TransactionClient,
-    stockItemId: string,
-    locationId: string,
-  ): Promise<bigint> {
-    const level = await tx.stockLevel.findUnique({
-      where: { stockItemId_locationId: { stockItemId, locationId } },
-      select: { averageCost: true },
-    });
-    return level?.averageCost ?? 0n;
   }
 
   private async writeAllocation(
