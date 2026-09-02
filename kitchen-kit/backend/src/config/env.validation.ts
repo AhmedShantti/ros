@@ -123,6 +123,25 @@ export class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   PORT: number = 3000;
+
+  /**
+   * SRS §27.6 NFR-OBS-003 metrics exposure. OPTIONAL and unset by default: the
+   * internal Prometheus exporter listener does not start at all unless this is
+   * explicitly configured (see `MetricsExporterService`) — the safe default,
+   * and what keeps the G1-2 parallel/sequential E2E harness free of port
+   * collisions (test env never sets this).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  METRICS_PORT?: number;
+
+  /** Bind host for the metrics exporter. Defaults to loopback-only. */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  METRICS_HOST?: string;
 }
 
 // Values that unambiguously indicate an un-replaced placeholder / dev secret.

@@ -1,0 +1,117 @@
+# ROS backend API alert rules — SRS §27.6 NFR-OBS-006 ("Alerts defined for
+# every SLO breach with documented runbooks").
+#
+# Standard Prometheus alerting-rule format (a `groups: [...]` document, each
+# group holding `rules: [{alert, expr, for, labels, annotations}]`), chosen
+# because it is an OPEN, widely-supported format any Prometheus-compatible
+# alert evaluator (Prometheus itself, Thanos ruler, Cortex/Mimir, Grafana
+# Alerting's Prometheus-rule import) can load without a proprietary adapter.
+#
+# ── SCOPE (NFR-OBS-006 claim discipline — see the accompanying report) ───────
+# This file covers the backend API SLOs this slice's own RED metrics
+# (`http_requests_total`, `http_request_duration_seconds`,
+# `src/common/observability/metrics/metrics.service.ts`) can ACTUALLY measure:
+# API error rate and the two documented API latency NFRs. It does NOT cover
+# every SLO in the SRS — see the report's "uncovered SLOs" section for the
+# enumerated remainder (client/offline/POS availability, sync backlog, fiscal,
+# uptime commitments requiring an external prober). NFR-OBS-006 is reported
+# PARTIAL, not COMPLETE, for exactly that reason.
+#
+# ── DEPLOYMENT IS AN OPERATIONAL REQUIREMENT, NOT CLAIMED HERE ───────────────
+# This file defines rules; it does not itself run an alert evaluator, route a
+# page, or deploy an Alertmanager. Loading it into a running Prometheus/
+# Alertmanager (or equivalent) and configuring the metrics scrape target
+# (`MetricsExporterService`, disabled by default — see that file's docblock)
+# is deployment configuration outside this repository slice.
+groups:
+  - name: ros-backend-api.rules
+    rules:
+      # ── NFR-OBS-006 / API error rate ────────────────────────────────────
+      # No SRS-stated numeric error-rate SLO exists for the API; 5% sustained
+      # server-error rate is an IMPLEMENTATION-level threshold (documented
+      # here, not hidden), following this repository's own convention of
+      # explicit implementation defaults (see e.g. `PIN_MAX_FAILED_ATTEMPTS`
+      # in `src/config/env.validation.ts`).
+      - alert: ROSBackendElevatedErrorRate
+        expr: >-
+          (
+            sum(rate(http_requests_total{status_class="5xx"}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          slo: api-error-rate
+        annotations:
+          summary: 'ROS backend API 5xx rate above 5% for 5 minutes'
+          description: >-
+            Server-error rate across all endpoints has exceeded 5% for at
+            least 5 minutes. See the runbook for diagnosis and mitigation.
+          runbook_url: 'docs/observability/runbooks/elevated-error-rate.md'
+          metric_query: >-
+            sum(rate(http_requests_total{status_class="5xx"}[5m])) /
+            sum(rate(http_requests_total[5m]))
+
+      # ── NFR-PERF-030: API read endpoints p95 <= 200ms ───────────────────
+      - alert: ROSBackendReadLatencyP95Breach
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{method="GET"}[5m])) by (le)
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          slo: NFR-PERF-030
+        annotations:
+          summary: 'ROS backend read (GET) p95 latency above 200ms'
+          description: >-
+            NFR-PERF-030 requires read endpoints to respond within 200ms at
+            p95. The measured p95 across all GET endpoints has exceeded that
+            for at least 5 minutes.
+          runbook_url: 'docs/observability/runbooks/read-latency-p95-breach.md'
+          metric_query: >-
+            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{method="GET"}[5m])) by (le))
+
+      # ── NFR-PERF-031: API write endpoints p95 <= 400ms ──────────────────
+      - alert: ROSBackendWriteLatencyP95Breach
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{method=~"POST|PUT|PATCH|DELETE"}[5m])) by (le)
+          ) > 0.4
+        for: 5m
+        labels:
+          severity: warning
+          slo: NFR-PERF-031
+        annotations:
+          summary: 'ROS backend write p95 latency above 400ms'
+          description: >-
+            NFR-PERF-031 requires write endpoints to respond within 400ms at
+            p95. The measured p95 across POST/PUT/PATCH/DELETE endpoints has
+            exceeded that for at least 5 minutes.
+          runbook_url: 'docs/observability/runbooks/write-latency-p95-breach.md'
+          metric_query: >-
+            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{method=~"POST|PUT|PATCH|DELETE"}[5m])) by (le))
+
+      # ── Metrics exporter/scrape unavailable ─────────────────────────────
+      # Depends on Prometheus's own `up` metric for the configured scrape
+      # job — REQUIRES the operational scrape-target wiring described above;
+      # the job label name here (`ros-backend-metrics`) is a naming
+      # convention this rule assumes a deployment's scrape config will use,
+      # not something this repository enforces.
+      - alert: ROSBackendMetricsScrapeDown
+        expr: up{job="ros-backend-metrics"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          slo: metrics-availability
+        annotations:
+          summary: 'ROS backend metrics exporter unreachable'
+          description: >-
+            Prometheus has been unable to scrape the ROS backend metrics
+            exporter for at least 5 minutes. RED metrics and every alert
+            above are blind while this is firing.
+          runbook_url: 'docs/observability/runbooks/metrics-exporter-unavailable.md'
+          metric_query: 'up{job="ros-backend-metrics"}'

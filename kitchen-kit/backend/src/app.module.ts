@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { ObservabilityModule } from './common/observability/observability.module';
 import { AuditModule } from './modules/governance/audit/audit.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { IdentityModule } from './modules/identity/identity.module';
@@ -28,6 +29,10 @@ import { SyncModule } from './modules/sync/sync.module';
       validate: validateEnv,
     }),
     PrismaModule,
+    // SRS §27.6 observability foundation (G1-3) — structured logging, RED
+    // metrics, correlation/causation context. Imported early/globally so
+    // every downstream module's routes are observed automatically.
+    ObservabilityModule,
     // SRS §5.5.2 transaction-aware domain-event foundation (P1E-1). No
     // business event is published yet; see the module's own docblock.
     DomainEventsModule,
