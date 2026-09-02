@@ -7833,6 +7833,398 @@ channel is authorised by this entry.**
 **Status:** **RATIFIED — CLOSED.**
 
 ---
+## D1-1 — Offline / Sync Protocol Foundation Ratification — 2026-09-02
+
+> **RECORDED 2026-09-02 by explicit user governance action.**
+> **Explicitly approved during Full-SRS 4-Day execution after post-design
+> acceptance review.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **Fire Authorization**,
+> **P1F-2 Completion Economics**, **FIFO Exhaustion Carry-Forward**,
+> **Approval Runtime Minimum Resolution**, **P1G-1 Cash-Close Policy**, **R-6**,
+> **KDS MVP Operator Lifecycle**, **Minimum Operational Reporting**, **Day Close**
+> and **RCPT-R1** convention. The limb prefix — **GD-D1-01 … GD-D1-07** —
+> collision-checked against every existing series (`D-1…D-20`, `KDS-R1…R12`,
+> `RPT-R1…R3`, `DC-R1…R4`, `R-1…R-7`, `RCPT-R1`, `P-1…P-4`, `SB-1…SB-4`, `PL`)
+> and reuses no prefix.
+
+**Subject.** The `D1-1` offline/sync protocol design gate
+(`docs/reports/claude/full-srs-4day/2026-09-02_D1-1_offline-sync-design-gate.md`,
+commit `50b3706`) presented seven engineering proposals for ratification. This
+entry resolves all seven and records five architectural corrections identified
+during acceptance review.
+
+**Design gate status: ACCEPTED WITH CORRECTIONS.** The original report is
+retained as historical design evidence and is not rewritten; the authoritative
+implementation direction is this entry, with the reasoning recorded in
+`docs/reports/claude/full-srs-4day/2026-09-02_D1-1_offline-sync-ratification.md`.
+
+---
+
+### Decisions
+
+| Limb | Decision | Outcome |
+|---|---|---|
+| **GD-D1-01** | Identifier wire form | **RATIFIED** |
+| **GD-D1-02** | HLC canonical representation | **RATIFIED WITH CORRECTION** |
+| **GD-D1-03** | Bounded server HLC adoption | **DEFERRED** |
+| **GD-D1-04** | Fifth per-operation status `deferred` + proposed conflict rules | **RATIFIED** |
+| **GD-D1-05** | Reconciliation-exception ownership | **RATIFIED → `sync.revalidation_exceptions`** |
+| **GD-D1-06** | Versioning / limits / retention / watermark / tombstones / partitioning bundle | **RATIFIED WITH ARCHITECTURE CORRECTIONS** |
+| **GD-D1-07** | Revoked terminal → reject → unsynced backlog lost | **REJECTED** |
+
+**Replacement for GD-D1-07:** **lossless revoked-terminal recovery = HARD
+FOLLOW-UP GATE.**
+
+---
+
+**GD-D1-01 — RATIFIED.** Client-generated identifiers remain ULIDs
+(`FR-OFF-015` [M]). The permanent 128-bit identifier is rendered on the ROS
+wire/API as the repository-standard canonical UUID hexadecimal string. **The
+server SHALL NOT remap or reassign the identifier.** Crockford base32 remains an
+alternate textual representation of the same ULID, **not** the canonical ROS API
+representation. Follows ADR-009 ("or native UUID") and existing repository
+storage/API conventions (`src/common/ids.ts`, `UUID_PATTERN`, `@db.Uuid`), and
+avoids introducing two incompatible ID encodings into one API. **No product code
+change is authorised by this entry.**
+
+**GD-D1-02 — RATIFIED WITH CORRECTION.** The **semantic algorithm is EXACTLY the
+normative `FR-OFF-041` algorithm** and may not be varied on either side.
+Canonical wire/storage representation:
+`<physical_ms>.<logical>.<node>`, where `physical_ms` is **exactly 13**
+zero-padded decimal digits of Unix epoch **milliseconds** for the supported
+operational date range, `logical` is **exactly 5** zero-padded decimal digits,
+and `node` is **exactly 32** lowercase hexadecimal characters (the originating
+terminal UUID without dashes). Fixed width so lexical comparison is
+deterministic and matches component ordering. **Correction:** the original
+report's illustration printed a 16-digit physical segment; the corrected example
+is recorded in the ratification report §8.3. The semantic algorithm is unchanged
+by that correction, and **no alternative HLC algorithm is invented.** Final
+column width / database type is a **`D4-1` implementation detail** derived from
+the ratified representation and is **not** ratified here. The historical SRS
+inconsistency — **§7.4.1 `VARCHAR(40)` vs §25.2 `VARCHAR(48)`** — remains
+recorded as a **source defect**.
+
+**GD-D1-03 — DEFERRED (engineering hardening).** Not ratified. The normative SRS
+HLC algorithm and `CT-10` can be implemented and verified without changing
+clock-adoption semantics. Per-terminal HLC state and bounded adoption may be
+valuable defence-in-depth **but must not alter the normative shared algorithm
+without a separate design and conformance proof.** `D4-1` **may** design
+extension points for it but **MUST NOT** claim it as ratified behaviour.
+
+**GD-D1-04 — RATIFIED.** The fifth per-operation result **`deferred`** is
+ratified. `FR-OFF-022` [M] requires a causal-child operation whose parent is not
+yet applied to be **deferred rather than rejected**; `FR-OFF-024` [M] permits
+removal from the client outbox **only after a definitive response**. Therefore
+`accepted`, `duplicate`, `conflict` and `rejected` are **definitive**, and
+**`deferred` is NON-DEFINITIVE** — the client retains a deferred operation and
+retries after its causal dependency has been satisfied. The fifth state is a
+**protocol clarification needed to make the mandatory SRS clauses jointly
+implementable**, not a scope extension.
+Also ratified: the `D1-1` proposed conflict rules for the currently-supported
+domains — **order void vs payment**, **partitioned overpayment**,
+**overlapping/offline cash sessions**, and **KDS ticket state** — subject to
+later domain-specific tests. **This does NOT claim currently absent domains such
+as CRM/loyalty are implemented.** **Where a domain later defines stricter legal
+or fiscal semantics, the domain's ratified rule WINS and the sync conflict
+registry must be extended explicitly.**
+
+**GD-D1-05 — RATIFIED → `sync.revalidation_exceptions`.** Canonical persistence
+ownership for `FR-OFF-046` reconciliation exceptions belongs to **Sync**. A
+revalidation exception originates in the sync protocol and must not create a
+cross-lane persistence dependency on `governance.anomaly_flags`. Sync owns
+persistence, the relationship to `opId`, client-computed and server-computed
+values, `detected_at`, terminal/branch attribution, and the resolution state
+sync requires. Governance/Reporting **may consume** domain events, read
+contracts and alerts **without owning the underlying sync table.** Exact
+table/column names remain implementation details.
+
+**GD-D1-06 — RATIFIED WITH ARCHITECTURE CORRECTIONS.** Approved direction:
+explicit `protocolVersion`; per-operation `schemaVersion`; strict envelope
+compatibility; explicit payload/batch byte limits; **no silent unknown-field
+discard for financial operation envelopes**; reference-data change watermark;
+deletion/tombstone mechanism; bounded retention; partitioning for genuinely
+high-volume history; retention jobs/reapers. **Subject to:** (a) operation global
+uniqueness MUST use the corrected dedup architecture below; (b) final byte-cap
+values are **implementation-testable defaults, not immutable business
+semantics**; (c) the retention floor must satisfy every applicable SRS
+requirement; (d) **partitioning must not break idempotency correctness.**
+
+**GD-D1-07 — REJECTED.** The proposal *"revoked terminal → reject forever →
+unsynced committed sales may be lost"* is **NOT an acceptable Full-SRS /
+production architecture. The user explicitly rejects knowingly designing
+committed-sale loss into the system.**
+
+---
+
+### The five acceptance corrections
+
+**Correction 1 — partitioned history separated from global operation dedup.**
+The original design is **NOT ratified** where it simultaneously relied on RANGE
+partitioning of `sync_operations` by `received_at` **and** a global
+`UNIQUE (tenant_id, op_id)` on that same partitioned table. **PostgreSQL cannot
+provide both** — the constraint would necessarily become
+`(tenant_id, op_id, received_at)`, which is not global uniqueness, so the same
+`op_id` re-submitted across a partition boundary would insert cleanly and
+`NFR-REL-011` ("at-most-once financial effect") would fail in exactly the case
+it exists for. The design conflict is recorded explicitly. This repository
+already documents the underlying constraint at `prisma/schema.prisma:1767`:
+*"PostgreSQL requires the partition key inside every unique constraint."*
+**Ratified direction — the authoritative architecture SHALL separate:**
+**(A) a global operation dedup registry** — a small **non-time-partitioned**
+authoritative relation, conceptually `sync.operation_dedup`, owning the globally
+enforceable key `(tenant_id, op_id)`, containing enough immutable data to detect
+duplicate operation IDs, detect same-`opId`/different-fingerprint defects, return
+or locate the original per-operation result, preserve the minimum idempotency
+retention guarantee, and **prevent the same financial effect being applied
+twice**; exact table name and columns are `D4-1` implementation details — from
+**(B) `sync_operations` history** — a high-volume relation that **may** be
+time-partitioned for inspection, conflict analysis, audit linkage, operational
+history and retention management, and which **MUST NOT be treated as the sole
+global uniqueness mechanism** where partitioning prevents enforcing global
+`(tenant_id, op_id)` uniqueness.
+**Dedup atomicity invariant — RATIFIED.** The dedup registry MUST NOT become a
+second non-atomic write that can diverge from the business effect. For every
+accepted operation the authoritative operation result / dedup reservation and
+the business effect **must participate in a crash-safe protocol.** `D4-1` must
+prove a crash can never produce *business effect committed + no durable record
+that the `opId` was already applied* in a way that allows double application on
+retry; and must never externally acknowledge as `accepted` a case of *dedup says
+accepted + business effect never committed*. **Exact transactional
+implementation is `D4-1`'s design responsibility.**
+
+**Correction 2 — batch idempotency is crash-recoverable, not "unchanged".**
+`sync.idempotency_keys` / `IdempotencyService` **MAY** be reused as the
+**foundation** for batch-level idempotency, but the original phrase *"reused
+unchanged"* is **NOT ratified**, because `D4-1` requires crash-recoverable batch
+processing. The critical case: reservation enters `in_flight`; some operations
+commit; the process dies before `complete()` / response persistence; the client
+retries the exact batch. **The system MUST NOT leave that batch permanently
+trapped as `409 being processed` with no safe recovery path.**
+**Ratified required behaviour:** a batch in progress must have a
+reclaim/recovery mechanism. Conceptual states may include `in_flight` and
+`completed`, plus crash-ownership metadata such as lease / owner / attempt /
+`expires_at`; **exact schema is NOT ratified here.** Same `batchId` + same
+fingerprint + **live owner** → may report currently processing per
+implementation semantics. Same `batchId` + same fingerprint + **stale/dead owner
+or expired lease** → **safely reclaim/resume**; on resume, already-applied
+`opId`s return duplicate/original result and not-yet-applied `opId`s continue
+normally. Same `batchId` + **different fingerprint** → `409` client defect.
+**The client must never need to invent a new operation ID merely because the
+server process crashed.**
+**`FR-OFF-025` invariant — RATIFIED, and part of `D4-1` acceptance:** a server
+crash or connection loss during a batch SHALL NOT duplicate an already-applied
+operation, permanently strand a valid batch, require loss of acknowledged sales,
+require changing `opId`s, or make the outbox unrecoverable.
+
+**Correction 3 — per-operation failure isolation, not mandatory per-operation
+commit.** *"One PostgreSQL transaction per operation"* is **NOT ratified** as an
+SRS requirement. `FR-OFF-023` [M] requires that **failure of one operation does
+not fail the whole batch** — a statement about failure isolation, not commit
+granularity. **The ratified invariant is PER-OPERATION FAILURE ISOLATION, not
+PER-OPERATION PHYSICAL COMMIT**, and `D4-1` is **authorised to choose an
+implementation capable of meeting `NFR-PERF-032`.** `D4-1` **MAY** use: one
+pinned database connection per batch; transaction chunks; `SAVEPOINT` per
+operation; preloaded reference data; set-oriented reads; set-oriented writes
+where business invariants permit; and batched audit persistence **where
+compatible with the immutable hash-chain contract.** It **must preserve**, for
+each operation: independent semantic status; independent rollback/failure
+isolation; correct dedup result; correct business effect; and required
+audit/domain-event semantics. **One failed operation MUST NOT convert
+independent successful operations into failures.**
+**Accepted-operation durability — RATIFIED:** no operation may be returned as
+**`accepted`** until its business effect **and** authoritative dedup/result state
+are **durably committed**. Where several operations share a chunk transaction,
+their `accepted` statuses **cannot be externally final until that chunk
+commits**, and **a rollback means those operations are not accepted.**
+
+**Correction 4 — committed backlog loss is not accepted.** See **GD-D1-07 —
+REJECTED**, above. **Ratified security rule:** a normally revoked terminal
+**must lose ordinary interactive operating authority**, and revocation **MUST
+NOT** silently restore the terminal to ordinary trusted status merely because it
+claims to hold unsynced transactions; **at the same time, committed offline
+financial data must have a controlled, auditable, lossless-recovery path.**
+Security and durability are to be **reconciled explicitly rather than solved by
+sacrificing one.**
+**HARD FOLLOW-UP GATE — LOSSLESS REVOKED-TERMINAL RECOVERY.** A required
+follow-up design. Candidate implementations may include quarantine upload-only
+recovery, pre-revocation salvage, a recovery credential / one-shot drain, a
+replicated recovery spool, or another architecture preserving both properties;
+**the final mechanism is NOT ratified here.** **Hard invariants, all binding:**
+(1) a revoked terminal does not regain normal POS authority; (2) recovery is
+explicitly authorised; (3) recovery is auditable; (4) recovery cannot create new
+sales; (5) recovery cannot modify arbitrary server state; (6) operation
+idempotency remains enforced; (7) recovered financial operations receive
+enhanced provenance / review; (8) a lost/stolen terminal cannot use the recovery
+path to escalate authority; (9) legitimate committed transactions are not
+silently discarded.
+**`D4-1` CORE is authorised to start before the final recovery mechanism is
+implemented** and **may initially support active valid terminals only**, but
+**`D4-1` MUST NOT be declared FULLY COMPLETE for the revoked-terminal durability
+case** until the lossless recovery design is ratified and implemented. **Committed
+backlog loss must not be described as accepted behaviour.**
+
+**Correction 5 — the canonical Sync API is versioned `/v1`.** The original
+root-only endpoint is **NOT ratified** as the permanent Full-SRS contract. The
+canonical Full-SRS external contract for Sync is versioned:
+**`POST /v1/sync/batch`**, **`GET /v1/sync/changes`**, **`GET /v1/sync/status`**.
+The repository does not yet have a global `/v1` prefix (no `setGlobalPrefix`;
+`src/swagger.config.ts` documents the absence), and **Lane D MUST NOT
+independently retrofit the entire application routing structure.** **Ratified
+split:** `D4-1` owns the Sync controller and business protocol;
+**platform/API architecture owns or coordinates the repository-wide versioning
+mechanism** (Nest URI versioning, a coordinated `/v1` prefix, or another
+repository-wide mechanism — the mechanism is **not** ratified here). **The
+resulting external contract for Sync must expose the canonical v1 route. Do not
+permanently publish only `/sync/batch` and later claim Full-SRS route
+compliance.** Any temporary unversioned compatibility route needed during
+migration **must be explicitly temporary/deprecated and must not replace** the
+canonical versioned endpoint.
+
+---
+
+### Carried forward unchanged from `D1-1`
+
+**Operation envelope** — `opId` · `hlc` · `type` · `entityId` · `causedBy` ·
+`actorEmployeeId` · `occurredAt` · `schemaVersion` · `payload`; batch —
+`protocolVersion` · `deviceId` · `batchId` · `lastServerCursor` · `operations`.
+**No `tenantId` in the body**; tenant identity is derived from authenticated
+server context; **branch identity for a registered terminal is derived
+server-side, not trusted from arbitrary client body input.**
+**`clientSeq`** — no mandatory `clientSeq` is introduced in `D4-1` unless
+implementation evidence shows causal/idempotency correctness requires it;
+causality is represented by `causedBy` + HLC and idempotency by `opId` +
+`batchId`. **Sequence-gap semantics must not be added without a separate need.**
+**Batch HTTP semantics** — a well-formed authorised batch may return HTTP 200
+with independent per-operation results; one operation's rejection or conflict
+does not transform the whole batch into an HTTP error; envelope-level faults may
+still return the appropriate 4xx/5xx.
+**`FR-OFF-046` invariant — mandatory `D4-1` invariant:** a financially
+significant revalidation mismatch **MUST NOT reject a sale that already
+physically occurred.** The server accepts the transaction, records
+client-computed values, records server-computed values, persists a
+reconciliation exception, and escalates systematic mismatches per `FR-OFF-047`.
+
+**Retention — RATIFIED.** Operation idempotency retention SHALL be **at least
+the SRS-required minimum** and **must not be shorter than any client
+retry/outbox horizon that could legitimately replay an operation.** A 90-day hot
+operation-history target **may** be used as an initial engineering default but is
+**NOT** a reason to weaken statutory/financial/audit retention on the underlying
+business records. **Sync operation history is not a substitute for statutory
+business ledgers.** The retention mechanism **must be automated.** The currently
+**unpruned `sync.idempotency_keys` condition remains an implementation gap.**
+
+**Tombstones / delta watermark — MANDATORY for `D4-2`.** Reference-data delta
+sync cannot be correct if deletes cannot be represented or there is no
+monotonic/change watermark. `D4-2` requires a change-cursor/watermark mechanism,
+deletion tombstones or equivalent deletion events, and full checksum
+reconciliation. **Not implemented by this entry.**
+
+**Branch RBAC — Lane B governance is NOT altered by this entry.** `D-2` and its
+2026-08-19 amendment are untouched; no defer is lifted or reinterpreted.
+Branch-scoped authorization remains a **dependency to be consumed from Lane B's
+accepted implementation.** Sync MUST ultimately authorise operations against
+authenticated tenant, registered terminal, terminal branch, actor/session, and
+the required permission/scope **once branch RBAC lands**. **Do not recreate a
+parallel permission model inside Sync.**
+
+**Fiscal — unchanged.** The canonical `TaxDocument` / fiscal sequence behaviour
+is **NOT invented here**. `D4-3` remains dependent on **`C3-1` / `P7-FISCAL`**.
+The generic fiscal operation extension point is kept. **`CT-01`'s
+fiscal-sequence criterion remains ungradeable** until the fiscal model is
+ratified and implemented.
+
+**Conformance corpus — ratified principle.** Shared client/server algorithms are
+governed by a language-neutral conformance corpus; **`kitchen-kit/conformance/`
+is the precedent and must be extended rather than replaced.** `D4-1` owns server
+vectors for ids, HLC, envelope canonicalization, conflict rules and money where
+applicable; other domain owners contribute their own shared logic. Full
+`FR-OFF-050` / `FR-OFF-051` completion still requires a Dart/client runner,
+dual-suite CI and a release-blocking divergence gate — **none of which are
+claimed complete by this entry.**
+
+---
+
+### Measured release gates — RATIFIED, not "future optimization"
+
+**`P-D4-01` — `NFR-PERF-032`, 500 operations / 3 s p95.** Must be **measured
+during the earliest `D4-1` implementation iteration**; do not implement the
+entire protocol first and benchmark last. Required dimensions: 500 operations;
+realistic revalidation; audit writes; dedup writes; conflict checks; commit cost.
+**If naive operation-by-operation execution misses the budget, `D4-1` must
+optimize the architecture before expanding protocol surface.**
+
+**`P-D4-02` — per-tenant audit hash-chain contention during concurrent
+multi-terminal backlog drains.** `D4-1` acceptance must measure a one-terminal
+backlog, multiple terminals concurrently draining, audit-chain sequence
+contention, deadlock/retry behaviour, and `NFR-PERF-032` impact. **Do not weaken
+audit immutability to make the benchmark pass.**
+
+**Both are protocol architecture acceptance criteria.**
+
+---
+
+### Implementation consequence
+
+**`D4-1` CORE is AUTHORIZED.** It may implement: the global operation dedup
+registry; time-partitionable operation history if justified; sync batches /
+device state / conflict records; `sync.revalidation_exceptions`; the canonical
+v1 batch API coordinated with platform versioning; strict operation/batch
+envelope validation; the HLC algorithm and canonical representation;
+crash-recoverable batch reservation/resume; operation-level idempotency; causal
+ordering; `deferred` handling; per-operation failure isolation; conflict
+handling **for domains that actually exist**; `FR-OFF-045`/`FR-OFF-046`
+revalidation for available computation substrates; skew detection; `FR-OFF-044`
+audit writes; required conformance vectors; the early `NFR-PERF-032` benchmark;
+and the concurrent audit-contention benchmark.
+
+**`D4-1` must NOT implement:** fiscal sequence semantics; bootstrap / delta /
+checksum endpoints; WebSocket push; mDNS / LAN coordinator; the CRM/loyalty
+domain; the Dart client; branch RBAC itself; full revoked-terminal recovery
+unless separately designed and ratified; or **global repository API versioning
+unilaterally.**
+
+**`D4-2`** remains responsible for the full bootstrap snapshot, delta changes,
+cursors, watermarks, tombstones/deletions, entity-type checksums and reference
+reconciliation. **`D4-3`** remains responsible for fiscal/offline sequence
+integration after the canonical fiscal model is available.
+
+**`D4-1` may NOT be closed as FULLY COMPLETE until all three residual hard gates
+are satisfied:** lossless revoked-terminal recovery · **`P-D4-01`** ·
+**`P-D4-02`**.
+
+---
+
+### No implementation credit is created by this entry
+
+`FR-OFF` requirements are **DESIGN / RATIFICATION ONLY** as applicable and are
+**not** marked implementation-complete. **`NFR-PERF-032`: NOT YET VERIFIED.**
+**`FR-OFF-050` / `FR-OFF-051`: PARTIAL.** **`CT-01`: NOT PASSED.** **`CT-06`: NOT
+PASSED globally.** **`CT-10`: NOT PASSED** until executable conformance/tests
+exist. **Fiscal: unresolved** until `P7-FISCAL` / `D4-3`. **Revoked-terminal
+lossless recovery: unresolved hard gate.**
+
+**Nothing else is reopened:** **D-2 is not reopened** — no branch-scoped RBAC is
+introduced or lifted · **D-9** RLS/tenant-isolation discipline is relied upon
+and unchanged · **D-15** idempotency/concurrency is extended in the sync
+direction, not amended · **P-1**, **D-12**, **D-13**, **D-16**, **D-14 A-1**,
+**D-20**, **KDS-R1 … KDS-R12**, **RPT-R1 … RPT-R3**, **DC-R1 … DC-R4**,
+**R-1 … R-7**, **RCPT-R1**, **PL**, **SB-1 … SB-4** all unchanged. This entry
+**amends no numbered decision**, **creates no schema**, **authorizes no
+migration**, and **changes no product code**. All historical register text is
+preserved verbatim above and is not rewritten.
+
+**Evidence (non-authoritative):**
+`docs/reports/claude/full-srs-4day/2026-09-02_D1-1_offline-sync-design-gate.md`
+(design gate, retained as historical evidence, with an appended post-review
+acceptance note) and
+`docs/reports/claude/full-srs-4day/2026-09-02_D1-1_offline-sync-ratification.md`
+(this ratification's reasoning and verification).
+
+**Status:** **RATIFIED — D4-1 CORE AUTHORIZED; THREE RESIDUAL HARD GATES OPEN.**
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |
