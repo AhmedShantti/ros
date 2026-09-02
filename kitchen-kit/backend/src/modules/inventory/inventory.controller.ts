@@ -462,7 +462,7 @@ export class InventoryController {
 
   /** FR-INV-065: per-location reorder configuration. */
   @Post('items/:itemId/reorder-config')
-  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.', 'Location not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.ADJUST)
   @ApiOkResponse({
     description: 'The upserted reorder configuration.',
@@ -521,7 +521,7 @@ export class InventoryController {
 
   // ------------------------------------------------------------------ ledger --
   @Post('movements')
-  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.', 'Location not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.ADJUST)
   @ApiOperation({
     summary:
@@ -551,12 +551,17 @@ export class InventoryController {
 
   /** Cost-bearing read — gated by inventory.cost.view, not inventory.view. */
   @Get('items/:itemId/movements')
-  @AuthorizationTarget(resourceOrTenantTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromQuery('locationId') }, 'Filtered by location: that location\'s owning scope. Unfiltered: a tenant-wide read.'))
+  @AuthorizationTarget(resourceOrTenantTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromQuery('locationId') }, 'Filtered by location: that location\'s owning scope. Unfiltered: a tenant-wide read.', 'Location not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COST_VIEW)
   @ApiOkResponse({
     description:
       'The most recent 200 ledger movements for this item, newest first.',
     schema: { type: 'array', items: movementLedgerEntrySchema },
+  })
+  @ApiNotFoundResponse({
+    description:
+      'The named location is not visible in this tenant — unknown, or another ' +
+      "tenant's. Byte-identical for both.",
   })
   listMovements(
     @CurrentTenantContext() c: TenantContext,
@@ -568,7 +573,7 @@ export class InventoryController {
 
   // --------------------------------------------------------------- transfers --
   @Post('transfers')
-  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('fromLocationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('fromLocationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.', 'Location not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.TRANSFER_CREATE)
   @ApiOperation({
     summary: 'Dispatch a transfer (writes the transfer_out leg).',
@@ -597,7 +602,7 @@ export class InventoryController {
   }
 
   @Post('transfers/receive')
-  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('toLocationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('toLocationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.', 'Location not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.TRANSFER_RECEIVE)
   @ApiOperation({
     summary:
@@ -624,7 +629,7 @@ export class InventoryController {
 
   // ------------------------------------------------------------------ counts --
   @Post('counts')
-  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.', 'Location not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COUNT_PERFORM)
   @ApiOperation({
     summary:
@@ -647,7 +652,7 @@ export class InventoryController {
   }
 
   @Get('counts/:sessionId/lines')
-  @AuthorizationTarget(resourceTarget(INVENTORY_COUNT_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The count session names its location; posting it writes count_adjustment movements against that location\'s stock.'))
+  @AuthorizationTarget(resourceTarget(INVENTORY_COUNT_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The count session names its location; posting it writes count_adjustment movements against that location\'s stock.', 'Count session not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COUNT_PERFORM)
   @ApiOkResponse({
     description:
@@ -663,7 +668,7 @@ export class InventoryController {
   }
 
   @Post('count-lines/:lineId')
-  @AuthorizationTarget(resourceTarget(INVENTORY_COUNT_LINE_TARGET_RESOLVER, { lineId: fromParam('lineId') }, 'The line\'s session names the location whose stock the count will adjust.'))
+  @AuthorizationTarget(resourceTarget(INVENTORY_COUNT_LINE_TARGET_RESOLVER, { lineId: fromParam('lineId') }, 'The line\'s session names the location whose stock the count will adjust.', 'Count line not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COUNT_PERFORM)
   @ApiOperation({ summary: 'Record a counted quantity for one count line.' })
   @ApiCreatedResponse({
@@ -688,7 +693,7 @@ export class InventoryController {
   }
 
   @Post('counts/:sessionId/post')
-  @AuthorizationTarget(resourceTarget(INVENTORY_COUNT_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The count session names its location; posting it writes count_adjustment movements against that location\'s stock.'))
+  @AuthorizationTarget(resourceTarget(INVENTORY_COUNT_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The count session names its location; posting it writes count_adjustment movements against that location\'s stock.', 'Count session not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COUNT_POST)
   @ApiOperation({
     summary:
@@ -715,7 +720,7 @@ export class InventoryController {
 
   // ------------------------------------------------------------------- waste --
   @Post('waste')
-  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.', 'Location not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.WASTE_RECORD)
   @ApiOperation({
     summary:
@@ -761,11 +766,16 @@ export class InventoryController {
 
   // --------------------------------- levels / on-demand computations (D-INV-08) --
   @Get('levels')
-  @AuthorizationTarget(resourceOrTenantTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromQuery('locationId') }, 'Filtered by location: that location\'s owning scope. Unfiltered: a tenant-wide read.'))
+  @AuthorizationTarget(resourceOrTenantTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromQuery('locationId') }, 'Filtered by location: that location\'s owning scope. Unfiltered: a tenant-wide read.', 'Location not found.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description: 'Current stock levels (FR-INV-010/015).',
     schema: { type: 'array', items: levelSchema },
+  })
+  @ApiNotFoundResponse({
+    description:
+      'The named location is not visible in this tenant — unknown, or another ' +
+      "tenant's. Byte-identical for both.",
   })
   levels(
     @CurrentTenantContext() c: TenantContext,

@@ -129,7 +129,7 @@ export class TerminalController {
   }
 
   @Post('terminals/:terminalId/status')
-  @AuthorizationTarget(resourceTarget(IDENTITY_TERMINAL_TARGET_RESOLVER, { terminalId: fromParam('terminalId') }, 'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.'))
+  @AuthorizationTarget(resourceTarget(IDENTITY_TERMINAL_TARGET_RESOLVER, { terminalId: fromParam('terminalId') }, 'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.', 'Terminal not found.'))
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_MANAGE)
   @ApiOperation({ summary: "Set a terminal's status." })
   @ApiOkResponse({
@@ -149,7 +149,7 @@ export class TerminalController {
   }
 
   @Post('terminals/:terminalId/fingerprints')
-  @AuthorizationTarget(resourceTarget(IDENTITY_TERMINAL_TARGET_RESOLVER, { terminalId: fromParam('terminalId') }, 'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.'))
+  @AuthorizationTarget(resourceTarget(IDENTITY_TERMINAL_TARGET_RESOLVER, { terminalId: fromParam('terminalId') }, 'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.', 'Terminal not found.'))
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_MANAGE)
   @ApiOperation({

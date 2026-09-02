@@ -406,7 +406,7 @@ export class TreasuryController {
 
   /** Record cash added to the drawer — FR-POS-091 [M]. */
   @Post(':sessionId/pay-in')
-  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.'))
+  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.', 'Cash session not found.'))
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(TREASURY_PERMISSIONS.CASH_PAYIN)
@@ -445,7 +445,7 @@ export class TreasuryController {
 
   /** Record cash removed from the drawer for an expense — FR-POS-091 [M]. */
   @Post(':sessionId/pay-out')
-  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.'))
+  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.', 'Cash session not found.'))
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(TREASURY_PERMISSIONS.CASH_PAYOUT)
@@ -484,7 +484,7 @@ export class TreasuryController {
 
   /** Record excess cash removed to the safe — FR-POS-091 [M]. */
   @Post(':sessionId/safe-drop')
-  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.'))
+  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.', 'Cash session not found.'))
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(TREASURY_PERMISSIONS.CASH_SAFEDROP)
@@ -538,7 +538,7 @@ export class TreasuryController {
    * close re-resolves everything fresh, under the advisory lock).
    */
   @Get(':sessionId/close-context')
-  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.'))
+  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.', 'Cash session not found.'))
   @RequireAnyPermission(
     TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
     TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
@@ -575,7 +575,7 @@ export class TreasuryController {
    * response exists could not be an informed decision).
    */
   @Post(':sessionId/close')
-  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.'))
+  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.', 'Cash session not found.'))
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequireAnyPermission(
@@ -640,7 +640,7 @@ export class TreasuryController {
    * retry supplies FRESH `approvalRequestId`/`approvalDecisionId` values.
    */
   @Post(':sessionId/close/finalize')
-  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.'))
+  @AuthorizationTarget(resourceTarget(TREASURY_CASH_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The cash session owns a real branch_id; the branch is never in the path.', 'Cash session not found.'))
   @HttpCode(HttpStatus.OK)
   @Idempotent()
   @RequireAnyPermission(

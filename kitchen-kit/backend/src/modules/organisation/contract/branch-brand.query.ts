@@ -45,4 +45,28 @@ export interface BranchBrandQuery {
     tx: Prisma.TransactionClient,
     brandId: string,
   ): Promise<boolean>;
+
+  /**
+   * The two facts the generic authorization path needs about a branch, in ONE
+   * query: its parent brand (for the lattice's BRAND→BRANCH limb) and whether
+   * it is `status = 'active'`.
+   *
+   * ── WHY `isActive` BELONGS HERE ──────────────────────────────────────────
+   * T-12: a branch moved away from `active` is denied for EVERY scope, TENANT
+   * included, and that has to hold route-wide rather than in the two modules
+   * that happened to check it. Asking for the brand and the status separately
+   * would mean two round trips on every branch-targeted request AND two moments
+   * at which the answer could differ; asking once, inside the caller's own
+   * transaction, means the authorization decision sees one consistent branch.
+   *
+   * `null` means NOT VISIBLE in the caller's RLS context — another tenant's, or
+   * nobody's — and the two must stay indistinguishable to the client.
+   * Deactivation is deliberately NOT folded into `null`: an inactive branch of
+   * your OWN tenant is a refusal (403), while an invisible one is the ordinary
+   * tenant-safe 404.
+   */
+  findBranchAuthorizationFacts(
+    tx: Prisma.TransactionClient,
+    branchId: string,
+  ): Promise<{ readonly brandId: string; readonly isActive: boolean } | null>;
 }

@@ -19,25 +19,61 @@ import type { TargetScope } from './scope';
 /**
  * The outcome of turning a request plus a declared spec into a TARGET SCOPE.
  *
- * `defer` exists for exactly one situation and must not grow: the raw id on the
- * request is not even the right SHAPE to be a resource id. Such a value cannot
- * identify anything, so no authority can be exercised with it, and the route's
- * own `ValidationPipe` (which runs after guards) returns the `400` it always
- * returned. Deciding `deny` there would silently convert every malformed-input
- * `400` in the repository into a `403`.
+ * ── EVERY OUTCOME TERMINATES OR DECIDES. THERE IS NO "CARRY ON UNSCOPED". ────
+ * B1-3 originally had a fourth outcome, `defer`, which let the request proceed
+ * to its handler when the target could not be resolved, on the reasoning that
+ * the handler's own tenant-safe lookup would refuse it anyway. The acceptance
+ * correction rejects that as a completion state, and rightly: "the handler will
+ * probably refuse it" is a claim about every handler in the repository, present
+ * and future, and it was already false for at least one route
+ * (`GET /catalogue/branches/:branchId/menus` answered `200 []` for an unknown
+ * branch — harmless in itself, but reached without any scope decision).
+ *
+ * So the resolver now always returns one of:
+ *
+ *   `target`     — a concrete scope; the primitive decides;
+ *   `notFound`   — 404, using the route's OWN tenant-safe wording, so foreign
+ *                  and non-existent stay byte-identical to each other and to
+ *                  what the handler would have said;
+ *   `badRequest` — 400, for input that cannot denote a resource at all.
+ *
+ * The handler runs only after a completed authorization decision.
  */
 export type TargetResolution =
   | { readonly outcome: 'target'; readonly target: TargetScope }
   | { readonly outcome: 'deny'; readonly reason: string }
-  | { readonly outcome: 'defer'; readonly reason: string };
+  | { readonly outcome: 'notFound'; readonly message: string }
+  | { readonly outcome: 'badRequest'; readonly message: string };
 
 const UUID_RE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-const BUSINESS_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const BUSINESS_DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * A business day must be a REAL calendar date, not merely `YYYY-MM-DD`-shaped.
+ *
+ * `2026-02-31` matches the pattern, and `new Date('2026-02-31T00:00:00Z')`
+ * silently rolls it forward to 3 March. A resolver handed that would look up a
+ * DIFFERENT day, find nothing, and answer 404 — turning a route's documented
+ * `400 malformed date` into a not-found. The round-trip check is what keeps the
+ * guard's answer the same as the route's own `parseBusinessDay`.
+ */
+function isCalendarDate(value: string): boolean {
+  const match = BUSINESS_DAY_RE.exec(value);
+  if (!match) return false;
+  const [, year, month, day] = match;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.getUTCFullYear() === Number(year) &&
+    parsed.getUTCMonth() + 1 === Number(month) &&
+    parsed.getUTCDate() === Number(day)
+  );
+}
 
 function hasShape(value: string, format: TargetIdFormat): boolean {
   return format === 'businessDay'
-    ? BUSINESS_DAY_RE.test(value)
+    ? isCalendarDate(value)
     : UUID_RE.test(value);
 }
 
@@ -68,12 +104,11 @@ function readRaw(
  *
  * ── EVERY TARGET COMES FROM A TRUSTED SERVER FACT ───────────────────────────
  * A client-supplied id is never believed on its own. `branch`/`brand` ids are
- * handed to `ScopeAuthorizationService`, which resolves them against
- * Organisation inside the caller's RLS context and refuses anything invisible
- * in the acting tenant — indistinguishably from an id that does not exist.
- * `resource` targets are resolved by loading the addressed row tenant-safely and
- * reading its REAL owning scope, so a body or path id can only ever select a
- * resource, never assert its scope.
+ * resolved against Organisation inside the caller's RLS context and refused if
+ * invisible in the acting tenant — indistinguishably from an id that does not
+ * exist. `resource` targets are resolved by loading the addressed row
+ * tenant-safely and reading its REAL owning scope, so a body or path id can only
+ * ever select a resource, never assert its scope.
  */
 @Injectable()
 export class AuthorizationTargetResolver {
@@ -84,55 +119,76 @@ export class AuthorizationTargetResolver {
     private readonly branchBrand: BranchBrandQuery,
   ) {}
 
-  /**
-   * Resolve a client-supplied branch/brand id INSIDE the caller's RLS context,
-   * and hand back a target only if it is visible in the acting tenant.
-   *
-   * ── WHY AN INVISIBLE TARGET DEFERS RATHER THAN DENYING ─────────────────────
-   * An id belonging to another tenant, and an id belonging to nobody, are the
-   * same thing to this layer — both invisible. The repository already has one
-   * answer for that pair, used everywhere and documented on every route: the
-   * tenant-safe `404`, byte-identical for both (`assertBranchInScope`, ADR 0008).
-   *
-   * Answering `403` here instead would not leak anything on its own, but it
-   * would replace that single established answer with a second one produced by a
-   * different layer — and the moment two layers answer the same question
-   * differently, the difference between them becomes the signal. Deferring keeps
-   * exactly one answer in the system.
-   *
-   * It is not a hole: the route's own lookup is what runs next, it is tenant-safe,
-   * and it refuses. `ScopeAuthorizationService` independently refuses an
-   * invisible target too (B1-2 §14), so the primitive stays strict for every
-   * caller that reaches it directly.
-   */
-  private async resolveVisibleScope(
+  async resolve(
+    request: Request,
     auth: RequestAuthorization,
-    kind: 'branch' | 'brand',
-    id: string,
+    spec: AuthorizationTargetSpec,
   ): Promise<TargetResolution> {
-    return this.prisma.withAuthContext(
-      { userId: auth.context.userId, tenantId: auth.context.tenantId },
-      async (tx): Promise<TargetResolution> => {
-        if (kind === 'brand') {
-          const visible = await this.branchBrand.brandIsVisible(tx, id);
-          return visible
-            ? { outcome: 'target', target: { type: 'brand', brandId: id } }
-            : { outcome: 'defer', reason: 'brand not visible in this tenant' };
-        }
-        const brandId = await this.branchBrand.findBrandOfBranch(tx, id);
-        return brandId === null
-          ? { outcome: 'defer', reason: 'branch not visible in this tenant' }
-          : {
-              // The same query that established visibility yields the parent
-              // brand, so the primitive never has to make a second round trip.
-              outcome: 'target',
-              target: { type: 'branch', branchId: id, brandId },
-            };
-      },
-    );
+    const preliminary = await this.resolveSpec(request, auth, spec);
+    if (preliminary.outcome !== 'target') {
+      return preliminary;
+    }
+    return this.finalizeBranchTarget(auth, preliminary.target, spec);
   }
 
-  async resolve(
+  /**
+   * T-12 — a branch that is not `active` is denied for EVERY scope, TENANT
+   * included, on EVERY route.
+   *
+   * ── WHY THIS IS ONE CHECK AT THE END, NOT A CHECK PER KIND ────────────────
+   * A branch target can arrive from a path parameter, a body field, a query
+   * filter, live terminal state, an earlier guard, or the row of an addressed
+   * resource. Checking "is it active?" in each of those places is six chances to
+   * forget, and the two modules that DID check it (Reporting, Day Close) are
+   * exactly the evidence that a per-module check does not generalise. Every
+   * branch target — however it was derived — funnels through here.
+   *
+   * The brand comes back from the SAME query, so the lattice's BRAND→BRANCH limb
+   * cannot see a different branch than the activity check did.
+   *
+   * Non-enumeration is preserved and the two refusals stay distinct on purpose:
+   * an INVISIBLE branch (another tenant's, or nobody's) is the ordinary
+   * tenant-safe **404**; a visible but INACTIVE branch of the caller's own
+   * tenant is a **403**. Collapsing the second into a 404 would hide a branch
+   * from the tenant that owns it; collapsing the first into a 403 would tell a
+   * caller that another tenant's branch exists.
+   */
+  private async finalizeBranchTarget(
+    auth: RequestAuthorization,
+    target: TargetScope,
+    spec: AuthorizationTargetSpec,
+  ): Promise<TargetResolution> {
+    if (target.type !== 'branch') {
+      return { outcome: 'target', target };
+    }
+
+    const facts = await this.prisma.withAuthContext(
+      { userId: auth.context.userId, tenantId: auth.context.tenantId },
+      (tx) =>
+        this.branchBrand.findBranchAuthorizationFacts(tx, target.branchId),
+    );
+    if (facts === null) {
+      return { outcome: 'notFound', message: 'Branch not found.' };
+    }
+
+    const exempt = spec.kind === 'branch' && spec.allowInactive !== undefined;
+    if (!facts.isActive && !exempt) {
+      return { outcome: 'deny', reason: 'branch is not active' };
+    }
+
+    return {
+      outcome: 'target',
+      // The same query that established visibility yields the parent brand, so
+      // `ScopeAuthorizationService` never makes a second round trip.
+      target: {
+        type: 'branch',
+        branchId: target.branchId,
+        brandId: facts.brandId,
+      },
+    };
+  }
+
+  private async resolveSpec(
     request: Request,
     auth: RequestAuthorization,
     spec: AuthorizationTargetSpec,
@@ -156,14 +212,24 @@ export class AuthorizationTargetResolver {
           // fallback. Falling back to a tenant target here would let a caller
           // widen its own target by omitting a field.
           return {
-            outcome: 'deny',
-            reason: `${spec.kind} target '${spec.key}' absent`,
+            outcome: 'badRequest',
+            message: `${spec.key} is required.`,
           };
         }
         if (!hasShape(value, 'uuid')) {
-          return { outcome: 'defer', reason: `${spec.key} is not a uuid` };
+          // A value of the wrong shape cannot denote any resource, so there is
+          // nothing to authorize against. Answering 400 here — rather than
+          // letting the request through to a ValidationPipe that may or may not
+          // check this particular field — keeps the malformed-input status the
+          // routes already document while guaranteeing the handler never runs.
+          return {
+            outcome: 'badRequest',
+            message: `${spec.key} must be a UUID.`,
+          };
         }
-        return this.resolveVisibleScope(auth, spec.kind, value);
+        return spec.kind === 'branch'
+          ? { outcome: 'target', target: { type: 'branch', branchId: value } }
+          : this.resolveVisibleBrand(auth, value);
       }
 
       case 'branchOrTenant': {
@@ -173,41 +239,48 @@ export class AuthorizationTargetResolver {
           return { outcome: 'target', target: { type: 'tenant' } };
         }
         if (!hasShape(value, 'uuid')) {
-          return { outcome: 'defer', reason: `${spec.key} is not a uuid` };
+          return {
+            outcome: 'badRequest',
+            message: `${spec.key} must be a UUID.`,
+          };
         }
-        return this.resolveVisibleScope(auth, 'branch', value);
+        return { outcome: 'target', target: { type: 'branch', branchId: value } };
       }
 
       case 'declaredScope': {
         const declared = readRaw(raw, spec.source, spec.typeKey);
         if (declared === undefined) {
-          return { outcome: 'deny', reason: `'${spec.typeKey}' absent` };
+          return {
+            outcome: 'badRequest',
+            message: `${spec.typeKey} is required.`,
+          };
         }
         if (declared === 'tenant') {
           return { outcome: 'target', target: { type: 'tenant' } };
         }
         if (declared !== 'brand' && declared !== 'branch') {
-          // Not a scope this system knows. The route's own enum validation
-          // returns its 400; nothing can be authorized against a scope that
-          // does not exist.
-          return { outcome: 'defer', reason: `unknown scope '${declared}'` };
+          return {
+            outcome: 'badRequest',
+            message: `${spec.typeKey} must be tenant, brand or branch.`,
+          };
         }
         const key = declared === 'brand' ? spec.brandKey : spec.branchKey;
         const value = readRaw(raw, spec.source, key);
         if (value === undefined) {
-          // A `brand`/`branch` scope declared with no id is MALFORMED, and every
-          // route that accepts a declared scope rejects that combination with a
-          // 400 of its own (`ck_recipe_scope` / D-17-03 for recipes, "Invalid
-          // scopeId for the given scopeType" for price lists). The row cannot be
-          // created without the id, so deferring authorizes nothing — and it
-          // keeps the malformed-input answer a 400 rather than turning it into a
-          // 403 that would tell the caller nothing useful.
-          return { outcome: 'defer', reason: `'${key}' absent for ${declared}` };
+          // A `brand`/`branch` scope declared with no id is MALFORMED, and the
+          // row could not be created from it. Every such route already answers
+          // 400; the guard answers it first so the handler never runs.
+          return {
+            outcome: 'badRequest',
+            message: `${key} is required for ${declared} scope.`,
+          };
         }
         if (!hasShape(value, 'uuid')) {
-          return { outcome: 'defer', reason: `${key} is not a uuid` };
+          return { outcome: 'badRequest', message: `${key} must be a UUID.` };
         }
-        return this.resolveVisibleScope(auth, declared, value);
+        return declared === 'brand'
+          ? this.resolveVisibleBrand(auth, value)
+          : { outcome: 'target', target: { type: 'branch', branchId: value } };
       }
 
       case 'posTerminalBranch': {
@@ -293,6 +366,20 @@ export class AuthorizationTargetResolver {
     }
   }
 
+  /** A brand id from the request, refused unless visible in the acting tenant. */
+  private async resolveVisibleBrand(
+    auth: RequestAuthorization,
+    brandId: string,
+  ): Promise<TargetResolution> {
+    const visible = await this.prisma.withAuthContext(
+      { userId: auth.context.userId, tenantId: auth.context.tenantId },
+      (tx) => this.branchBrand.brandIsVisible(tx, brandId),
+    );
+    return visible
+      ? { outcome: 'target', target: { type: 'brand', brandId } }
+      : { outcome: 'notFound', message: 'Brand not found.' };
+  }
+
   private async resolveResource(
     raw: RawRequest,
     auth: RequestAuthorization,
@@ -311,10 +398,16 @@ export class AuthorizationTargetResolver {
         if (key.optional) {
           continue;
         }
-        return { outcome: 'deny', reason: `resource key '${key.key}' absent` };
+        return { outcome: 'badRequest', message: `${key.key} is required.` };
       }
       if (!hasShape(value, key.format ?? 'uuid')) {
-        return { outcome: 'defer', reason: `${key.key} is malformed` };
+        return {
+          outcome: 'badRequest',
+          message:
+            key.format === 'businessDay'
+              ? `${key.key} must be a YYYY-MM-DD date.`
+              : `${key.key} must be a UUID.`,
+        };
       }
       keys[name] = value;
     }
@@ -339,12 +432,10 @@ export class AuthorizationTargetResolver {
     );
 
     if (target === null) {
-      // Not visible in this tenant — another tenant's, or nobody's. The route's
-      // own lookup returns the repository's ordinary tenant-safe 404, which is
-      // byte-identical for both cases (brief §6). Answering 403 here would make
-      // the authorization layer itself the existence oracle the 404 exists to
-      // prevent.
-      return { outcome: 'defer', reason: 'resource not visible in tenant' };
+      // Not visible in this tenant — another tenant's, or nobody's. Answered
+      // with the route's OWN tenant-safe 404 wording, so the two cases stay
+      // byte-identical to each other and the operation never runs unscoped.
+      return { outcome: 'notFound', message: spec.notFound };
     }
     return { outcome: 'target', target };
   }

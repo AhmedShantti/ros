@@ -23,6 +23,22 @@ export class BranchBrandQueryService implements BranchBrandQuery {
     return branch?.brandId ?? null;
   }
 
+  async findBranchAuthorizationFacts(
+    tx: Prisma.TransactionClient,
+    branchId: string,
+  ): Promise<{ brandId: string; isActive: boolean } | null> {
+    const branch = await tx.branch.findUnique({
+      where: { id: branchId },
+      select: { brandId: true, status: true },
+    });
+    // Invisible under RLS lands here as null — indistinguishable from "does not
+    // exist". Being INACTIVE is a different answer and is reported as such, so
+    // the caller can refuse it without turning it into a 404.
+    return branch === null
+      ? null
+      : { brandId: branch.brandId, isActive: branch.status === 'active' };
+  }
+
   async brandIsVisible(
     tx: Prisma.TransactionClient,
     brandId: string,

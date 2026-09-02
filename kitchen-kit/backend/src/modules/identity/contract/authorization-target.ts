@@ -66,6 +66,15 @@ export type AuthorizationTargetSpec =
       readonly kind: 'branch';
       readonly source: TargetIdSource;
       readonly key: string;
+      /**
+       * T-12 EXEMPTION. A branch that is not `active` is denied for EVERY scope
+       * (see `AuthorizationTargetResolver`), which would strand a deactivated
+       * branch permanently: the operation that reactivates it addresses that
+       * same branch. A route may opt out ONLY when it IS the branch's lifecycle
+       * administration, and only with a written reason — the coverage gate
+       * asserts the reason exists.
+       */
+      readonly allowInactive?: { readonly reason: string };
     }
   /** BRAND target, from an id on the request, resolved tenant-safely. */
   | {
@@ -134,6 +143,14 @@ export type AuthorizationTargetSpec =
       readonly token: symbol;
       readonly keys: Readonly<Record<string, ResolverKeySpec>>;
       readonly description: string;
+      /**
+       * The tenant-safe 404 message this route ALREADY returns for a resource
+       * that is not visible. The guard raises it itself so the operation never
+       * runs unscoped, and it must be the route's own wording so that foreign
+       * and non-existent stay byte-identical to each other AND to what the
+       * handler would have said.
+       */
+      readonly notFound: string;
     }
   /**
    * RESOURCE-DERIVED when the resource is named, TENANT when it is not.
@@ -148,6 +165,7 @@ export type AuthorizationTargetSpec =
       readonly token: symbol;
       readonly keys: Readonly<Record<string, ResolverKeySpec>>;
       readonly description: string;
+      readonly notFound: string;
     }
   /**
    * The scope the request itself DECLARES for a resource it is creating.
@@ -231,10 +249,14 @@ export const authOnlyTarget = (reason: string): AuthorizationTargetSpec => ({
   reason,
 });
 
-export const branchFromParam = (key = 'branchId'): AuthorizationTargetSpec => ({
+export const branchFromParam = (
+  key = 'branchId',
+  allowInactive?: { readonly reason: string },
+): AuthorizationTargetSpec => ({
   kind: 'branch',
   source: 'param',
   key,
+  ...(allowInactive ? { allowInactive } : {}),
 });
 
 export const branchFromBody = (key = 'branchId'): AuthorizationTargetSpec => ({
@@ -309,22 +331,26 @@ export const resourceTarget = (
   token: symbol,
   keys: Readonly<Record<string, ResolverKeySpec>>,
   description: string,
+  notFound: string,
 ): AuthorizationTargetSpec => ({
   kind: 'resource',
   token,
   keys,
   description,
+  notFound,
 });
 
 export const resourceOrTenantTarget = (
   token: symbol,
   keys: Readonly<Record<string, ResolverKeySpec>>,
   description: string,
+  notFound: string,
 ): AuthorizationTargetSpec => ({
   kind: 'resourceOrTenant',
   token,
   keys,
   description,
+  notFound,
 });
 
 /** Shorthand for the overwhelmingly common `:id`-style resolver input. */

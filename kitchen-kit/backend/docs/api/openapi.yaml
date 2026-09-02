@@ -5477,6 +5477,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
           description: No tenant context / insufficient permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The named branch is not visible in this tenant — unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists.
       security:
         - bearer: []
       summary: 'FR-MNU-003: priority-ordered resolution with an ambiguity warning.'
@@ -8720,6 +8726,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
           description: No tenant context / insufficient permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both.
       security:
         - bearer: []
       summary: Cost-bearing read — gated by inventory.cost.view, not inventory.view.
@@ -8854,6 +8866,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
           description: No tenant context / insufficient permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both.
       security:
         - bearer: []
       tags:
@@ -11300,7 +11318,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Unknown or cross-tenant resource.
+          description: The named branch is not visible in this tenant — unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists.
       security:
         - bearer: []
       summary: List orders, cursor-paginated.
