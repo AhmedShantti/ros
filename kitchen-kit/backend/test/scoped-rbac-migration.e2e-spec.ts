@@ -87,7 +87,6 @@ describe('Scoped RBAC — M-4+ migration posture and RLS (e2e)', () => {
     return { tenantId, userId, membershipId, roleId, assignmentId, brandId };
   };
 
-
   /**
    * A branch created through the migrator client, WITH the `org.locations`
    * registry row `BranchesService.create` would have written. These arranges
@@ -151,7 +150,9 @@ describe('Scoped RBAC — M-4+ migration posture and RLS (e2e)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     await app.init();
     admin = createMigratorClient(app);
     prisma = app.get(PrismaService);
@@ -281,9 +282,8 @@ describe('Scoped RBAC — M-4+ migration posture and RLS (e2e)', () => {
           password,
         })
       ).id;
-      const otherMembership = (
-        await memberships.grant(otherUser, f.tenantId)
-      ).id;
+      const otherMembership = (await memberships.grant(otherUser, f.tenantId))
+        .id;
       await admin.membershipRole.create({
         data: {
           id: secondInherited,
@@ -323,9 +323,7 @@ describe('Scoped RBAC — M-4+ migration posture and RLS (e2e)', () => {
       await rawBranch(f.tenantId, f.brandId, `U2${stamp % 1000}`, 'active');
 
       // Not failed, not retroactively blocked: ordinary operations continue.
-      await expect(
-        branches.findOne(f.tenantId, b1.id),
-      ).resolves.toBeDefined();
+      await expect(branches.findOne(f.tenantId, b1.id)).resolves.toBeDefined();
       // And a further branch is NOT gated — the gate is the 1 -> 2 transition
       // only; this tenant is past it and is handled by review state, not by a
       // block that would break a running business.
@@ -359,7 +357,12 @@ describe('Scoped RBAC — M-4+ migration posture and RLS (e2e)', () => {
 
     it('has the UPDATE policy B1-2 added, with both USING and WITH CHECK', async () => {
       const policies = await admin.$queryRaw<
-        { policyname: string; cmd: string; qual: string | null; with_check: string | null }[]
+        {
+          policyname: string;
+          cmd: string;
+          qual: string | null;
+          with_check: string | null;
+        }[]
       >`SELECT policyname, cmd, qual, with_check
           FROM pg_policies
          WHERE schemaname = 'identity' AND tablename = 'membership_roles'`;
@@ -393,13 +396,11 @@ describe('Scoped RBAC — M-4+ migration posture and RLS (e2e)', () => {
       const other = await makeInheritedTenant('rlsother');
 
       // Same tenant: allowed.
-      const own = await prisma.withAuthContext(
-        { tenantId: f.tenantId },
-        (tx) =>
-          tx.membershipRole.updateMany({
-            where: { id: f.assignmentId },
-            data: { validTo: new Date(Date.now() + 3_600_000) },
-          }),
+      const own = await prisma.withAuthContext({ tenantId: f.tenantId }, (tx) =>
+        tx.membershipRole.updateMany({
+          where: { id: f.assignmentId },
+          data: { validTo: new Date(Date.now() + 3_600_000) },
+        }),
       );
       expect(own.count).toBe(1);
 

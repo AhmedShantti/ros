@@ -274,10 +274,10 @@ model Tenant {
 }
 
 model Membership {
-  id        String           @id @db.Uuid
-  userId    String           @map("user_id") @db.Uuid
-  tenantId  String           @map("tenant_id") @db.Uuid
-  status    MembershipStatus @default(active)
+  id         String           @id @db.Uuid
+  userId     String           @map("user_id") @db.Uuid
+  tenantId   String           @map("tenant_id") @db.Uuid
+  status     MembershipStatus @default(active)
   /// B1-2 (D-2 REOPENED IN PART (2), clause 7 — T-4-LIVE). Monotonic
   /// authorization/scope epoch. Bumped transactionally whenever this
   /// membership's scoped role-assignment authority changes (create, remove,
@@ -286,9 +286,9 @@ model Membership {
   /// live row is a STALE SNAPSHOT and is refused. The token is never the
   /// authorization source — live resolution is — so this detects staleness, it
   /// does not grant.
-  authzEpoch Int             @default(0) @map("authz_epoch")
-  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  authzEpoch Int              @default(0) @map("authz_epoch")
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -419,20 +419,20 @@ enum MembershipRoleOrigin {
 /// would be a permanent ambiguity.
 model MembershipRole {
   /// Stable per-assignment identity (ULID-as-UUID, `common/ids`).
-  id           String   @id @db.Uuid
+  id           String @id @db.Uuid
   /// Local tenant, so scope references can carry tenant-safe composite FKs and
   /// RLS can predicate directly instead of joining `memberships`.
-  tenantId     String   @map("tenant_id") @db.Uuid
-  membershipId String   @map("membership_id") @db.Uuid
-  roleId       String   @map("role_id") @db.Uuid
+  tenantId     String @map("tenant_id") @db.Uuid
+  membershipId String @map("membership_id") @db.Uuid
+  roleId       String @map("role_id") @db.Uuid
 
-  scopeType RoleScopeType @map("scope_type")
+  scopeType     RoleScopeType @map("scope_type")
   /// Set iff `scopeType = brand`. Composite FK — can never point at another
   /// tenant's brand.
-  scopeBrandId  String? @map("scope_brand_id") @db.Uuid
+  scopeBrandId  String?       @map("scope_brand_id") @db.Uuid
   /// Set iff `scopeType = branch`. Composite FK — can never point at another
   /// tenant's branch.
-  scopeBranchId String? @map("scope_branch_id") @db.Uuid
+  scopeBranchId String?       @map("scope_branch_id") @db.Uuid
 
   /// FR-SEC-005 [S] effective dating. Evaluated LIVE at request time against
   /// the DATABASE clock; expiry needs no sweep job for authority to disappear.
@@ -758,7 +758,7 @@ model Branch {
   recipes Recipe[]
 
   // B1-2 scoped RBAC back-relation (virtual; no DDL impact on this model).
-  roleAssignments   MembershipRole[]
+  roleAssignments MembershipRole[]
 
   // D-2 (amended) PIN substrate back-relations.
   terminals         Terminal[]

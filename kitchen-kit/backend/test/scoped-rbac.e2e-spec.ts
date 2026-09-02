@@ -143,7 +143,11 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
     code = BIZ,
   ): Promise<boolean> => {
     const auth = await authorizationOf(token);
-    return scopeAuthz.isAuthorized(auth, { codes: [code], mode: 'all' }, target);
+    return scopeAuthz.isAuthorized(
+      auth,
+      { codes: [code], mode: 'all' },
+      target,
+    );
   };
 
   beforeAll(async () => {
@@ -155,7 +159,7 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
-    http = app.getHttpServer() as App;
+    http = app.getHttpServer();
     admin = createMigratorClient(app);
 
     tokens = app.get(AccessTokenService);
@@ -241,8 +245,10 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
       scope: { type: 'tenant' },
     });
 
-    brandX = (await brands.create(tenantA, adminUserId, { name: 'Brand X' })).id;
-    brandY = (await brands.create(tenantA, adminUserId, { name: 'Brand Y' })).id;
+    brandX = (await brands.create(tenantA, adminUserId, { name: 'Brand X' }))
+      .id;
+    brandY = (await brands.create(tenantA, adminUserId, { name: 'Brand Y' }))
+      .id;
     const mkBranch = async (brandId: string, code: string) =>
       (
         await branches.create(tenantA, adminUserId, {
@@ -408,10 +414,18 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
       const t = await selectTenant(`srbac.leak.${stamp}@example.com`, tenantA);
       const at = (target: TargetScope, code: string) => may(t, target, code);
 
-      expect(await at({ type: 'branch', branchId: branchX1 }, 'sales.order.void')).toBe(true);
-      expect(await at({ type: 'branch', branchId: branchX2 }, 'sales.order.void')).toBe(false);
-      expect(await at({ type: 'branch', branchId: branchX2 }, 'sales.order.create')).toBe(true);
-      expect(await at({ type: 'branch', branchId: branchX1 }, 'sales.order.create')).toBe(false);
+      expect(
+        await at({ type: 'branch', branchId: branchX1 }, 'sales.order.void'),
+      ).toBe(true);
+      expect(
+        await at({ type: 'branch', branchId: branchX2 }, 'sales.order.void'),
+      ).toBe(false);
+      expect(
+        await at({ type: 'branch', branchId: branchX2 }, 'sales.order.create'),
+      ).toBe(true);
+      expect(
+        await at({ type: 'branch', branchId: branchX1 }, 'sales.order.create'),
+      ).toBe(false);
     });
   });
 
@@ -482,9 +496,7 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
           password,
         })
       ).id;
-      membershipId = (
-        await app.get(MembershipsService).grant(uId, tenantA)
-      ).id;
+      membershipId = (await app.get(MembershipsService).grant(uId, tenantA)).id;
     });
 
     it('a future validFrom grants nothing yet', async () => {
@@ -770,7 +782,8 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
           .get(UsersService)
           .createUser({ email: posEmail, displayName: 'pos', password })
       ).id;
-      posMembership = (await app.get(MembershipsService).grant(uId, tenantA)).id;
+      posMembership = (await app.get(MembershipsService).grant(uId, tenantA))
+        .id;
 
       // A TENANT-scoped role. The point of the suite: tenant-wide authority
       // still cannot cross the terminal's branch on a POS session.

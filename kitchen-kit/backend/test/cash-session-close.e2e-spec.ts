@@ -386,10 +386,10 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
         where: { userId, tenantId: tenantA },
       });
       await membershipRoles.create(tenantA, null, {
-      membershipId: m.id,
-      roleId: roleId,
-      scope: { type: 'tenant' },
-    });
+        membershipId: m.id,
+        roleId: roleId,
+        scope: { type: 'tenant' },
+      });
     };
     await assign(userCashier, cashierRole.id);
     await assign(userOther, otherRole.id);

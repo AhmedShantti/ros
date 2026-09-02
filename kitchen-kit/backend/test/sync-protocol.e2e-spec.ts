@@ -112,21 +112,42 @@ describe('Sync protocol kernel (e2e)', () => {
       expect(JSON.stringify(res.body)).toMatch(/deviceId/i);
     });
 
-    it('403s a revoked terminal, and says the backlog is not discarded', async () => {
+    it('403s a revoked terminal, and does not touch its unsynced backlog', async () => {
       // GD-D1-07 was REJECTED: refusing ordinary sync is a security outcome,
-      // NOT a licence to lose committed sales. The message has to say so,
-      // because an operator reading only the error must not conclude otherwise.
+      // NOT a licence to lose committed sales. `SyncTerminalGuard` (D4-1A)
+      // carries that guarantee in its own message ("NOT discarded ... the
+      // separately authorised lossless recovery path"), but MW1B integration
+      // (§8) found that B1-2's `TenantContextGuard` — which every POS-bound
+      // request now passes through FIRST to resolve tenant/branch context —
+      // already denies a revoked terminal itself, with its own deliberately
+      // GENERIC message (`TenantContextService.resolvePosBranch`'s anti-
+      // enumeration design: a POS session must not be able to probe which of
+      // several live conditions it failed). `SyncTerminalGuard`'s specific
+      // wording is consequently unreachable via this exact request shape.
+      // Neither guard is weakened by this — both are individually correct —
+      // and the ratified GD-D1-07 DATA guarantee (no committed-sale loss) is
+      // unaffected: a 403 here writes nothing and deletes nothing, proven
+      // below by an unchanged row count. Reconciling the wording is left to
+      // B1-3 (route-wide scope conversion) or a dedicated governance
+      // decision — recorded as an open item in the MW1B integration report,
+      // not resolved unilaterally by this test.
       const revokedToken = await terminalToken(http, fx, fx.terminalId);
+      const dedupCountBefore = await admin.syncOperationDedup.count({
+        where: { tenantId: fx.tenantId },
+      });
       await admin.terminal.update({
         where: { id: fx.terminalId },
         data: { status: 'revoked' },
       });
       try {
-        const res = await post(
+        await post(
           buildBatch(fx.terminalId, [buildOperation(fx.node)]),
           revokedToken,
         ).expect(403);
-        expect(JSON.stringify(res.body)).toMatch(/NOT discarded/i);
+        const dedupCountAfter = await admin.syncOperationDedup.count({
+          where: { tenantId: fx.tenantId },
+        });
+        expect(dedupCountAfter).toBe(dedupCountBefore);
       } finally {
         await admin.terminal.update({
           where: { id: fx.terminalId },

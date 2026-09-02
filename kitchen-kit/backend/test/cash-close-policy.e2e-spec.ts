@@ -145,10 +145,10 @@ describe('Cash-close policy (e2e) — P1G-1 migration 33', () => {
         });
         await roles.addPermissions(tenantId, role.id, codes);
         await membershipRoles.create(tenantId, null, {
-      membershipId: m.id,
-      roleId: role.id,
-      scope: { type: 'tenant' },
-    });
+          membershipId: m.id,
+          roleId: role.id,
+          scope: { type: 'tenant' },
+        });
       }
     };
 

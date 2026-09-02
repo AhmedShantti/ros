@@ -71,12 +71,9 @@ const operationResultSchema: SchemaObject = {
 
 const countsSchema: SchemaObject = {
   type: 'object',
-  required: OPERATION_STATUSES as unknown as string[],
+  required: OPERATION_STATUSES,
   properties: Object.fromEntries(
-    OPERATION_STATUSES.map((s) => [
-      s,
-      { type: 'integer', example: 0 } as SchemaObject,
-    ]),
+    OPERATION_STATUSES.map((s) => [s, { type: 'integer', example: 0 }]),
   ),
   description: 'Per-status totals for this batch.',
 };

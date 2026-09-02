@@ -182,10 +182,10 @@ export async function createDayCloseFixture(
     'active',
   );
   await membershipRoles.create(tenantId, null, {
-      membershipId: employeeMembership.id,
-      roleId: fullRole,
-      scope: { type: 'tenant' },
-    });
+    membershipId: employeeMembership.id,
+    roleId: fullRole,
+    scope: { type: 'tenant' },
+  });
   const employeeCode = `E${seed.slice(-6)}`;
   const employee = await employees.create(tenantId, employeeUser.id, {
     code: employeeCode,

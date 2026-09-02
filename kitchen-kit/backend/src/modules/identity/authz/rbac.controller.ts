@@ -244,7 +244,9 @@ export class RbacController {
         branchId: g.scope.type === 'branch' ? g.scope.branchId : null,
         permissions: [...g.permissions].sort(),
       })),
-      permittedBranches: buildPermittedBranchSet(auth.grants.map((g) => g.scope)),
+      permittedBranches: buildPermittedBranchSet(
+        auth.grants.map((g) => g.scope),
+      ),
       authorizationEpoch: auth.authzEpoch,
       scopeReviewRequired: auth.scopeReviewRequired,
     };
@@ -340,15 +342,19 @@ export class RbacController {
     // Audit is written INSIDE the service transaction, atomically with the
     // assignment and the epoch bump — there is no window in which authority has
     // changed but the trail has not.
-    const created = await this.membershipRoles.create(ctx.tenantId, ctx.userId, {
-      membershipId,
-      roleId: dto.roleId,
-      scope: toAssignmentScope(dto.scope),
-      ...(dto.validFrom ? { validFrom: new Date(dto.validFrom) } : {}),
-      ...(dto.validTo !== undefined
-        ? { validTo: dto.validTo === null ? null : new Date(dto.validTo) }
-        : {}),
-    });
+    const created = await this.membershipRoles.create(
+      ctx.tenantId,
+      ctx.userId,
+      {
+        membershipId,
+        roleId: dto.roleId,
+        scope: toAssignmentScope(dto.scope),
+        ...(dto.validFrom ? { validFrom: new Date(dto.validFrom) } : {}),
+        ...(dto.validTo !== undefined
+          ? { validTo: dto.validTo === null ? null : new Date(dto.validTo) }
+          : {}),
+      },
+    );
     return toAssignmentBody(created);
   }
 
@@ -378,7 +384,7 @@ export class RbacController {
   @Patch('role-assignments/:assignmentId')
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
   @ApiOperation({
-    summary: "Re-scope an assignment and/or change its validity window.",
+    summary: 'Re-scope an assignment and/or change its validity window.',
     description:
       'Both are authority changes: each bumps the membership authorization epoch, so ' +
       'access tokens minted before it are refused until refreshed.',
@@ -388,7 +394,8 @@ export class RbacController {
     schema: assignmentSchema,
   })
   @ApiBadRequestResponse({
-    description: 'No change requested, invalid scope shape, or validTo not after validFrom.',
+    description:
+      'No change requested, invalid scope shape, or validTo not after validFrom.',
   })
   @ApiConflictResponse({
     description:

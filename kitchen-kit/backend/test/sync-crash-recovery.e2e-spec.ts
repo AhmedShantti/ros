@@ -41,8 +41,8 @@ describe('Sync crash recovery (e2e)', () => {
   let failpoint: SyncFailpoint;
   /** Arm a one-shot simulated process death after the given chunk commits. */
   const crashAfterChunk = (target: number): void => {
-    failpoint.afterChunk = async (chunkIndex) => {
-      if (chunkIndex !== target) return;
+    failpoint.afterChunk = (chunkIndex) => {
+      if (chunkIndex !== target) return Promise.resolve();
       failpoint.afterChunk = null;
       throw new Error('simulated process death after chunk commit');
     };

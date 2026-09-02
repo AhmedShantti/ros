@@ -331,13 +331,19 @@ describe('SaleDepletionService — A1-2 lock grouping + group-state correctness'
     let expectedVersion = order.version;
     const lineIds: string[] = [];
     for (let i = 0; i < n; i++) {
-      const added = await lines.addLine(tenantA, userA, order.id, order.businessDay, {
-        menuItemId,
-        variantId,
-        quantity: '1',
-        modifiers: [],
-        expectedVersion,
-      });
+      const added = await lines.addLine(
+        tenantA,
+        userA,
+        order.id,
+        order.businessDay,
+        {
+          menuItemId,
+          variantId,
+          quantity: '1',
+          modifiers: [],
+          expectedVersion,
+        },
+      );
       expectedVersion = added.order.version;
       lineIds.push(added.line.id);
     }
@@ -438,7 +444,7 @@ describe('SaleDepletionService — A1-2 lock grouping + group-state correctness'
 
   // ------------------------------------------------------------- §17/§9 --
   describe('group-state correctness — physical and accounting axes evolve independently across effects in the same group', () => {
-    it('FEFO physical order diverges from FIFO accounting receipt order; the second effect continues from the first effect\'s evolved state on BOTH axes', async () => {
+    it("FEFO physical order diverges from FIFO accounting receipt order; the second effect continues from the first effect's evolved state on BOTH axes", async () => {
       // Receipt order (accounting, FIFO): batch1 THEN batch2.
       // Expiry order (physical, FEFO): batch2 (expires sooner) THEN batch1.
       const batch1CreatedAt = new Date('2026-01-01T00:00:00Z');
@@ -516,12 +522,12 @@ describe('SaleDepletionService — A1-2 lock grouping + group-state correctness'
       const finalBatch2 = await admin.stockBatch.findUniqueOrThrow({
         where: { id: batch2.id },
       });
-      expect(finalBatch1.quantityRemaining.equals(new Prisma.Decimal('3'))).toBe(
-        true,
-      );
-      expect(finalBatch2.quantityRemaining.equals(new Prisma.Decimal('0'))).toBe(
-        true,
-      );
+      expect(
+        finalBatch1.quantityRemaining.equals(new Prisma.Decimal('3')),
+      ).toBe(true);
+      expect(
+        finalBatch2.quantityRemaining.equals(new Prisma.Decimal('0')),
+      ).toBe(true);
       // Exact final ACCOUNTING state: batch1 accounting-exhausted (3 + 2 = 5),
       // batch2 accounting-consumed = 2 (never physically touched by
       // accounting until effect 2).
@@ -544,7 +550,9 @@ describe('SaleDepletionService — A1-2 lock grouping + group-state correctness'
         expect(m.balanceAfter.equals(running)).toBe(true);
       }
       const level = await admin.stockLevel.findUniqueOrThrow({
-        where: { stockItemId_locationId: { stockItemId: itemX, locationId: locationA } },
+        where: {
+          stockItemId_locationId: { stockItemId: itemX, locationId: locationA },
+        },
       });
       expect(level.quantityOnHand.equals(running)).toBe(true);
       expect(level.quantityOnHand.equals(new Prisma.Decimal('-7'))).toBe(true);
@@ -579,7 +587,9 @@ describe('SaleDepletionService — A1-2 lock grouping + group-state correctness'
       //   cost=[{batch,2},{batch(carry-forward),2}] merges into
       //   [{physical:batch, cost:batch, qty:2}, {physical:null, cost:batch, qty:2}].
       const batch = (
-        await admin.stockBatch.findFirstOrThrow({ where: { stockItemId: itemY } })
+        await admin.stockBatch.findFirstOrThrow({
+          where: { stockItemId: itemY },
+        })
       ).id;
       expect(allAllocations).toHaveLength(3);
       const sig = (a: (typeof allAllocations)[number]) =>

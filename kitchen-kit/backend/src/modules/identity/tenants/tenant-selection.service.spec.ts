@@ -53,9 +53,11 @@ describe('TenantSelectionService.select', () => {
     // session mechanics, not scope resolution, so an empty snapshot suffices —
     // and an empty snapshot is a real state (zero authority), never a wildcard.
     const snapshots = {
-      build: jest
-        .fn()
-        .mockResolvedValue({ scp: [], pbr: { v: 1, all: false, brands: [], branches: [] }, epo: 0 }),
+      build: jest.fn().mockResolvedValue({
+        scp: [],
+        pbr: { v: 1, all: false, brands: [], branches: [] },
+        epo: 0,
+      }),
     } as unknown as AuthorizationSnapshotService;
     service = new TenantSelectionService(
       prisma,

@@ -80,7 +80,9 @@ export class TenantContextService {
         // DATABASE clock, read inside this transaction and used for every
         // validity comparison below. FR-SEC-005 expiry is therefore a property
         // of the database, not of whichever host happens to serve the request.
-        const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
+        const [{ now }] = await tx.$queryRaw<
+          [{ now: Date }]
+        >`SELECT now() AS now`;
 
         const membership = await tx.membership.findFirst({
           where: {

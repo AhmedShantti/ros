@@ -59,7 +59,6 @@ describe('P-D4-02 — audit chain contention under concurrent drain (e2e)', () =
   }, 90_000);
 
   afterAll(async () => {
-    // eslint-disable-next-line no-console
     console.log(
       '\nP-D4-02 audit contention\n' + JSON.stringify(report, null, 2),
     );
@@ -150,7 +149,7 @@ describe('P-D4-02 — audit chain contention under concurrent drain (e2e)', () =
     report.chainLength = rows.length;
   }, 120_000);
 
-  it('did not deadlock or exhaust retries', async () => {
+  it('did not deadlock or exhaust retries', () => {
     // Every drain above ran to completion with a 200 and a full accepted
     // count; a deadlock or an exhausted retry loop would have surfaced as a
     // 500 there. Recorded explicitly so the gate has an assertion of its own.

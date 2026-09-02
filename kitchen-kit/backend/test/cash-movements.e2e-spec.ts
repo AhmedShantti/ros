@@ -356,10 +356,10 @@ describe('Cash movements (e2e) — P1G-0', () => {
         where: { userId, tenantId },
       });
       await membershipRoles.create(tenantId, null, {
-      membershipId: m.id,
-      roleId: roleId,
-      scope: { type: 'tenant' },
-    });
+        membershipId: m.id,
+        roleId: roleId,
+        scope: { type: 'tenant' },
+      });
     };
     await assign(tenantA, userOwner, fullCash.id);
     await assign(tenantA, userOther, fullCash.id);

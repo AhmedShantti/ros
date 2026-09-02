@@ -192,7 +192,8 @@ describe('TenantContextService', () => {
 
     it('rejects (403) a tenant-bound token carrying NO epoch at all', async () => {
       findFirst.mockResolvedValue(membershipRow([], 0));
-      const { authzEpoch: _omitted, ...noEpoch } = principal;
+      const noEpoch = { ...principal };
+      delete noEpoch.authzEpoch;
       await expect(service.resolve(noEpoch)).rejects.toBeInstanceOf(
         ForbiddenException,
       );

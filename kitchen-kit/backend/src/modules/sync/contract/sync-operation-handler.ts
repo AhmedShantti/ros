@@ -56,7 +56,11 @@ export interface SyncOperationContext {
 /** What a handler may return. Omitting it means `accepted` with no detail. */
 export interface SyncOperationOutcome {
   readonly status?: Extract<SyncOperationStatus, 'accepted' | 'conflict'>;
-  readonly reasonCode?: SyncReasonCode | string;
+  /** A known code, or any other string a handler needs — see call sites in
+   * `revalidation-exception.service.ts`/`device-state.service.ts`. `string &
+   * {}` keeps `SyncReasonCode`'s literal autocomplete instead of collapsing
+   * the union to bare `string`. */
+  readonly reasonCode?: SyncReasonCode | (string & {});
   readonly reasonDetail?: string;
   /** Echoed back to the client inside the per-operation result. */
   readonly detail?: Record<string, unknown>;

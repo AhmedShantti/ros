@@ -1,9 +1,4 @@
-import {
-  INestApplication,
-  Injectable,
-  Provider,
-  ValidationPipe,
-} from '@nestjs/common';
+import { INestApplication, Injectable, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';

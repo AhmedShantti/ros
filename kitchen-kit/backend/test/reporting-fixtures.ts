@@ -138,10 +138,10 @@ export async function createReportingFixture(
     'active',
   );
   await membershipRoles.create(tenantId, null, {
-      membershipId: dashboardMembership.id,
-      roleId: role.id,
-      scope: { type: 'tenant' },
-    });
+    membershipId: dashboardMembership.id,
+    roleId: role.id,
+    scope: { type: 'tenant' },
+  });
 
   const employeeUser = await users.createUser({
     email: `rpt.emp.${seed}@example.com`,
