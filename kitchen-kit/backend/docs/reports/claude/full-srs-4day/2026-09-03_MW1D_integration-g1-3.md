@@ -662,7 +662,7 @@ throughout.
 | `npm test` | **78 suites / 1053 tests, all PASS** |
 | `module-boundaries` | **45/45 PASS** |
 | `npm run openapi:check` | clean, zero diff |
-| `npm run lint:check` | 51/3, zero new vs. true baseline (§12) |
+| `npm run lint:check` | 48 errors / 3 warnings, identity-identical to baseline; zero new |
 | `npm audit --omit=dev --audit-level=high` | 7 high / 1 moderate, zero new |
 
 ---
