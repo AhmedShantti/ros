@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -11,6 +11,7 @@ import { applyApiVersioning } from './common/http/api-versioning';
 import { applySyncBodyLimit } from './modules/sync/sync.bootstrap';
 import { finalizeOpenApiDocument } from './common/openapi/oas31.util';
 import { buildSwaggerConfig } from './swagger.config';
+import { StructuredLoggerService } from './common/observability/logging/structured-logger.service';
 
 const { version: apiVersion } = JSON.parse(
   readFileSync(join(__dirname, '..', 'package.json'), 'utf8'),
@@ -31,9 +32,17 @@ function parseTrustProxy(value: string | undefined): boolean | number | string {
 }
 
 async function bootstrap(): Promise<void> {
+  // Buffer every log Nest emits during module instantiation (DI construction,
+  // etc.) instead of falling back to the default text logger — attaching the
+  // structured logger immediately below flushes them through it. A crash
+  // before `NestFactory.create()` itself resolves is the one window this
+  // cannot cover (there is no app, and therefore no logger, yet); that
+  // failure surfaces via Node's own uncaught-exception handling, which is
+  // unavoidable and out of scope for an application-level logger.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    bufferLogs: false,
+    bufferLogs: true,
   });
+  app.useLogger(app.get(StructuredLoggerService));
   const config = app.get(ConfigService);
 
   // Only honor X-Forwarded-* when explicitly configured for the deployment's
@@ -83,7 +92,9 @@ async function bootstrap(): Promise<void> {
 
   const port = config.get<number>('PORT', 3000);
   await app.listen(port, '0.0.0.0');
-  Logger.log(`ROS Backend API listening on port ${port}`, 'Bootstrap');
+  app
+    .get(StructuredLoggerService)
+    .log(`ROS Backend API listening on port ${port}`, 'Bootstrap');
 }
 
 void bootstrap();
