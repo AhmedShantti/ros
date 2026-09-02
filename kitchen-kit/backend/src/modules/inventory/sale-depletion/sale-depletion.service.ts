@@ -25,6 +25,7 @@ import {
 import { parseExactDecimal } from '../../../common/money/rounding';
 import { Prisma } from '../../../generated/prisma/client';
 import {
+  CostSlice,
   LockedBatchLayer,
   applyCostConsumption,
   findCarryForwardBasis,
@@ -134,6 +135,18 @@ export class SaleDepletionService implements SaleDepletionCommand {
     const effectsByLine = new Map<string, SaleDepletionEffectResult[]>();
     const distinctFifoStockItemIds = new Set<string>();
 
+    // A1-2: lock FIFO layers ONCE per distinct (stockItemId, locationId) key
+    // instead of once per logical effect. `triples` is already sorted
+    // (stockItemId ASC, then orderLineId ASC) above; `locationId` is a
+    // single resolved value for this whole call, so that existing sort
+    // ALREADY produces the required global lock order — stock_item_id
+    // ascending, then location_id — and keeps same-key triples contiguous,
+    // so a group boundary is detected simply by watching the key change as
+    // the sorted array is walked. The within-group processing order stays
+    // exactly what it already was: orderLineId ASC.
+    let currentGroupKey: string | null = null;
+    let lockedLayers: LockedBatchLayer[] = [];
+
     for (const triple of triples) {
       const item = stockItemById.get(triple.stockItemId);
       if (!item) {
@@ -167,15 +180,21 @@ export class SaleDepletionService implements SaleDepletionCommand {
       const winningEffectId = inserted[0].id;
 
       // STEP 3 — WINNER ONLY.
-      // 3a — lock layers, one ordering for both axes.
-      const lockedLayers = await lockLayers(
-        tx,
-        input.tenantId,
-        triple.stockItemId,
-        locationId,
-      );
+      // 3a — lock layers, one ordering for both axes. ONCE per distinct
+      // (stockItemId, locationId): a later triple in the SAME group reuses
+      // the working state evolved below, never a stale re-read.
+      const groupKey = `${triple.stockItemId}::${locationId}`;
+      if (groupKey !== currentGroupKey) {
+        lockedLayers = await lockLayers(
+          tx,
+          input.tenantId,
+          triple.stockItemId,
+          locationId,
+        );
+        currentGroupKey = groupKey;
+      }
 
-      // 3b — PHYSICAL PLAN.
+      // 3b — PHYSICAL PLAN, against the CURRENT working state.
       const physicalSlices = item.isBatchTracked
         ? this.planPhysicalConsumption(
             lockedLayers,
@@ -197,6 +216,15 @@ export class SaleDepletionService implements SaleDepletionCommand {
           WHERE "id" = ${slice.physicalBatchId}::uuid
         `;
       }
+      // Evolve the PHYSICAL axis of the working state to match the write
+      // just issued, so the NEXT triple in this group (if any) plans
+      // against the post-consumption state rather than the original
+      // snapshot `lockLayers` returned at the top of the group — equivalent
+      // to re-reading the locked rows from PostgreSQL, without doing so.
+      lockedLayers = this.evolvePhysicalState(
+        lockedLayers,
+        physicalSlices.slices,
+      );
 
       // 3c — COST PLAN. `batchId` is null only for weighted_average/standard
       // (a single whole-quantity slice with no cost-basis batch); FIFO slices
@@ -219,6 +247,11 @@ export class SaleDepletionService implements SaleDepletionCommand {
         distinctFifoStockItemIds.add(triple.stockItemId);
         const plan = planFifoCostConsumption(lockedLayers, requested);
         await applyCostConsumption(tx, plan.slices);
+        // Evolve the ACCOUNTING axis of the working state to match the
+        // write just issued — independent of the physical axis above
+        // (D-INV-03 / §9): FIFO costing consumes receipt order regardless
+        // of which physical batch FEFO selected.
+        lockedLayers = this.evolveAccountingState(lockedLayers, plan.slices);
         const slices = [...plan.slices];
         if (plan.shortfall.num > 0n) {
           const basis = await findCarryForwardBasis(
@@ -338,6 +371,68 @@ export class SaleDepletionService implements SaleDepletionCommand {
       remaining = subtract(remaining, take);
     }
     return { slices, shortfall: remaining.num > 0n ? remaining : ZERO };
+  }
+
+  /**
+   * A1-2: evolve the PHYSICAL axis (`quantity_remaining`) of a locked-layer
+   * working set to match the `stock_batches` UPDATE just issued for
+   * `slices`, so the next logical effect in the same locked
+   * (stockItemId, locationId) group plans against the true post-consumption
+   * state — equivalent to re-reading the locked rows from PostgreSQL,
+   * without doing so. Pure/exact: never mutates its input, never touches
+   * the independent ACCOUNTING axis (see `evolveAccountingState`).
+   */
+  private evolvePhysicalState(
+    layers: readonly LockedBatchLayer[],
+    slices: readonly PhysicalSlice[],
+  ): LockedBatchLayer[] {
+    const deltas = new Map<string, Rational>();
+    for (const s of slices) {
+      if (!s.physicalBatchId) continue;
+      deltas.set(
+        s.physicalBatchId,
+        add(deltas.get(s.physicalBatchId) ?? ZERO, s.quantity),
+      );
+    }
+    return layers.map((l) => {
+      const d = deltas.get(l.id);
+      return d
+        ? {
+            ...l,
+            quantityRemaining: toDecimal6(
+              subtract(exact(l.quantityRemaining), d),
+            ),
+          }
+        : l;
+    });
+  }
+
+  /**
+   * A1-2: evolve the ACCOUNTING axis (`fifo_cost_quantity_consumed`) of a
+   * locked-layer working set to match the `stock_batches` UPDATE just
+   * issued by `applyCostConsumption` for `slices` — the FIFO receipt-order
+   * counter, independent of whichever physical batch FEFO selected. Pure/
+   * exact; never mutates its input.
+   */
+  private evolveAccountingState(
+    layers: readonly LockedBatchLayer[],
+    slices: readonly CostSlice[],
+  ): LockedBatchLayer[] {
+    const deltas = new Map<string, Rational>();
+    for (const s of slices) {
+      deltas.set(s.batchId, add(deltas.get(s.batchId) ?? ZERO, s.quantity));
+    }
+    return layers.map((l) => {
+      const d = deltas.get(l.id);
+      return d
+        ? {
+            ...l,
+            fifoCostQuantityConsumed: toDecimal6(
+              add(exact(l.fifoCostQuantityConsumed), d),
+            ),
+          }
+        : l;
+    });
   }
 
   /** Two-pointer merge — Σ emitted quantity MUST equal the shared total D exactly. */
