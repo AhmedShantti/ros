@@ -7,6 +7,8 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { applyApiVersioning } from './common/http/api-versioning';
+import { applySyncBodyLimit } from './modules/sync/sync.bootstrap';
 import { finalizeOpenApiDocument } from './common/openapi/oas31.util';
 import { buildSwaggerConfig } from './swagger.config';
 
@@ -38,6 +40,16 @@ async function bootstrap(): Promise<void> {
   // proxy topology; the default trusts no forwarding header, so a client cannot
   // spoof its source IP (which the auth rate limiter keys on).
   app.set('trust proxy', parseTrustProxy(config.get<string>('TRUST_PROXY')));
+
+  // URI versioning, VERSION_NEUTRAL by default: every existing route keeps its
+  // current path, and only a controller that explicitly declares a version
+  // moves under `/v1`. See the helper's docblock.
+  applyApiVersioning(app);
+
+  // Path-scoped body limit for the sync routes only; every other route keeps
+  // Express's default. Must precede app.init()/listen so it is registered
+  // ahead of Nest's global parser. See the helper's docblock.
+  applySyncBodyLimit(app);
 
   // Security headers. CSP is disabled so the Swagger UI at /docs keeps working;
   // enable a tailored CSP when a fixed front-end origin is known.

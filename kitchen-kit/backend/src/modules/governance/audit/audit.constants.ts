@@ -198,6 +198,24 @@ export const AUDIT_ACTION = {
   TICKET_LINE_BUMPED: 'TICKET_LINE_BUMPED',
   TICKET_BUMPED: 'TICKET_BUMPED',
   TICKET_RECALLED: 'TICKET_RECALLED',
+  // D4-1A offline/sync protocol kernel (migration 37). Same
+  // <ENTITY>_<PAST_TENSE> convention; the audit taxonomy is not
+  // governance-controlled, so these follow the existing shape rather than
+  // inventing one.
+  //
+  // FR-OFF-042 requires a device whose clock is out by more than the
+  // configured threshold to be RECORDED and the branch manager ALERTED. No
+  // notification substrate exists in this repository, so the audit entry IS
+  // the alert for now and FR-OFF-042 remains PARTIAL — see the D4-1A report.
+  SYNC_CLOCK_SKEW_DETECTED: 'SYNC_CLOCK_SKEW_DETECTED',
+  // FR-OFF-044 — every automatic conflict resolution is recorded with BOTH
+  // input states and the applied rule. D4-1A ships the writer; D4-1B wires the
+  // domain conflict handlers that call it.
+  SYNC_CONFLICT_RECORDED: 'SYNC_CONFLICT_RECORDED',
+  // FR-OFF-046 — a revalidation mismatch NEVER rejects a sale that physically
+  // occurred; it is accepted, both values are recorded, and this is the entry
+  // that says so.
+  SYNC_REVALIDATION_EXCEPTION_RAISED: 'SYNC_REVALIDATION_EXCEPTION_RAISED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -212,6 +230,11 @@ export const AUDIT_ENTITY = {
   // Migration 35 — DayClose.
   DAY_CLOSE: 'day_close',
   DAY_CLOSE_ACTIVATION: 'day_close_activation',
+
+  // D4-1A offline/sync protocol kernel (migration 37).
+  SYNC_DEVICE_STATE: 'sync_device_state',
+  SYNC_CONFLICT_RECORD: 'sync_conflict_record',
+  SYNC_REVALIDATION_EXCEPTION: 'sync_revalidation_exception',
   APPROVAL_REQUEST: 'approval_request',
   APPROVAL_DECISION: 'approval_decision',
   DRAWER: 'drawer',

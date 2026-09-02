@@ -1,0 +1,64 @@
+{
+  "corpusVersion": "1",
+  "description": "FR-OFF-015 identifier discipline, and GD-D1-01 (ratified 2026-09-02): the permanent 128-bit client identifier is a ULID, rendered on the ROS wire/API as the repository-standard canonical UUID hexadecimal string. Only the decisions actually implemented in the protocol kernel are graded here.",
+  "rendering": [
+    {
+      "id": "ulid-to-uuid-lowercase-canonical",
+      "description": "The same 128 bits in both encodings, derived from the Crockford alphabet 0123456789ABCDEFGHJKMNPQRSTVWXYZ: the first 10 characters are the 48-bit millisecond timestamp (here 1727641790304), the remaining 16 are the 80-bit random component (here 10). A client that generates a ULID must send the UUID rendering; base32 is not the ROS API representation.",
+      "ulid": "01J8ZQK9V0000000000000000A",
+      "uuid": "01923f79-a760-0000-0000-00000000000a"
+    },
+    {
+      "id": "ulid-to-uuid-all-zero",
+      "ulid": "00000000000000000000000000",
+      "uuid": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "id": "ulid-to-uuid-all-ones",
+      "ulid": "7ZZZZZZZZZZZZZZZZZZZZZZZZZ",
+      "uuid": "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    }
+  ],
+  "acceptedWireForm": [
+    {
+      "id": "wire-lowercase-uuid-accepted",
+      "value": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+      "valid": true,
+      "description": "Canonical 8-4-4-4-12 lowercase hex."
+    },
+    {
+      "id": "wire-uppercase-uuid-accepted",
+      "value": "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0",
+      "valid": true,
+      "description": "The repository's UUID_PATTERN is case-insensitive; PostgreSQL normalises to lowercase on storage."
+    },
+    {
+      "id": "wire-non-rfc4122-version-nibble-accepted",
+      "value": "01923f79-a760-0000-0000-00000000000a",
+      "valid": true,
+      "description": "A ULID-derived id is a valid uuid VALUE but is NOT RFC-4122 — its version/variant nibbles are data, not a version tag. An RFC-strict validator would wrongly reject every client-generated id, which is why src/common/ids.ts ships a deliberately lenient UUID_PATTERN."
+    },
+    {
+      "id": "wire-crockford-base32-rejected",
+      "value": "01J8ZQK9V0000000000000000A",
+      "valid": false,
+      "description": "GD-D1-01: base32 is an alternate representation of the same ULID, not the canonical ROS API representation. Accepting both would put two encodings of one identifier into one API."
+    },
+    {
+      "id": "wire-unhyphenated-rejected",
+      "value": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "valid": false
+    },
+    { "id": "wire-empty-rejected", "value": "", "valid": false },
+    { "id": "wire-too-short-rejected", "value": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f", "valid": false },
+    { "id": "wire-non-hex-rejected", "value": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1fz", "valid": false }
+  ],
+  "serverNeverRemaps": [
+    {
+      "id": "entity-id-is-preserved-verbatim",
+      "description": "FR-OFF-015: 'The server SHALL NOT reassign identifiers.' At the protocol level this is observable: whatever opId and entityId the client sent are the values the server stores and echoes back, byte for byte, in every result — accepted, duplicate, conflict, rejected and deferred alike.",
+      "opId": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+      "entityId": "1a2b3c4d-5e6f-7081-92a3-b4c5d6e7f809"
+    }
+  ]
+}

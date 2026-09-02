@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { SwaggerModule } from '@nestjs/swagger';
 import * as yaml from 'js-yaml';
 import { AppModule } from '../app.module';
+import { applyApiVersioning } from '../common/http/api-versioning';
 import { finalizeOpenApiDocument } from '../common/openapi/oas31.util';
 import { buildSwaggerConfig } from '../swagger.config';
 
@@ -44,6 +45,9 @@ async function main(): Promise<void> {
   ) as { version: string };
 
   const app = await NestFactory.create(AppModule, { logger: false });
+  // Must match main.ts exactly, or the generated document would describe routes
+  // the running application does not serve.
+  applyApiVersioning(app);
   await app.init();
 
   const document = sortKeysDeep(

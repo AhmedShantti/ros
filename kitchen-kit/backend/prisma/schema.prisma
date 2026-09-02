@@ -252,14 +252,22 @@ model Tenant {
   ticketLineModifiers       TicketLineModifier[]
 
   // Production Spec back-relations (virtual; no DDL impact).
-  recipes                Recipe[]
-  recipeVersions         RecipeVersion[]
-  recipeLines            RecipeLine[]
-  substituteGroups       SubstituteGroup[]
-  substituteGroupMembers SubstituteGroupMember[]
+  recipes                    Recipe[]
+  recipeVersions             RecipeVersion[]
+  recipeLines                RecipeLine[]
+  substituteGroups           SubstituteGroup[]
+  substituteGroupMembers     SubstituteGroupMember[]
   /// D-2 (amended) PIN substrate.
-  employees              Employee[]
-  idempotencyKeys        IdempotencyKey[]
+  employees                  Employee[]
+  idempotencyKeys            IdempotencyKey[]
+  /// D4-1A sync protocol kernel (migration 37). Back-relations only — no
+  /// column and no behaviour change on `identity.tenants`.
+  syncOperationDedups        SyncOperationDedup[]
+  syncOperations             SyncOperation[]
+  syncBatches                SyncBatch[]
+  syncDeviceStates           SyncDeviceState[]
+  syncConflictRecords        SyncConflictRecord[]
+  syncRevalidationExceptions SyncRevalidationException[]
 
   @@map("tenants")
   @@schema("identity")
@@ -758,13 +766,13 @@ model Branch {
   permittedForStaff EmployeeBranch[]
 
   // P1D-1 Workforce / Treasury back-relations (virtual; no DDL impact).
-  shifts            Shift[]
-  drawers           Drawer[]
-  cashSessions      CashSession[]
+  shifts              Shift[]
+  drawers             Drawer[]
+  cashSessions        CashSession[]
   // P1G-0 back-relation only (virtual; no DDL impact on this model).
-  cashMovements     CashMovement[]
+  cashMovements       CashMovement[]
   // P1G-1 back-relation only (virtual; no DDL impact on this model).
-  cashClosePolicies CashClosePolicy[]
+  cashClosePolicies   CashClosePolicy[]
   // Migration 35 back-relations only (virtual; no DDL impact on this model).
   dayCloseActivations DayCloseActivation[]
   dayCloses           DayClose[]
@@ -1790,14 +1798,14 @@ model Employee {
   branches   EmployeeBranch[]
 
   // P1D-1: the employee is the business financial actor (carried item P1D-E).
-  shifts                Shift[]
-  cashSessions          CashSession[]
-  orderPayments         OrderPayment[]
+  shifts                  Shift[]
+  cashSessions            CashSession[]
+  orderPayments           OrderPayment[]
   // P1G-0 back-relation only (virtual; no DDL impact on this model).
-  cashMovements         CashMovement[]
+  cashMovements           CashMovement[]
   // P1G-1 migration 34 back-relations only (virtual; no DDL impact).
-  closeAttemptsDeclared CashSessionCloseAttempt[] @relation("CloseAttemptDeclaredByEmployee")
-  cashSessionsClosedBy  CashSession[]             @relation("CashSessionClosedByEmployee")
+  closeAttemptsDeclared   CashSessionCloseAttempt[] @relation("CloseAttemptDeclaredByEmployee")
+  cashSessionsClosedBy    CashSession[]             @relation("CashSessionClosedByEmployee")
   // Migration 35 back-relations only (virtual; no DDL impact on this model).
   dayCloseActivationsMade DayCloseActivation[]
   dayClosesClosed         DayClose[]
@@ -2438,22 +2446,22 @@ model CashSession {
   /// attempt id while `closing`/a new `closed` (proven relationally —
   /// `cash_sessions_close_attempt_fkey` below + the attempt's own
   /// `uq_csca_one_per_session`); NULL on a pre-P1G-1 legacy `closed` row.
-  closeAttemptId     String? @map("close_attempt_id") @db.Uuid
+  closeAttemptId     String?   @map("close_attempt_id") @db.Uuid
   /// FR-FIN-005 core close facts. NULL while `open`/`closing`; populated
   /// EXACTLY ONCE, at `closed`, copied FROM the immutable attempt — never a
   /// second mutable copy (design acceptance closure §3.2/§3.3).
-  expectedCash       BigInt? @map("expected_cash")
-  countedCash        BigInt? @map("counted_cash")
+  expectedCash       BigInt?   @map("expected_cash")
+  countedCash        BigInt?   @map("counted_cash")
   variance           BigInt?
   /// FR-FIN-006. The reason on the FINAL, APPROVED close — never a prior
   /// rejected attempt's (R-6(a) clause 12).
-  varianceReason     String? @map("variance_reason")
+  varianceReason     String?   @map("variance_reason")
   /// Governance reference. Deliberately NO FK — `governance.approval_requests`
   /// is another module's table (design gate §30); Treasury never queries it
   /// directly, only through `ApprovalCommands`.
-  approvalRequestId  String? @map("approval_request_id") @db.Uuid
-  closedByUserId     String? @map("closed_by_user_id") @db.Uuid
-  closedByEmployeeId String? @map("closed_by_employee_id") @db.Uuid
+  approvalRequestId  String?   @map("approval_request_id") @db.Uuid
+  closedByUserId     String?   @map("closed_by_user_id") @db.Uuid
+  closedByEmployeeId String?   @map("closed_by_employee_id") @db.Uuid
   /// Migration 35 (DayClose, DC-R2 — CLOSE-BUSINESS-DAY OWNERSHIP). Written
   /// EXACTLY ONCE, in the SAME UPDATE as the other close facts, at the
   /// CLOSED transition, from the SAME authoritative `resolveBusinessDay`
@@ -2719,20 +2727,20 @@ model CashClosePolicy {
 /// `firstEligibleBusinessDay = activationBusinessDay + 1` is derived, never
 /// stored. No UPDATE/DELETE grant — immutable forever.
 model DayCloseActivation {
-  id                     String    @id @db.Uuid
-  tenantId               String    @map("tenant_id") @db.Uuid
-  branchId               String    @map("branch_id") @db.Uuid
-  activationBusinessDay  DateTime  @map("activation_business_day") @db.Date
-  activatedAt            DateTime  @default(dbgenerated("statement_timestamp()")) @map("activated_at") @db.Timestamptz(6)
-  activatedBy            String    @map("activated_by") @db.Uuid
+  id                    String   @id @db.Uuid
+  tenantId              String   @map("tenant_id") @db.Uuid
+  branchId              String   @map("branch_id") @db.Uuid
+  activationBusinessDay DateTime @map("activation_business_day") @db.Date
+  activatedAt           DateTime @default(dbgenerated("statement_timestamp()")) @map("activated_at") @db.Timestamptz(6)
+  activatedBy           String   @map("activated_by") @db.Uuid
   /// P1D-E actor provenance, when the activating request was POS-originated
   /// (`@AllowPosSession`). NULL for a dashboard-originated activation — no
   /// employee identity exists for that session type.
-  activatedByEmployeeId  String?   @map("activated_by_employee_id") @db.Uuid
+  activatedByEmployeeId String?  @map("activated_by_employee_id") @db.Uuid
 
-  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch             Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
-  activatedByUser    User     @relation(fields: [activatedBy], references: [id], onDelete: Restrict)
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch                 Branch    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  activatedByUser        User      @relation(fields: [activatedBy], references: [id], onDelete: Restrict)
   activatedByEmployeeRef Employee? @relation(fields: [tenantId, activatedByEmployeeId], references: [tenantId, id], onDelete: Restrict)
 
   @@unique([tenantId, id])
@@ -2754,9 +2762,9 @@ model DayCloseActivation {
 /// discount or comp mechanism exists). THE SLICE THAT IMPLEMENTS EITHER
 /// MUST EXPLICITLY DROP THE CORRESPONDING CHECK.
 model DayClose {
-  id       String   @id @db.Uuid
-  tenantId String   @map("tenant_id") @db.Uuid
-  branchId String   @map("branch_id") @db.Uuid
+  id       String @id @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  branchId String @map("branch_id") @db.Uuid
 
   businessDay DateTime @map("business_day") @db.Date
   /// FR-FIN-023 — sequential per (tenant, branch), starting at 1, never reset.
@@ -2764,42 +2772,42 @@ model DayClose {
 
   /// `transaction_timestamp()` of the closing transaction — FR-RPT-004's
   /// "as of" convention, reused verbatim from the accepted Reporting slice.
-  dataAsOf  DateTime @map("data_as_of") @db.Timestamptz(6)
-  closedAt  DateTime @default(dbgenerated("statement_timestamp()")) @map("closed_at") @db.Timestamptz(6)
-  closedBy  String   @map("closed_by") @db.Uuid
+  dataAsOf           DateTime @map("data_as_of") @db.Timestamptz(6)
+  closedAt           DateTime @default(dbgenerated("statement_timestamp()")) @map("closed_at") @db.Timestamptz(6)
+  closedBy           String   @map("closed_by") @db.Uuid
   /// P1D-E. NULL only for a dashboard-originated close (no PIN/employee
   /// identity on that session type — §17 of the design gate).
-  closedByEmployeeId String? @map("closed_by_employee_id") @db.Uuid
+  closedByEmployeeId String?  @map("closed_by_employee_id") @db.Uuid
 
   /// Historical transaction currency (ADR-008/BR-CORE-001) — never
   /// re-derived from today's mutable `org.branches.base_currency`.
   currency String @db.Char(3)
 
   // ── Sales Summary (FR-FIN-022 class A/B) ─────────────────────────────────
-  grossSalesMinor              BigInt @map("gross_sales_minor")
+  grossSalesMinor        BigInt  @map("gross_sales_minor")
   /// Structurally `0` at this HEAD — no discount mechanism exists (§9 CHECK).
-  discountsMinor                BigInt @map("discounts_minor")
+  discountsMinor         BigInt  @map("discounts_minor")
   /// Structurally `0` at this HEAD — no inbound transition to
   /// refunded/partially_refunded exists (§9 CHECK).
-  refundsMinor                  BigInt @map("refunds_minor")
-  taxTotalMinor                 BigInt @map("tax_total_minor")
+  refundsMinor           BigInt  @map("refunds_minor")
+  taxTotalMinor          BigInt  @map("tax_total_minor")
   /// `gross - discounts - refunds - tax` (FR-CST-003, DB-CHECKed).
-  netSalesMinor                 BigInt @map("net_sales_minor")
-  completedOrderCount           Int    @map("completed_order_count")
+  netSalesMinor          BigInt  @map("net_sales_minor")
+  completedOrderCount    Int     @map("completed_order_count")
   /// `netSales / completedOrderCount`, HALF_UP — `NULL` at zero count
   /// (RPT-R3's own convention, reused verbatim).
-  averageOrderValueMinor        BigInt? @map("average_order_value_minor")
+  averageOrderValueMinor BigInt? @map("average_order_value_minor")
 
   // ── Tender totals (class A, PARTIAL — two tenders only, RPT-R2 cl. 8) ────
-  cashAmountTotalMinor              BigInt @map("cash_amount_total_minor")
-  cashRoundingAdjustmentTotalMinor  BigInt @map("cash_rounding_adjustment_total_minor")
-  cashPaymentCount                  Int    @map("cash_payment_count")
-  cardAmountTotalMinor              BigInt @map("card_amount_total_minor")
-  cardPaymentCount                  Int    @map("card_payment_count")
+  cashAmountTotalMinor             BigInt @map("cash_amount_total_minor")
+  cashRoundingAdjustmentTotalMinor BigInt @map("cash_rounding_adjustment_total_minor")
+  cashPaymentCount                 Int    @map("cash_payment_count")
+  cardAmountTotalMinor             BigInt @map("card_amount_total_minor")
+  cardPaymentCount                 Int    @map("card_payment_count")
 
   // ── Reconciliation (acceptance-correction identity terms) ────────────────
-  unsettledCapturedTotalMinor        BigInt @map("unsettled_captured_total_minor")
-  completedExcessCapturedTotalMinor  BigInt @map("completed_excess_captured_total_minor")
+  unsettledCapturedTotalMinor       BigInt @map("unsettled_captured_total_minor")
+  completedExcessCapturedTotalMinor BigInt @map("completed_excess_captured_total_minor")
 
   // ── Void and comp summary (class C void / structurally-zero comp) ────────
   voidedLineCount      Int    @map("voided_line_count")
@@ -2812,10 +2820,10 @@ model DayClose {
   // ── Cash reconciliation / variance summary (DC-R2 ownership) ─────────────
   /// Count of `day_close_sessions` linkage rows for this DayClose (day-scoped
   /// tender contribution OR variance ownership OR both).
-  sessionCount             Int    @map("session_count")
+  sessionCount              Int    @map("session_count")
   /// Count of linked sessions that OWN this day's variance
   /// (`closedBusinessDay == businessDay`) — DC-R2.
-  varianceOwnerSessionCount Int   @map("variance_owner_session_count")
+  varianceOwnerSessionCount Int    @map("variance_owner_session_count")
   /// `Σ variance OVER linkage rows WHERE isVarianceOwner` — counted exactly
   /// once system-wide (DC-R2 clause 2). WHOLE_SESSION scope; never a
   /// day-scoped figure.
@@ -2823,10 +2831,10 @@ model DayClose {
 
   createdAt DateTime @default(dbgenerated("statement_timestamp()")) @map("created_at") @db.Timestamptz(6)
 
-  tenant           Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch           Branch               @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
-  closedByUser     User                 @relation(fields: [closedBy], references: [id], onDelete: Restrict)
-  closedByEmployee Employee?            @relation(fields: [tenantId, closedByEmployeeId], references: [tenantId, id], onDelete: Restrict)
+  tenant           Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch           Branch                   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  closedByUser     User                     @relation(fields: [closedBy], references: [id], onDelete: Restrict)
+  closedByEmployee Employee?                @relation(fields: [tenantId, closedByEmployeeId], references: [tenantId, id], onDelete: Restrict)
   taxClassTotals   DayCloseTaxClassTotal[]
   orderTypeTotals  DayCloseOrderTypeTotal[]
   sessions         DayCloseSession[]
@@ -2846,10 +2854,10 @@ model DayClose {
 /// never by rate, §9 of the final design gate). `taxClassId` carries no FK,
 /// mirroring `sales.order_lines.tax_class_id`'s own FK-less design.
 model DayCloseTaxClassTotal {
-  id            String @id @db.Uuid
-  tenantId      String @map("tenant_id") @db.Uuid
-  dayCloseId    String @map("day_close_id") @db.Uuid
-  taxClassId    String @map("tax_class_id") @db.Uuid
+  id               String @id @db.Uuid
+  tenantId         String @map("tenant_id") @db.Uuid
+  dayCloseId       String @map("day_close_id") @db.Uuid
+  taxClassId       String @map("tax_class_id") @db.Uuid
   taxAmountMinor   BigInt @map("tax_amount_minor")
   netAmountMinor   BigInt @map("net_amount_minor")
   grossAmountMinor BigInt @map("gross_amount_minor")
@@ -2868,10 +2876,10 @@ model DayCloseTaxClassTotal {
 /// join). Stored as TEXT with a CHECK against `sales.OrderType`'s values —
 /// Treasury does not own that enum type and does not cross-reference it.
 model DayCloseOrderTypeTotal {
-  id           String @id @db.Uuid
-  tenantId     String @map("tenant_id") @db.Uuid
-  dayCloseId   String @map("day_close_id") @db.Uuid
-  orderType    String @map("order_type") @db.VarChar(16)
+  id              String @id @db.Uuid
+  tenantId        String @map("tenant_id") @db.Uuid
+  dayCloseId      String @map("day_close_id") @db.Uuid
+  orderType       String @map("order_type") @db.VarChar(16)
   grossSalesMinor BigInt @map("gross_sales_minor")
   netSalesMinor   BigInt @map("net_sales_minor")
   orderCount      Int    @map("order_count")
@@ -2894,32 +2902,32 @@ model DayCloseOrderTypeTotal {
 /// exist only so a materialisation bug becomes a write failure, never a
 /// silently double-counted variance.
 model DayCloseSession {
-  id             String  @id @db.Uuid
-  tenantId       String  @map("tenant_id") @db.Uuid
-  dayCloseId     String  @map("day_close_id") @db.Uuid
-  cashSessionId  String  @map("cash_session_id") @db.Uuid
+  id              String  @id @db.Uuid
+  tenantId        String  @map("tenant_id") @db.Uuid
+  dayCloseId      String  @map("day_close_id") @db.Uuid
+  cashSessionId   String  @map("cash_session_id") @db.Uuid
   isVarianceOwner Boolean @map("is_variance_owner")
 
   // ── Day-scoped tender contribution — genuinely day-attributable, from
   //    the immutable `order_payments.business_day` (§9 anti-double-counting
   //    rule 3). Zero for a zero-payment/movement-only session.
-  dayScopedCashSalesTotalMinor             BigInt @map("day_scoped_cash_sales_total_minor")
-  dayScopedCashRoundingAdjustmentsMinor    BigInt @map("day_scoped_cash_rounding_adjustments_minor")
-  dayScopedManualExternalCardTotalMinor    BigInt @map("day_scoped_manual_external_card_total_minor")
-  dayScopedPaymentCount                    Int    @map("day_scoped_payment_count")
+  dayScopedCashSalesTotalMinor          BigInt @map("day_scoped_cash_sales_total_minor")
+  dayScopedCashRoundingAdjustmentsMinor BigInt @map("day_scoped_cash_rounding_adjustments_minor")
+  dayScopedManualExternalCardTotalMinor BigInt @map("day_scoped_manual_external_card_total_minor")
+  dayScopedPaymentCount                 Int    @map("day_scoped_payment_count")
   /// `COUNT(DISTINCT order_payments.business_day)` over ALL of this
   /// session's payments (not scoped to this DayClose's day) — the accepted
   /// Reporting `businessDayCount` precedent, so a sealed Z visibly declares
   /// a session that was not exclusive to it.
-  businessDayCount                         Int    @map("business_day_count")
+  businessDayCount                      Int    @map("business_day_count")
 
   // ── WHOLE_SESSION close facts — NEVER a day total (§9 rule 1). Snapshot
   //    of `cash_sessions`' own immutable close-facts row, identical on
   //    every linkage row for this session regardless of which day links it.
-  wholeSessionOpeningFloatMinor  BigInt @map("whole_session_opening_float_minor")
-  wholeSessionExpectedCashMinor  BigInt @map("whole_session_expected_cash_minor")
-  wholeSessionCountedCashMinor   BigInt @map("whole_session_counted_cash_minor")
-  wholeSessionVarianceMinor      BigInt @map("whole_session_variance_minor")
+  wholeSessionOpeningFloatMinor BigInt @map("whole_session_opening_float_minor")
+  wholeSessionExpectedCashMinor BigInt @map("whole_session_expected_cash_minor")
+  wholeSessionCountedCashMinor  BigInt @map("whole_session_counted_cash_minor")
+  wholeSessionVarianceMinor     BigInt @map("whole_session_variance_minor")
 
   tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   dayClose    DayClose    @relation(fields: [tenantId, dayCloseId], references: [tenantId, id], onDelete: Restrict)
@@ -3951,4 +3959,311 @@ model SaleDepletionAllocation {
   @@index([tenantId, costBasisBatchId])
   @@map("sale_depletion_allocations")
   @@schema("inventory")
+}
+
+// ---------------------------------------------------------------------------
+// D4-1A — Offline/Sync PROTOCOL KERNEL (migration 37).
+//
+// Authority: GOVERNANCE_DECISION_REGISTER.md "D1-1 — Offline / Sync Protocol
+// Foundation Ratification — 2026-09-02". SRS §21.5 / §25.1.
+//
+// ── THE ONE STRUCTURAL DECISION THIS BLOCK EXISTS TO ENCODE ────────────────
+// Correction 1 of that ratification separates GLOBAL OPERATION IDENTITY from
+// HIGH-VOLUME OPERATION HISTORY, because PostgreSQL cannot provide both on one
+// relation: a unique constraint on a partitioned table must contain every
+// partition key column (the same constraint `sales.orders` already documents).
+// Had `UNIQUE (tenant_id, op_id)` lived on a table partitioned by `received_at`
+// it would necessarily have become `(tenant_id, op_id, received_at)`, and the
+// same op_id re-submitted across a partition boundary would have inserted
+// cleanly — NFR-REL-011 ("at-most-once financial effect") failing in exactly
+// the case it exists for: a device offline across a month boundary.
+//
+//   SyncOperationDedup  authoritative identity. NEVER partitioned.
+//                       @@id([tenantId, opId]) — the real, global guarantee.
+//   SyncOperation       history. Designed for later RANGE partitioning on
+//                       received_at (which is why receivedAt is already in its
+//                       primary key), and deliberately NOT the uniqueness store.
+//
+// No domain aggregate gains an `hlc`/`sync_state` column here. The design gate
+// proposed spraying them across every synced table; D4-1A does not, because the
+// oplog is the protocol truth and a query-time materialisation must be
+// justified by a concrete D4-1B conflict handler, not by the protocol existing.
+// ---------------------------------------------------------------------------
+
+/// Authoritative, globally-unique operation identity — FR-OFF-021, NFR-REL-011.
+///
+/// One row per operation the server has SETTLED definitively. Written in the
+/// SAME transaction as the operation's business effect, which is what makes the
+/// ratified atomicity invariant structural rather than protocol-enforced:
+/// neither "effect committed, dedup missing" nor "dedup present, effect missing"
+/// is reachable, because there is no window between them.
+///
+/// `status` holds the ORIGINAL settled outcome and is therefore never
+/// `deferred` (non-definitive, nothing settled) and never `duplicate`
+/// (`duplicate` is what a LATER submission is told; the row itself records what
+/// happened the first time).
+model SyncOperationDedup {
+  tenantId String @map("tenant_id") @db.Uuid
+  opId     String @map("op_id") @db.Uuid
+
+  /// SHA-256 over the canonical rendering of the operation. Server-computed —
+  /// a client-supplied fingerprint is unverifiable and is not accepted.
+  fingerprint String  @db.Char(64)
+  /// `accepted` | `conflict` | `rejected`.
+  status      String  @db.VarChar(16)
+  reasonCode  String? @map("reason_code") @db.VarChar(64)
+  /// The definitive per-operation result, replayed verbatim on a later
+  /// submission of the same opId (FR-OFF-021: "return the original result for a
+  /// repeated key rather than reprocessing").
+  result      Json    @db.JsonB
+
+  batchId    String   @map("batch_id") @db.Uuid
+  terminalId String   @map("terminal_id") @db.Uuid
+  settledAt  DateTime @default(now()) @map("settled_at") @db.Timestamptz(6)
+  /// FR-OFF-021 — at least 30 days, and never shorter than any client outbox
+  /// horizon that could legitimately replay the operation.
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, opId])
+  @@index([expiresAt])
+  @@index([tenantId, batchId])
+  @@map("operation_dedup")
+  @@schema("sync")
+}
+
+/// Operation history — inspection, causal lookup, conflict analysis, terminal
+/// attribution, audit linkage, replay investigation.
+///
+/// NOT the uniqueness authority (see the block header). `receivedAt` is in the
+/// primary key from day one so that adding `PARTITION BY RANGE (received_at)`
+/// later is a purely physical change with no correctness consequence; the
+/// physical partitioning itself is deferred and recorded in the D4-1A report.
+model SyncOperation {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  opId       String   @map("op_id") @db.Uuid
+  receivedAt DateTime @map("received_at") @db.Timestamptz(6)
+
+  batchId         String  @map("batch_id") @db.Uuid
+  /// Server-derived from the authenticated terminal — never from the body.
+  terminalId      String  @map("terminal_id") @db.Uuid
+  /// Server-derived from the terminal's live branch — never from the body.
+  branchId        String  @map("branch_id") @db.Uuid
+  actorEmployeeId String? @map("actor_employee_id") @db.Uuid
+
+  /// `<aggregate>.<operation>`, e.g. `order.create`.
+  type       String  @db.VarChar(64)
+  /// Derived from `type`; denormalised so conflict lookups can index on it.
+  entityType String  @map("entity_type") @db.VarChar(48)
+  entityId   String  @map("entity_id") @db.Uuid
+  causedBy   String? @map("caused_by") @db.Uuid
+
+  /// Stored VERBATIM, never rewritten — it is part of the operation's identity
+  /// and of the audit record (FR-OFF-042).
+  hlc              String   @db.VarChar(52)
+  /// The device's own wall clock, preserved alongside the server's
+  /// `receivedAt` (FR-OFF-042: "preserve the device's original timestamp
+  /// alongside the server-corrected one").
+  originDeviceTime DateTime @map("origin_device_time") @db.Timestamptz(6)
+
+  schemaVersion Int     @map("schema_version")
+  payload       Json    @db.JsonB
+  fingerprint   String  @db.Char(64)
+  status        String  @db.VarChar(16)
+  reasonCode    String? @map("reason_code") @db.VarChar(64)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, opId, receivedAt])
+  /// Conflict detection and per-entity causal replay.
+  @@index([tenantId, entityType, entityId, hlc])
+  /// FR-OFF-047 per-terminal mismatch analysis.
+  @@index([tenantId, terminalId, receivedAt(sort: Desc)])
+  @@index([tenantId, batchId])
+  @@map("sync_operations")
+  @@schema("sync")
+}
+
+/// Batch reservation, crash-recovery lease, and the durable final response.
+///
+/// Correction 2 of the ratification: `sync.idempotency_keys` may be the
+/// FOUNDATION for batch idempotency, but "reused unchanged" was withdrawn
+/// because a process death between reserve and complete leaves that table's row
+/// `in_flight` forever — `release()` is only called on a HANDLED failure, and a
+/// crash handles nothing. Sync therefore owns its own reservation record with an
+/// explicit lease, rather than changing shared idempotency semantics for every
+/// other endpoint in the application to suit one new route.
+model SyncBatch {
+  tenantId String @map("tenant_id") @db.Uuid
+  batchId  String @map("batch_id") @db.Uuid
+
+  terminalId      String @map("terminal_id") @db.Uuid
+  /// SHA-256 over the canonical batch body. A repeat of the same batchId with a
+  /// different fingerprint is a client defect (409), never a retry.
+  fingerprint     String @db.Char(64)
+  protocolVersion Int    @map("protocol_version")
+  operationCount  Int    @map("operation_count")
+  byteSize        Int    @map("byte_size")
+
+  /// `in_flight` | `completed`.
+  state String @db.VarChar(16)
+
+  /// ── CRASH RECOVERY ──────────────────────────────────────────────────────
+  /// A processing attempt takes a time-bounded lease. A live lease means a peer
+  /// really is working on this batch; an EXPIRED lease means its owner died,
+  /// and the batch is reclaimable. Reclaim is optimistic on
+  /// `(leaseOwner, attempt)`, so two servers racing to reclaim cannot both win.
+  leaseOwner     String?   @map("lease_owner") @db.VarChar(80)
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
+  attempt        Int       @default(0)
+
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  durationMs  Int?      @map("duration_ms")
+
+  acceptedCount  Int @default(0) @map("accepted_count")
+  duplicateCount Int @default(0) @map("duplicate_count")
+  conflictCount  Int @default(0) @map("conflict_count")
+  rejectedCount  Int @default(0) @map("rejected_count")
+  deferredCount  Int @default(0) @map("deferred_count")
+
+  /// Largest |device HLC physical − server receipt| observed in this batch.
+  maxClockSkewMs BigInt? @map("max_clock_skew_ms")
+
+  /// The durable batch response. Persisted BEFORE the HTTP response is written,
+  /// so a crash in that window leaves the client holding a transport failure
+  /// (non-definitive) rather than an acknowledgement the server cannot honour.
+  response Json? @db.JsonB
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, batchId])
+  @@index([tenantId, terminalId, receivedAt(sort: Desc)])
+  @@index([state, leaseExpiresAt])
+  @@map("sync_batches")
+  @@schema("sync")
+}
+
+/// Per-device sync state — FR-OFF-042 skew recording, FR-OFF-030 cursor,
+/// FR-OFF-047 mismatch counting.
+///
+/// `deferred` clock adoption: this row records the device's OBSERVED clock, and
+/// nothing here bounds or corrects it. GD-D1-03 is DEFERRED, not ratified.
+model SyncDeviceState {
+  tenantId   String @map("tenant_id") @db.Uuid
+  terminalId String @map("terminal_id") @db.Uuid
+
+  lastBatchId     String?   @map("last_batch_id") @db.Uuid
+  lastSeenAt      DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  lastCursor      String?   @map("last_cursor") @db.VarChar(80)
+  protocolVersion Int?      @map("protocol_version")
+
+  /// Signed: positive means the device's clock runs AHEAD of the server.
+  clockSkewMs    BigInt?   @map("clock_skew_ms")
+  /// Set whenever |clockSkewMs| exceeds the configured threshold
+  /// (FR-OFF-042 default: 5 minutes).
+  skewDetectedAt DateTime? @map("skew_detected_at") @db.Timestamptz(6)
+  /// FR-OFF-042 requires the branch manager to be alerted. No notification
+  /// substrate exists in this repository, so the alert is an audit entry and
+  /// this column records that it was raised. FR-OFF-042 stays PARTIAL until a
+  /// real delivery channel exists — see the D4-1A report.
+  skewAlertedAt  DateTime? @map("skew_alerted_at") @db.Timestamptz(6)
+
+  /// FR-OFF-047 — systematic revalidation mismatch escalation. The counter
+  /// substrate exists; D4-1B wires the mismatches that increment it.
+  revalidationMismatchCount Int       @default(0) @map("revalidation_mismatch_count")
+  mismatchWindowStart       DateTime? @map("mismatch_window_start") @db.Timestamptz(6)
+
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, terminalId])
+  @@map("device_state")
+  @@schema("sync")
+}
+
+/// FR-OFF-043 conflict register — "recorded in a conflict register, SHALL raise
+/// an alert, and SHALL be presented to a manager for manual resolution WITH BOTH
+/// VERSIONS DISPLAYED" (hence both state columns).
+///
+/// D4-1A ships the substrate and the protocol's ability to return a `conflict`
+/// result. It does NOT ship domain conflict rules — those are D4-1B, and
+/// FR-OFF-040 therefore remains PARTIAL.
+model SyncConflictRecord {
+  id       String @id @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  branchId String @map("branch_id") @db.Uuid
+
+  entityType    String  @map("entity_type") @db.VarChar(48)
+  entityId      String  @map("entity_id") @db.Uuid
+  conflictClass String  @map("conflict_class") @db.VarChar(48)
+  opId          String  @map("op_id") @db.Uuid
+  competingOpId String? @map("competing_op_id") @db.Uuid
+
+  /// The rule identifier that resolved it, e.g. `conflict.lww.hlc`.
+  appliedRule String? @map("applied_rule") @db.VarChar(64)
+  /// `auto` | `manual_pending` | `manual_resolved`.
+  resolution  String  @db.VarChar(24)
+
+  localState  Json? @map("local_state") @db.JsonB
+  serverState Json? @map("server_state") @db.JsonB
+
+  detectedAt   DateTime  @default(now()) @map("detected_at") @db.Timestamptz(6)
+  resolvedBy   String?   @map("resolved_by") @db.Uuid
+  resolvedAt   DateTime? @map("resolved_at") @db.Timestamptz(6)
+  /// FR-OFF-044 linkage to the hash-chained audit entry.
+  auditEntryId String?   @map("audit_entry_id") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, resolution, detectedAt(sort: Desc)])
+  @@map("conflict_records")
+  @@schema("sync")
+}
+
+/// FR-OFF-046 reconciliation exceptions — SYNC-OWNED (GD-D1-05, ratified
+/// 2026-09-02, overturning the design gate's `governance.anomaly_flags`
+/// recommendation).
+///
+/// A revalidation exception ORIGINATES in the sync protocol, so making its
+/// persistence a cross-lane dependency on a table that does not exist would have
+/// blocked D4-1 on another lane for no benefit. Governance and Reporting consume
+/// it through events and read contracts; they do not own it.
+///
+/// D4-1A ships the substrate only. The financially significant computations that
+/// produce the values are D4-1B, so FR-OFF-045/046/047 remain PARTIAL.
+model SyncRevalidationException {
+  id       String @id @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  branchId String @map("branch_id") @db.Uuid
+
+  terminalId String @map("terminal_id") @db.Uuid
+  opId       String @map("op_id") @db.Uuid
+  entityType String @map("entity_type") @db.VarChar(48)
+  entityId   String @map("entity_id") @db.Uuid
+
+  /// What the client computed and what the server computed. BOTH are recorded:
+  /// FR-OFF-046 requires the transaction to be ACCEPTED and both values kept,
+  /// never the sale rejected because the server disagrees about a price.
+  clientValues Json @map("client_values") @db.JsonB
+  serverValues Json @map("server_values") @db.JsonB
+
+  detectedAt  DateTime  @default(now()) @map("detected_at") @db.Timestamptz(6)
+  /// `open` | `reviewed` | `dismissed`.
+  reviewState String    @default("open") @map("review_state") @db.VarChar(24)
+  reviewedBy  String?   @map("reviewed_by") @db.Uuid
+  reviewedAt  DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewNote  String?   @map("review_note")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, reviewState, detectedAt(sort: Desc)])
+  @@index([tenantId, terminalId, detectedAt(sort: Desc)])
+  @@map("revalidation_exceptions")
+  @@schema("sync")
 }

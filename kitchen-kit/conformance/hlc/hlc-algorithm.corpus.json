@@ -1,0 +1,181 @@
+{
+  "corpusVersion": "1",
+  "description": "FR-OFF-041 Hybrid Logical Clock. Every expectation is hand-derived from the algorithm as printed in SRS 21.7, never from an implementation's output. Nodes: A = the receiving clock, B = a remote device, C = a second device chosen so that C < A < B lexicographically.",
+  "nodes": {
+    "A": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    "B": "1a2b3c4d5e6f708192a3b4c5d6e7f809",
+    "C": "00000000000000000000000000000001"
+  },
+  "localEvent": [
+    {
+      "id": "local-physical-advance-resets-logical",
+      "description": "pt > l, so l' != l and the logical counter resets to 0.",
+      "state": "1722765753000.00007.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "physicalMs": "1722765753500",
+      "expected": "1722765753500.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "local-clock-went-backwards-increments-logical",
+      "description": "pt < l. max keeps l, so l' == l and c' = c + 1. This is the case that makes HLC survive a device whose wall clock jumps backwards.",
+      "state": "1722765753000.00007.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "physicalMs": "1722765752000",
+      "expected": "1722765753000.00008.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "local-equal-physical-increments-logical",
+      "description": "pt == l, so l' == l and c' = c + 1. Two events in the same millisecond stay strictly ordered.",
+      "state": "1722765753000.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "physicalMs": "1722765753000",
+      "expected": "1722765753000.00001.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "local-logical-at-upper-bound",
+      "description": "c = 99998 -> c' = 99999, the largest value the ratified 5-digit field can carry.",
+      "state": "1722765753000.99998.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "physicalMs": "1722765753000",
+      "expected": "1722765753000.99999.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "local-logical-overflow-fails-closed",
+      "description": "c = 99999 and pt <= l would need c' = 100000, which the ratified representation cannot carry. Truncating would silently corrupt causal order, so the implementation MUST fail rather than emit a wrong value.",
+      "state": "1722765753000.99999.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "physicalMs": "1722765753000",
+      "expectError": true
+    }
+  ],
+  "receiveEvent": [
+    {
+      "id": "receive-branch-1-l-equals-lmsg",
+      "description": "l' == l == l_msg -> c' = max(c, c_msg) + 1. Receiver keeps its OWN node.",
+      "state": "1722765753000.00003.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "message": "1722765753000.00009.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "physicalMs": "1722765752000",
+      "expected": "1722765753000.00010.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "receive-branch-2-l-only",
+      "description": "l' == l but l' != l_msg -> c' = c + 1.",
+      "state": "1722765753000.00003.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "message": "1722765752000.00009.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "physicalMs": "1722765751000",
+      "expected": "1722765753000.00004.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "receive-branch-3-lmsg-only",
+      "description": "l' == l_msg but l' != l -> c' = c_msg + 1. The receiver adopts the sender's physical component; this is the branch CT-10 exercises.",
+      "state": "1722765752000.00003.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "message": "1722765753000.00009.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "physicalMs": "1722765751000",
+      "expected": "1722765753000.00010.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "receive-branch-4-physical-time-wins",
+      "description": "pt is strictly greater than both l and l_msg -> c' = 0.",
+      "state": "1722765752000.00003.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "message": "1722765752500.00009.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "physicalMs": "1722765753000",
+      "expected": "1722765753000.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "receive-equal-counters",
+      "description": "l == l_msg == pt and c == c_msg -> max(c, c_msg) + 1 with both equal.",
+      "state": "1722765753000.00005.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "message": "1722765753000.00005.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "physicalMs": "1722765753000",
+      "expected": "1722765753000.00006.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "id": "receive-logical-overflow-fails-closed",
+      "description": "max(c, c_msg) + 1 would exceed the 5-digit field. Fail closed.",
+      "state": "1722765753000.99999.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "message": "1722765753000.99999.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "physicalMs": "1722765753000",
+      "expectError": true
+    }
+  ],
+  "compare": [
+    {
+      "id": "compare-physical-dominates",
+      "a": "1722765753000.99999.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "b": "1722765753001.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "expected": "lt"
+    },
+    {
+      "id": "compare-logical-breaks-equal-physical",
+      "a": "1722765753000.00004.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "b": "1722765753000.00005.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "expected": "lt"
+    },
+    {
+      "id": "compare-node-breaks-equal-physical-and-logical",
+      "description": "The node tie-break is what makes last-writer-wins a function rather than a coin flip: both sides compute the same winner without coordinating.",
+      "a": "1722765753000.00005.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "b": "1722765753000.00005.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "expected": "lt"
+    },
+    {
+      "id": "compare-identical",
+      "a": "1722765753000.00005.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "b": "1722765753000.00005.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "expected": "eq"
+    },
+    {
+      "id": "compare-greater",
+      "a": "1722765753000.00005.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "b": "1722765753000.00005.00000000000000000000000000000001",
+      "expected": "gt"
+    }
+  ],
+  "sort": [
+    {
+      "id": "sort-lexicographic-equals-causal",
+      "description": "Fixed-width encoding means a plain lexicographic string sort IS the total HLC order. A consumer that sorts the encoded strings and a consumer that sorts by parsed components must agree exactly.",
+      "input": [
+        "1722765753000.00005.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+        "0000000000001.00002.00000000000000000000000000000001",
+        "1722765753000.00005.00000000000000000000000000000001",
+        "1722765753001.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "1722765753000.00004.1a2b3c4d5e6f708192a3b4c5d6e7f809"
+      ],
+      "expectedOrder": [
+        "0000000000001.00002.00000000000000000000000000000001",
+        "1722765753000.00004.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+        "1722765753000.00005.00000000000000000000000000000001",
+        "1722765753000.00005.1a2b3c4d5e6f708192a3b4c5d6e7f809",
+        "1722765753001.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+      ]
+    }
+  ],
+  "encoding": [
+    {
+      "id": "encode-pads-every-field",
+      "description": "Small values must still occupy the full fixed width, or lexicographic order stops matching component order.",
+      "physicalMs": "1",
+      "logical": "2",
+      "node": "00000000000000000000000000000001",
+      "expected": "0000000000001.00002.00000000000000000000000000000001"
+    },
+    {
+      "id": "encode-upper-bound",
+      "physicalMs": "9999999999999",
+      "logical": "99999",
+      "node": "1a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "expected": "9999999999999.99999.1a2b3c4d5e6f708192a3b4c5d6e7f809"
+    }
+  ],
+  "malformed": [
+    { "id": "malformed-empty", "raw": "" },
+    { "id": "malformed-missing-node", "raw": "1722765753000.00000" },
+    { "id": "malformed-physical-too-short", "raw": "172276575300.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0" },
+    { "id": "malformed-physical-too-long", "raw": "17227657530000.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0" },
+    { "id": "malformed-logical-too-short", "raw": "1722765753000.0000.0f1e2d3c4b5a69788796a5b4c3d2e1f0" },
+    { "id": "malformed-logical-too-long", "raw": "1722765753000.000000.0f1e2d3c4b5a69788796a5b4c3d2e1f0" },
+    { "id": "malformed-node-uppercase", "raw": "1722765753000.00000.0F1E2D3C4B5A69788796A5B4C3D2E1F0" },
+    { "id": "malformed-node-too-short", "raw": "1722765753000.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f" },
+    { "id": "malformed-node-not-hex", "raw": "1722765753000.00000.zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz" },
+    { "id": "malformed-wrong-separator", "raw": "1722765753000-00000-0f1e2d3c4b5a69788796a5b4c3d2e1f0" },
+    { "id": "malformed-leading-space", "raw": " 1722765753000.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0" },
+    { "id": "malformed-trailing-newline", "raw": "1722765753000.00000.0f1e2d3c4b5a69788796a5b4c3d2e1f0\n" },
+    { "id": "malformed-uuid-with-dashes", "raw": "1722765753000.00000.0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0" }
+  ]
+}
