@@ -14,6 +14,89 @@ governance decision, the SRS and the register win.
 
 ---
 
+## Acceptance evidence correction (2026-09-03, docs-only)
+
+This report's MW1D implementation/reconciliation acceptance is **unchanged**.
+The following two evidence/reporting issues, found on re-verification, are
+corrected here. No production code, test code, config, or dependency was
+touched to produce this correction — it is a re-measurement plus wording
+fix.
+
+### A. Lint evidence — corrected
+
+§12 below originally stated the final lint result as "51 errors / 3
+warnings" and separately claimed "file-for-file identical to the true
+pre-integration baseline." Both statements cannot be true at once against a
+48-error baseline, and they were not: **the "51" was a transcription
+error**, not a real lint regression. `eslint`'s own summary line reads
+`✖ 51 problems (48 errors, 3 warnings)` — 51 is the **total problem count**
+(48 errors + 3 warnings), not the error count. The original write-up
+mis-copied that total into the "errors" slot.
+
+Re-verified this session with machine-readable identities
+(`file:line:column:ruleId:severity`), not totals alone, at both heads:
+
+- **Current HEAD `a000dc8`**: `npx eslint "{src,apps,libs,test}/**/*.ts"
+  --format json`, parsed → **48 errors, 3 warnings** (51 identity rows).
+- **Pre-integration baseline `2603099`**: identical invocation, run inside a
+  disposable `git worktree add --detach ... 2603099` (removed afterward;
+  `git worktree list` confirmed no worktree left behind and D4-1B's own
+  lane worktree unchanged at `2603099`) → **48 errors, 3 warnings** (51
+  identity rows).
+- `diff` of the two sorted, path-normalized identity lists (both files, all
+  51 rows: file, line, column, ruleId, severity): **zero lines of
+  difference. The two identity sets are byte-for-byte identical.**
+
+**Genuinely new lint findings introduced by MW1D: 0.** The two new test
+files this session added
+(`denied-request-tenant-context.spec.ts`,
+`observability-red-cardinality.e2e-spec.ts`) did produce their own
+findings mid-session (7 problems: 4 `prettier/prettier` formatting + 3
+`@typescript-eslint/no-unsafe-*`), but those were fixed (autofix for
+formatting, a manual rewrite for the unsafe-`any` label-parsing helper)
+**before** the reconciliation commit (`a53c56e`) was created — they never
+reached the committed tree and are not part of the "51" or "48" figures
+above.
+
+Corrected statement: **final lint count is 48 errors / 3 warnings — exactly
+equal to, and identity-identical with, the pre-integration baseline (also
+48/3). Zero new semantic lint findings attributable to MW1D. The `51`
+previously reported was this session's own transcription error reading
+eslint's total-problems figure as an error count, not a real count
+discrepancy of any kind (not category A/B/C in the sense of a real
+code-level shift — it is category D: a reporting/transcription artifact,
+fully explained and now corrected).**
+
+§12, §17 (this section's classification correction covers §17's finding)
+and §21 below are corrected in place to match.
+
+### B. Full-E2E failure classification — corrected
+
+§17/§21 originally classified the one full-E2E failure
+(`reporting-authorization.e2e-spec.ts`, `periodStatus` expected `'OPEN'`
+got `'SETTLED'`) as "Class C." Under this integration's own convention,
+Class C denotes environmental/resource contention (a flake that clears
+under isolation). That is not what this failure is: it was **reproduced
+deterministically in isolation** (twice, alone, zero contention) **and
+reproduced identically on the pre-integration baseline HEAD `2603099`** in
+a disposable worktree — i.e. it is not contention-sensitive at all, it is a
+constant, explained, pre-existing defect tied to a UTC-calendar-date vs.
+`Africa/Cairo`-business-day boundary condition in the test fixture itself.
+
+**Corrected classification: PRE-EXISTING BASELINE QA DEFECT / deterministic
+timezone-boundary fixture defect** — not Class C, and also not Class D
+(Class D is defined as "new, deterministic, unexplained"; this defect is
+deterministic but neither new nor unexplained — it predates MW1D and its
+mechanism is identified). It remains, as originally stated and unchanged
+by this correction: **not** Class A (no correctness regression), **not**
+Class B (no DB-isolation regression), and **not** a new MW1D regression.
+The test itself is not fixed in this task, per instruction.
+
+Full E2E counts are unchanged and were re-confirmed against this session's
+original run log: **79/80 suites, 1321/1322 tests.**
+
+---
+
 ## 1. Starting-state verification (§0)
 
 - `pwd` = `/Users/mac/projects/ros-worktrees/integration` ✓
@@ -385,21 +468,31 @@ Baseline (measured this session, before cherry-pick): **48 errors / 3
 warnings**. This matches the task's stated MW1C baseline exactly — no drift
 disclosed.
 
-After the full integration (cherry-picks + reconciliation commit): **51
-errors / 3 warnings.** A `file:line:column:ruleId` identity diff between
-the before and after full lint runs shows **zero differences** in the
-original 48/3 — every added problem belonged to this session's own two new
-test files (`denied-request-tenant-context.spec.ts`,
+Mid-session (cherry-picks + the two new test files, before fixing them):
+55 errors / 3 warnings — every added problem belonged to this session's own
+two new test files (`denied-request-tenant-context.spec.ts`,
 `observability-red-cardinality.e2e-spec.ts`), which were then fixed
 (`eslint --fix` for formatting, a manual rewrite for two
-`@typescript-eslint/no-unsafe-*` findings in the cardinality test's label-
-parsing helper). Final state, re-measured: **51 errors / 3 warnings**,
-identical file-for-file to the true pre-integration baseline. **Zero new
-lint problems.**
+`@typescript-eslint/no-unsafe-*` findings in the cardinality test's
+label-parsing helper) **before** the reconciliation commit (`a53c56e`) was
+created.
+
+Final state, on current HEAD `a000dc8`: **48 errors / 3 warnings** —
+re-verified in the 2026-09-03 evidence correction (see "Acceptance evidence
+correction" above) with machine-readable `file:line:column:ruleId:severity`
+identities at both this HEAD and a disposable worktree at the
+pre-integration baseline (`2603099`): **the two 51-row identity sets are
+byte-for-byte identical, zero differences.** **Zero new lint problems.**
+
+(An earlier draft of this section reported the final count as "51 errors /
+3 warnings" — a transcription error reading eslint's own summary line,
+`✖ 51 problems (48 errors, 3 warnings)`, as if 51 were the error count
+rather than the total-problems count. Corrected 2026-09-03; see the
+correction section above for the full re-verification.)
 
 (Note: `06c93e8`'s own G1-3 files — `main.ts` et al. — introduced no lint
-delta either; the 48→51 net-zero-after-fix result above already reflects
-the full integrated tree.)
+delta either; the 48/3 result above already reflects the full integrated
+tree.)
 
 ---
 
@@ -512,13 +605,19 @@ One failure: `test/reporting-authorization.e2e-spec.ts` › *"POSITIVE: both
 permissions -> 200, Cache-Control: no-store"* — expected `periodStatus:
 'OPEN'`, got `'SETTLED'`.
 
-**Classification: Class C (known, pre-existing, unrelated to this
-integration) — reproduced and cleared in isolation before classification,
-per task requirement:**
+**Classification (corrected 2026-09-03 — see "Acceptance evidence
+correction" above): PRE-EXISTING BASELINE QA DEFECT / deterministic
+timezone-boundary fixture defect. NOT Class C** (Class C denotes
+environmental/resource contention — a flake that clears under isolation;
+this failure is constant, not contention-sensitive) **and NOT Class D**
+(Class D is "new, deterministic, unexplained"; this defect is deterministic
+but neither new nor unexplained). Reproduced and cleared in isolation
+before classification, per task requirement:
 
 - Reproduced deterministically twice, alone (`npm run test:e2e --
   test/reporting-authorization.e2e-spec.ts`), with zero other suites
-  running — rules out ordinary cross-suite DB contention.
+  running — rules out ordinary cross-suite DB contention (i.e. rules out
+  Class C on its own terms).
 - **Reproduced identically on the pre-integration baseline HEAD (`2603099`,
   before any G1-3 commit existed on this branch)**, via a disposable `git
   worktree add --detach` at that exact commit, same `.env`/DB container,
@@ -534,9 +633,11 @@ per task requirement:**
   near a UTC-midnight boundary the two disagree by a calendar day, and the
   report treats the (now allegedly past) requested day as settled. This is
   a wall-clock/timezone test-fixture fragility unrelated to any lane's
-  integrated commits.
+  integrated commits, pre-existing on the baseline this integration started
+  from.
 - Zero Class A (correctness regression). Zero Class B (DB isolation
-  regression).
+  regression). Zero Class D (this defect is fully explained and pre-dates
+  MW1D, so it is not "unexplained" or "new").
 
 ### 17.3 DB safety
 
@@ -623,7 +724,7 @@ G1-3 REPORT INTEGRATED: YES — 5a20268
 RECONCILIATION COMMIT: a53c56e
 
 RESULT HEAD BEFORE REPORT: a53c56e
-REPORT COMMIT: (created immediately after this report — see §22 note)
+REPORT COMMIT: a000dc8 ("docs: record observability integration")
 
 AUTHORIZATION COVERAGE: 157 / 141 / 0
 
@@ -654,7 +755,11 @@ PROM-CLIENT: 15.1.3 (unchanged from cherry-pick)
 
 DEPENDENCY AUDIT: 7 high / 1 moderate, delta: zero new vs. pre-integration baseline
 
-LINT: 51 errors / 3 warnings, delta: zero new (file:line:col:rule identical to true baseline)
+LINT: 48 errors / 3 warnings (corrected 2026-09-03 — see evidence
+  correction above; original draft mis-transcribed eslint's 51-total-
+  problems figure as the error count), delta: zero new — 51-row
+  file:line:column:ruleId:severity identity set byte-identical to the
+  pre-integration baseline (2603099)
 
 NFR-OBS-001: COMPLETE
 NFR-OBS-002: NOT IMPLEMENTED
@@ -679,10 +784,15 @@ FULL E2E: 80 suites / 1322 tests, 79/80 suites PASS, 1321/1322 tests PASS
 
 CLASS A: NONE
 CLASS B: NONE
-CLASS C: 1 — test/reporting-authorization.e2e-spec.ts, reproduced identically
-  on pre-integration baseline HEAD 2603099 in a disposable worktree; wall-
-  clock/timezone test-fixture fragility, unrelated to any integrated commit
 CLASS D: NONE
+
+KNOWN PRE-EXISTING BASELINE QA DEFECT (not Class A/B/C/D): 1 —
+  test/reporting-authorization.e2e-spec.ts, reproduced identically on
+  pre-integration baseline HEAD 2603099 in a disposable worktree;
+  deterministic UTC-calendar-date vs Africa/Cairo business-day boundary
+  fixture defect, unrelated to any integrated commit (corrected 2026-09-03
+  from an earlier "Class C" mislabel — this failure is constant, not
+  contention-sensitive, so Class C's own definition does not fit it)
 
 ORPHAN SCRATCH DBS: 0
 PERSISTENT ros TOUCHED: NO
