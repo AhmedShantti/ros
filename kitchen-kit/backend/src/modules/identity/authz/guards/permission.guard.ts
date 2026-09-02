@@ -98,11 +98,7 @@ export class PermissionGuard implements CanActivate {
       return true;
     }
 
-    const resolution = await this.targetResolver.resolve(
-      request as unknown as Request,
-      auth,
-      target,
-    );
+    const resolution = await this.targetResolver.resolve(request, auth, target);
 
     if (resolution.outcome === 'deny') {
       // Uniform message: the refusal must not disclose WHICH condition failed.

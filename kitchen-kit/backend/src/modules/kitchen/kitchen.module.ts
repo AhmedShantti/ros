@@ -59,6 +59,9 @@ import { KDS_TICKET_TARGET_RESOLVER } from './contract';
     KdsStationGuard,
   ],
   exports: [
-    KDS_TICKET_TARGET_RESOLVER,RoutingResolverService, TicketReaderService],
+    KDS_TICKET_TARGET_RESOLVER,
+    RoutingResolverService,
+    TicketReaderService,
+  ],
 })
 export class KitchenModule {}

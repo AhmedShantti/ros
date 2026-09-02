@@ -99,7 +99,10 @@ import { WarehousesService } from './warehouses/warehouses.service';
     // B1-3 resource-derived authorization targets. These answer "what does this
     // row belong to?"; they never decide authorization.
     StationTargetResolver,
-    { provide: ORG_STATION_TARGET_RESOLVER, useExisting: StationTargetResolver },
+    {
+      provide: ORG_STATION_TARGET_RESOLVER,
+      useExisting: StationTargetResolver,
+    },
     TableTargetResolver,
     { provide: ORG_TABLE_TARGET_RESOLVER, useExisting: TableTargetResolver },
     WarehouseTargetResolver,

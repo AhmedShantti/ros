@@ -17,7 +17,6 @@ import {
 import { CountryPackService } from './../src/modules/localisation/country-pack/country-pack.service';
 import { OrdersService } from './../src/modules/sales/orders/orders.service';
 import { DayCloseService } from './../src/modules/treasury/day-close/day-close.service';
-import { TREASURY_PERMISSIONS } from './../src/modules/treasury/treasury.permissions';
 import { createMigratorClient } from './rls-admin';
 import {
   dayCloseAuthorization,
@@ -114,7 +113,6 @@ describe('DayClose x Order-create — cutover race (e2e)', () => {
   let seedN = 0;
   const seed = () => `${stamp}${(seedN++).toString(36)}`;
   let orderSeq = 0;
-
 
   async function mkFx(): Promise<{ fx: DayCloseFixture; target: Date }> {
     const fx = await createDayCloseFixture(app, admin, seed());

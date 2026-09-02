@@ -90,9 +90,9 @@ describe('DayCloseService.post — Z-number bounded retry (unit)', () => {
     const err = otherError();
     const execute = jest.fn().mockRejectedValue(err);
     const service = mkService(execute);
-    await expect(service.post('t1', 'u1', {}, authorization, input)).rejects.toBe(
-      err,
-    );
+    await expect(
+      service.post('t1', 'u1', {}, authorization, input),
+    ).rejects.toBe(err);
     expect(execute).toHaveBeenCalledTimes(1);
   });
 

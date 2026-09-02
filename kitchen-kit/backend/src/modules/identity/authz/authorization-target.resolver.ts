@@ -8,7 +8,6 @@ import {
 } from '../../organisation/contract';
 import {
   type AuthorizationTargetSpec,
-  type ResolverKeySpec,
   type ScopeTargetResolver,
   type TargetIdFormat,
   type TargetIdSource,
@@ -72,9 +71,7 @@ function isCalendarDate(value: string): boolean {
 }
 
 function hasShape(value: string, format: TargetIdFormat): boolean {
-  return format === 'businessDay'
-    ? isCalendarDate(value)
-    : UUID_RE.test(value);
+  return format === 'businessDay' ? isCalendarDate(value) : UUID_RE.test(value);
 }
 
 /** A request-scoped bag of raw values, read WITHOUT trusting any of them. */
@@ -194,9 +191,9 @@ export class AuthorizationTargetResolver {
     spec: AuthorizationTargetSpec,
   ): Promise<TargetResolution> {
     const raw: RawRequest = {
-      params: (request.params ?? {}) as Record<string, unknown>,
+      params: request.params ?? {},
       body: (request.body ?? {}) as Record<string, unknown>,
-      query: (request.query ?? {}) as Record<string, unknown>,
+      query: request.query ?? {},
     };
 
     switch (spec.kind) {
@@ -244,7 +241,10 @@ export class AuthorizationTargetResolver {
             message: `${spec.key} must be a UUID.`,
           };
         }
-        return { outcome: 'target', target: { type: 'branch', branchId: value } };
+        return {
+          outcome: 'target',
+          target: { type: 'branch', branchId: value },
+        };
       }
 
       case 'declaredScope': {
@@ -389,10 +389,7 @@ export class AuthorizationTargetResolver {
     >,
   ): Promise<TargetResolution> {
     const keys: Record<string, string | undefined> = {};
-    for (const [name, key] of Object.entries(spec.keys) as [
-      string,
-      ResolverKeySpec,
-    ][]) {
+    for (const [name, key] of Object.entries(spec.keys)) {
       const value = readRaw(raw, key.source, key.key);
       if (value === undefined) {
         if (key.optional) {

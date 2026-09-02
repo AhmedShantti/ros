@@ -122,7 +122,10 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
   ],
   providers: [
     CashSessionTargetResolver,
-    { provide: TREASURY_CASH_SESSION_TARGET_RESOLVER, useExisting: CashSessionTargetResolver },
+    {
+      provide: TREASURY_CASH_SESSION_TARGET_RESOLVER,
+      useExisting: CashSessionTargetResolver,
+    },
     DrawersService,
     CashSessionsService,
     CashSessionFactsQueryService,

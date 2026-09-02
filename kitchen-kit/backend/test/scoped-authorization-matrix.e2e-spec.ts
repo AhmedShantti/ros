@@ -190,9 +190,11 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     await app.init();
-    http = app.getHttpServer() as App;
+    http = app.getHttpServer();
     admin = createMigratorClient(app);
 
     assignments = app.get(MembershipRolesService);
@@ -509,7 +511,10 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
 
     // Re-scope X1 -> X2 through the real admin API. The token in hand still
     // *claims* X1 in `pbr`; live resolution is what decides.
-    const adminToken = await tokenFor(`b13.admin.${stamp}@example.com`, tenantA);
+    const adminToken = await tokenFor(
+      `b13.admin.${stamp}@example.com`,
+      tenantA,
+    );
     await request(http)
       .patch(`/auth/role-assignments/${assignment.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
@@ -570,10 +575,7 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
       where: { tenantId: tenantB },
       select: { id: true },
     });
-    const foreignBrand = await GET(
-      token,
-      `/org/brands/${brandBOfTenantB!.id}`,
-    );
+    const foreignBrand = await GET(token, `/org/brands/${brandBOfTenantB!.id}`);
     const absentBrand = await GET(token, `/org/brands/${newId()}`);
     expect(foreignBrand.status).toBe(absentBrand.status);
     expect(foreignBrand.status).toBe(404);
@@ -1044,7 +1046,6 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
       );
       const baselineBytes = Buffer.byteLength(baseline, 'utf8');
 
-      // eslint-disable-next-line no-console
       console.log('B1-3 CORRECTION — measured worst-allowed token size:', {
         units: MAX_SNAPSHOT_UNITS,
         serializedJwtBytes: jwtBytes,
@@ -1089,9 +1090,10 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
       const brandActor = await actor('f1-symbolic-brand', tenantA, [
         { roleId: roleBusiness, scope: { type: 'brand', brandId: brandX } },
       ]);
-      const brandBody = (
-        await GET(brandActor, '/auth/permissions').expect(200)
-      ).body as { permittedBranches: { brands: string[]; branches: string[] } };
+      const brandBody = (await GET(brandActor, '/auth/permissions').expect(200))
+        .body as {
+        permittedBranches: { brands: string[]; branches: string[] };
+      };
       expect(brandBody.permittedBranches.brands).toEqual([brandX]);
       expect(brandBody.permittedBranches.branches).toEqual([]);
     });

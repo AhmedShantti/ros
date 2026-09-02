@@ -11,7 +11,6 @@ import {
 } from './../src/modules/sales/contract';
 import { DayCloseSalesFactsQueryService } from './../src/modules/sales/orders/day-close-sales-facts.query.service';
 import { DayCloseService } from './../src/modules/treasury/day-close/day-close.service';
-import { TREASURY_PERMISSIONS } from './../src/modules/treasury/treasury.permissions';
 import { Prisma } from './../src/generated/prisma/client';
 import { createMigratorClient } from './rls-admin';
 import {
@@ -109,7 +108,6 @@ describe('DayClose — Z-number concurrency (e2e)', () => {
   const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   let seedN = 0;
   const seed = () => `${stamp}${(seedN++).toString(36)}`;
-
 
   async function mkFx(): Promise<{
     fx: DayCloseFixture;

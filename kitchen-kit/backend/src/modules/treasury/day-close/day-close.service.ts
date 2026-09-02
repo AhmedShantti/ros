@@ -260,8 +260,7 @@ export class DayCloseService {
       try {
         return await this.unitOfWork.execute(
           { userId: actorUserId, tenantId },
-          (ctx) =>
-            this.attempt(tenantId, actorUserId, actor, auth, input, ctx),
+          (ctx) => this.attempt(tenantId, actorUserId, actor, auth, input, ctx),
           { correlationId },
         );
       } catch (err) {
@@ -313,7 +312,9 @@ export class DayCloseService {
           '/auth/role-assignments/{assignmentId}/review records the outcome.',
       );
     }
-    if (!(await this.branchScope.isOperativeBranch(tx, { tenantId, branchId }))) {
+    if (
+      !(await this.branchScope.isOperativeBranch(tx, { tenantId, branchId }))
+    ) {
       throw new ForbiddenException('This branch is not active.');
     }
     // Defence in depth, IN THIS TRANSACTION and AT THIS BRANCH. The route guard

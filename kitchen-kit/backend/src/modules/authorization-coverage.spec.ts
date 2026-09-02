@@ -79,8 +79,7 @@ const REVIEWED_UNPROTECTED_ROUTES: Readonly<Record<string, string>> = {
     'Refresh-token exchange. Authority is the refresh token itself; it mints a token, it does not act on a business resource.',
   'POST /auth/logout':
     'Ends the caller’s own session. The only resource is the session the caller already holds.',
-  'GET /auth/me':
-    'The caller’s own identity. No target but the caller.',
+  'GET /auth/me': 'The caller’s own identity. No target but the caller.',
   'GET /auth/permissions':
     'The caller’s OWN effective scope (FR-SEC-045). Reading one’s own authority cannot be gated on holding authority.',
   'POST /auth/password/change':
@@ -93,12 +92,15 @@ const REVIEWED_UNPROTECTED_ROUTES: Readonly<Record<string, string>> = {
     'Lists the memberships the AUTHENTICATED USER already holds, before any tenant is selected. There is no tenant context yet to scope against.',
   'POST /auth/tenant':
     'Selects one of the caller’s own memberships and mints a tenant-bound token. Authority is the membership itself.',
-  'GET /auth/tenant':
-    'Reads the caller’s own selected tenant context.',
+  'GET /auth/tenant': 'Reads the caller’s own selected tenant context.',
   'POST /auth/terminal':
     'Binds the caller’s session to a terminal (ADR 0004). The terminal credential is the authority; TenantContextService then derives the operating branch live.',
-  'GET /auth/terminal':
-    'Reads the caller’s own bound terminal.',
+  'GET /auth/terminal': 'Reads the caller’s own bound terminal.',
+  'POST /sync/batch':
+    'Offline sync transport authenticated by tenant-bound terminal/session ' +
+    'guards; branch is server-derived; operation-level domain authorization ' +
+    'is delegated to SYNC_AUTHORIZATION_PORT when production handlers are ' +
+    'added.',
 };
 
 // ───────────────────────────────────────────────────────── route discovery ──
@@ -150,7 +152,7 @@ function collectRoutes(): RouteRecord[] {
   const files = [...walk(MODULES_ROOT), ...walk(resolve(SRC_ROOT, 'health'))];
 
   for (const file of files) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require(file) as Record<string, unknown>;
     for (const exported of Object.values(mod)) {
       if (typeof exported !== 'function') continue;
@@ -177,7 +179,9 @@ function collectRoutes(): RouteRecord[] {
         const method: unknown = Reflect.getMetadata(METHOD_METADATA, handler);
         if (method === undefined) continue;
 
-        const verb = METHOD_NAMES[method as number] ?? String(method);
+        const verb =
+          METHOD_NAMES[method as number] ??
+          (typeof method === 'number' ? String(method) : 'UNKNOWN');
         const path = joinPath(
           controllerPath,
           Reflect.getMetadata(PATH_METADATA, handler),
@@ -189,12 +193,10 @@ function collectRoutes(): RouteRecord[] {
           handler: name,
           permissions:
             (Reflect.getMetadata(PERMISSIONS_KEY, handler) as
-              | RequiredPermissions
-              | undefined) ?? classPermissions,
+              RequiredPermissions | undefined) ?? classPermissions,
           target:
             (Reflect.getMetadata(AUTHORIZATION_TARGET_KEY, handler) as
-              | AuthorizationTargetSpec
-              | undefined) ?? classTarget,
+              AuthorizationTargetSpec | undefined) ?? classTarget,
         });
       }
     }
@@ -342,7 +344,7 @@ describe('Authorization coverage gate (B1-3)', () => {
       const kind = route.target?.kind ?? 'UNDECLARED';
       totals[kind] = (totals[kind] ?? 0) + 1;
     }
-    // eslint-disable-next-line no-console
+
     console.log('B1-3 authorization target totals:', {
       routes: routes.length,
       ...totals,

@@ -247,7 +247,11 @@ export class OrganisationController {
 
   // ----------------------------- Brands (tenant-level) ---------------------
   @Post('brands')
-  @AuthorizationTarget(tenantTarget('Creating a brand is a tenant-level act: the brand does not exist yet, so it has no owner narrower than the tenant.'))
+  @AuthorizationTarget(
+    tenantTarget(
+      'Creating a brand is a tenant-level act: the brand does not exist yet, so it has no owner narrower than the tenant.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created brand.',
@@ -264,7 +268,11 @@ export class OrganisationController {
   }
 
   @Get('brands')
-  @AuthorizationTarget(tenantTarget('Lists every brand in the tenant; the collection itself is tenant-owned.'))
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists every brand in the tenant; the collection itself is tenant-owned.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({
     description: 'All brands in the tenant.',
@@ -324,7 +332,11 @@ export class OrganisationController {
   }
 
   @Get('branches')
-  @AuthorizationTarget(tenantTarget('Lists every branch in the tenant; the collection itself is tenant-owned.'))
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists every branch in the tenant; the collection itself is tenant-owned.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({
     description: 'All branches in the tenant.',
@@ -397,7 +409,11 @@ export class OrganisationController {
    * tenant-level permission, and `code` is never changed.
    */
   @Post('branches/:branchId/brand')
-  @AuthorizationTarget(tenantTarget('Re-parenting a branch MOVES it between brands. A BRAND-scoped actor must not be able to move a branch into or out of its own brand, so the target is the tenant — the only scope that legitimately spans both brands.'))
+  @AuthorizationTarget(
+    tenantTarget(
+      'Re-parenting a branch MOVES it between brands. A BRAND-scoped actor must not be able to move a branch into or out of its own brand, so the target is the tenant — the only scope that legitimately spans both brands.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiOperation({
     summary: 'Reassign a branch to another brand within the same tenant.',
@@ -422,7 +438,11 @@ export class OrganisationController {
 
   // ----------------------------- Warehouses (tenant-level) -----------------
   @Post('warehouses')
-  @AuthorizationTarget(tenantTarget('The warehouse does not exist yet; `org.warehouses.branch_id` is nullable, so the operation is tenant-level (ADR 0009 D-02).'))
+  @AuthorizationTarget(
+    tenantTarget(
+      'The warehouse does not exist yet; `org.warehouses.branch_id` is nullable, so the operation is tenant-level (ADR 0009 D-02).',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created warehouse.',
@@ -440,7 +460,11 @@ export class OrganisationController {
   }
 
   @Get('warehouses')
-  @AuthorizationTarget(tenantTarget('Lists every warehouse in the tenant, branch-owned and standalone alike.'))
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists every warehouse in the tenant, branch-owned and standalone alike.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({
     description: 'All warehouses in the tenant.',
@@ -451,7 +475,14 @@ export class OrganisationController {
   }
 
   @Get('warehouses/:warehouseId')
-  @AuthorizationTarget(resourceTarget(ORG_WAREHOUSE_TARGET_RESOLVER, { warehouseId: fromParam('warehouseId') }, 'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.', 'Warehouse not found.'))
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_WAREHOUSE_TARGET_RESOLVER,
+      { warehouseId: fromParam('warehouseId') },
+      'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.',
+      'Warehouse not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({ description: 'The warehouse.', schema: warehouseSchema })
   @ApiNotFoundResponse({ description: 'Warehouse not found.' })
@@ -463,7 +494,14 @@ export class OrganisationController {
   }
 
   @Patch('warehouses/:warehouseId')
-  @AuthorizationTarget(resourceTarget(ORG_WAREHOUSE_TARGET_RESOLVER, { warehouseId: fromParam('warehouseId') }, 'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.', 'Warehouse not found.'))
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_WAREHOUSE_TARGET_RESOLVER,
+      { warehouseId: fromParam('warehouseId') },
+      'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.',
+      'Warehouse not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiOkResponse({
     description: 'The updated warehouse.',
@@ -486,7 +524,11 @@ export class OrganisationController {
 
   // ----------------------------- Central kitchens (tenant-level) -----------
   @Post('central-kitchens')
-  @AuthorizationTarget(tenantTarget('`org.central_kitchens` is tenant-level by construction — ADR 0009 D-02 refused CENTRAL_KITCHEN as a scope type precisely because TENANT already covers it.'))
+  @AuthorizationTarget(
+    tenantTarget(
+      '`org.central_kitchens` is tenant-level by construction — ADR 0009 D-02 refused CENTRAL_KITCHEN as a scope type precisely because TENANT already covers it.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created central kitchen.',
@@ -505,7 +547,9 @@ export class OrganisationController {
   }
 
   @Get('central-kitchens')
-  @AuthorizationTarget(tenantTarget('Central kitchens are tenant-level (ADR 0009 D-02).'))
+  @AuthorizationTarget(
+    tenantTarget('Central kitchens are tenant-level (ADR 0009 D-02).'),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({
     description: 'All central kitchens in the tenant.',
@@ -516,7 +560,9 @@ export class OrganisationController {
   }
 
   @Get('central-kitchens/:centralKitchenId')
-  @AuthorizationTarget(tenantTarget('Central kitchens are tenant-level (ADR 0009 D-02).'))
+  @AuthorizationTarget(
+    tenantTarget('Central kitchens are tenant-level (ADR 0009 D-02).'),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({
     description: 'The central kitchen.',
@@ -531,7 +577,9 @@ export class OrganisationController {
   }
 
   @Patch('central-kitchens/:centralKitchenId')
-  @AuthorizationTarget(tenantTarget('Central kitchens are tenant-level (ADR 0009 D-02).'))
+  @AuthorizationTarget(
+    tenantTarget('Central kitchens are tenant-level (ADR 0009 D-02).'),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiOkResponse({
     description: 'The updated central kitchen.',
@@ -588,7 +636,14 @@ export class OrganisationController {
   }
 
   @Get('stations/:stationId')
-  @AuthorizationTarget(resourceTarget(ORG_STATION_TARGET_RESOLVER, { stationId: fromParam('stationId') }, 'A station is branch-owned and carries no tenant_id; its branch comes from the row.', 'Station not found.'))
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_STATION_TARGET_RESOLVER,
+      { stationId: fromParam('stationId') },
+      'A station is branch-owned and carries no tenant_id; its branch comes from the row.',
+      'Station not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({ description: 'The station.', schema: stationSchema })
   @ApiNotFoundResponse({ description: 'Station not found.' })
@@ -600,7 +655,14 @@ export class OrganisationController {
   }
 
   @Patch('stations/:stationId')
-  @AuthorizationTarget(resourceTarget(ORG_STATION_TARGET_RESOLVER, { stationId: fromParam('stationId') }, 'A station is branch-owned and carries no tenant_id; its branch comes from the row.', 'Station not found.'))
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_STATION_TARGET_RESOLVER,
+      { stationId: fromParam('stationId') },
+      'A station is branch-owned and carries no tenant_id; its branch comes from the row.',
+      'Station not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiOkResponse({ description: 'The updated station.', schema: stationSchema })
   @ApiNotFoundResponse({
@@ -653,7 +715,14 @@ export class OrganisationController {
   }
 
   @Patch('tables/:tableId')
-  @AuthorizationTarget(resourceTarget(ORG_TABLE_TARGET_RESOLVER, { tableId: fromParam('tableId') }, 'A table is branch-owned and carries no tenant_id; its branch comes from the row.', 'Table not found.'))
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_TABLE_TARGET_RESOLVER,
+      { tableId: fromParam('tableId') },
+      'A table is branch-owned and carries no tenant_id; its branch comes from the row.',
+      'Table not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiOkResponse({ description: 'The updated table.', schema: tableSchema })
   @ApiNotFoundResponse({ description: 'Table not found.' })

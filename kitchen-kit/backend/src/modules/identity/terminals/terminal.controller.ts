@@ -117,7 +117,11 @@ export class TerminalController {
   }
 
   @Get('terminals')
-  @AuthorizationTarget(tenantTarget('Lists every terminal registered to the tenant; the route takes no branch filter.'))
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists every terminal registered to the tenant; the route takes no branch filter.',
+    ),
+  )
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_READ)
   @ApiOperation({ summary: 'List terminals registered to the tenant.' })
   @ApiOkResponse({
@@ -129,7 +133,14 @@ export class TerminalController {
   }
 
   @Post('terminals/:terminalId/status')
-  @AuthorizationTarget(resourceTarget(IDENTITY_TERMINAL_TARGET_RESOLVER, { terminalId: fromParam('terminalId') }, 'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.', 'Terminal not found.'))
+  @AuthorizationTarget(
+    resourceTarget(
+      IDENTITY_TERMINAL_TARGET_RESOLVER,
+      { terminalId: fromParam('terminalId') },
+      'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.',
+      'Terminal not found.',
+    ),
+  )
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_MANAGE)
   @ApiOperation({ summary: "Set a terminal's status." })
   @ApiOkResponse({
@@ -149,7 +160,14 @@ export class TerminalController {
   }
 
   @Post('terminals/:terminalId/fingerprints')
-  @AuthorizationTarget(resourceTarget(IDENTITY_TERMINAL_TARGET_RESOLVER, { terminalId: fromParam('terminalId') }, 'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.', 'Terminal not found.'))
+  @AuthorizationTarget(
+    resourceTarget(
+      IDENTITY_TERMINAL_TARGET_RESOLVER,
+      { terminalId: fromParam('terminalId') },
+      'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.',
+      'Terminal not found.',
+    ),
+  )
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_MANAGE)
   @ApiOperation({

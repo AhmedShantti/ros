@@ -421,13 +421,19 @@ export const SCOPE_AUTHORIZATION = Symbol('SCOPE_AUTHORIZATION');
 export interface ScopeAuthorizationPort {
   isAuthorized(
     auth: ScopeAuthorizationActor,
-    required: { readonly codes: readonly string[]; readonly mode: 'all' | 'any' },
+    required: {
+      readonly codes: readonly string[];
+      readonly mode: 'all' | 'any';
+    },
     target: TargetScope,
     tx?: Prisma.TransactionClient,
   ): Promise<boolean>;
   assertAuthorized(
     auth: ScopeAuthorizationActor,
-    required: { readonly codes: readonly string[]; readonly mode: 'all' | 'any' },
+    required: {
+      readonly codes: readonly string[];
+      readonly mode: 'all' | 'any';
+    },
     target: TargetScope,
     tx?: Prisma.TransactionClient,
   ): Promise<void>;
