@@ -827,13 +827,30 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
    * `@Injectable()` decorator, or a Prisma query-method CALL
    * (`.findMany(`, `.findUnique(`, etc. — an actual query, not a type name).
    */
+  /**
+   * Comments are PROSE, not behaviour, and this detector is about behaviour.
+   *
+   * Stripping them first is what lets a contract file explain itself. Before
+   * B1-3 the raw-source scan fired on any docblock containing the words "class"
+   * followed by another word — "on a controller class when every route ..." was
+   * enough — which pushed contract authors towards writing less explanation in
+   * exactly the files that most need it. Stripping cannot HIDE a violation: a
+   * `class` declaration inside a comment is not a class.
+   */
+  function stripComments(source: string): string {
+    return source
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  }
+
   function containsPersistenceImplementation(source: string): boolean {
+    const code = stripComments(source);
     const QUERY_CALL_RE =
       /\.\s*(findMany|findFirst|findUnique|create|createMany|update|updateMany|upsert|delete|deleteMany|count|aggregate|groupBy)\s*\(/;
     return (
-      /@Injectable\s*\(/.test(source) ||
-      /\bclass\s+\w/.test(source) ||
-      QUERY_CALL_RE.test(source)
+      /@Injectable\s*\(/.test(code) ||
+      /\bclass\s+\w/.test(code) ||
+      QUERY_CALL_RE.test(code)
     );
   }
 
@@ -860,6 +877,29 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
       }
     `;
     expect(containsPersistenceImplementation(cleanContractFixture)).toBe(false);
+
+    // B1-3: prose is not behaviour. A contract that EXPLAINS itself — including
+    // the words the detector's own regexes look for — must stay clean, or the
+    // rule quietly penalises documentation.
+    const cleanContractWithProse = `
+      /**
+       * Placed on a handler, or on a controller class when every route in it
+       * shares one target shape. Do not create(  ) anything here.
+       */
+      // @Injectable() would be a violation — naming it in a comment is not.
+      export const AUTHORIZATION_TARGET = Symbol('AUTHORIZATION_TARGET');
+      export interface Spec { readonly kind: 'tenant'; }
+    `;
+    expect(containsPersistenceImplementation(cleanContractWithProse)).toBe(
+      false,
+    );
+
+    // ...and a violation hiding BELOW a comment is still caught.
+    const badContractBelowProse = `
+      // a perfectly innocent comment
+      export class Sneaky {}
+    `;
+    expect(containsPersistenceImplementation(badContractBelowProse)).toBe(true);
   });
 
   it('Organisation contract/ contains interface/types only — no persistence implementation', () => {

@@ -51,6 +51,20 @@ import { TransfersService } from './movements/transfers.service';
 import { ReconciliationService } from './reconciliation/reconciliation.service';
 import { StockItemsService } from './stock-items/stock-items.service';
 import { WasteService } from './waste/waste.service';
+import {
+  AuthorizationTarget,
+  fromBody,
+  fromParam,
+  fromQuery,
+  resourceOrTenantTarget,
+  resourceTarget,
+  tenantTarget,
+} from '../identity/contract';
+import { ORG_LOCATION_TARGET_RESOLVER } from '../organisation/contract';
+import {
+  INVENTORY_COUNT_LINE_TARGET_RESOLVER,
+  INVENTORY_COUNT_SESSION_TARGET_RESOLVER,
+} from './contract';
 
 /**
  * Inventory API.
@@ -384,6 +398,7 @@ export class InventoryController {
 
   // ------------------------------------------------------- stock item master --
   @Post('items')
+  @AuthorizationTarget(tenantTarget('Stock-item master data is tenant-level: `inventory.stock_items` carries no location and no branch, and one SKU is shared by every location that stocks it.'))
   @RequirePermission(INVENTORY_PERMISSIONS.ADJUST)
   @ApiOperation({ summary: 'Create a stock item (FR-INV-001).' })
   @ApiCreatedResponse({
@@ -402,6 +417,7 @@ export class InventoryController {
   }
 
   @Get('items')
+  @AuthorizationTarget(tenantTarget('Stock-item master data is tenant-level: `inventory.stock_items` carries no location and no branch, and one SKU is shared by every location that stocks it.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description: 'All stock items in the tenant.',
@@ -412,6 +428,7 @@ export class InventoryController {
   }
 
   @Get('items/:itemId')
+  @AuthorizationTarget(tenantTarget('Stock-item master data is tenant-level: `inventory.stock_items` carries no location and no branch, and one SKU is shared by every location that stocks it.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({ description: 'The stock item.', schema: stockItemSchema })
   @ApiNotFoundResponse({ description: 'Stock item not found.' })
@@ -424,6 +441,7 @@ export class InventoryController {
 
   /** FR-INV-002: rejected once any movement exists. */
   @Post('items/:itemId/base-unit')
+  @AuthorizationTarget(tenantTarget('Stock-item master data is tenant-level: `inventory.stock_items` carries no location and no branch, and one SKU is shared by every location that stocks it.'))
   @RequirePermission(INVENTORY_PERMISSIONS.ADJUST)
   @ApiOkResponse({
     description: 'The updated stock item.',
@@ -444,6 +462,7 @@ export class InventoryController {
 
   /** FR-INV-065: per-location reorder configuration. */
   @Post('items/:itemId/reorder-config')
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
   @RequirePermission(INVENTORY_PERMISSIONS.ADJUST)
   @ApiOkResponse({
     description: 'The upserted reorder configuration.',
@@ -466,6 +485,7 @@ export class InventoryController {
   }
 
   @Post('reason-codes')
+  @AuthorizationTarget(tenantTarget('Reason codes are a tenant-level registry shared by every location.'))
   @RequirePermission(INVENTORY_PERMISSIONS.ADJUST)
   @ApiCreatedResponse({
     description: 'The created reason code.',
@@ -489,6 +509,7 @@ export class InventoryController {
   }
 
   @Get('reason-codes')
+  @AuthorizationTarget(tenantTarget('Reason codes are a tenant-level registry shared by every location.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description: 'All reason codes in the tenant.',
@@ -500,6 +521,7 @@ export class InventoryController {
 
   // ------------------------------------------------------------------ ledger --
   @Post('movements')
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
   @RequirePermission(INVENTORY_PERMISSIONS.ADJUST)
   @ApiOperation({
     summary:
@@ -529,6 +551,7 @@ export class InventoryController {
 
   /** Cost-bearing read — gated by inventory.cost.view, not inventory.view. */
   @Get('items/:itemId/movements')
+  @AuthorizationTarget(resourceOrTenantTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromQuery('locationId') }, 'Filtered by location: that location\'s owning scope. Unfiltered: a tenant-wide read.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COST_VIEW)
   @ApiOkResponse({
     description:
@@ -545,6 +568,7 @@ export class InventoryController {
 
   // --------------------------------------------------------------- transfers --
   @Post('transfers')
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('fromLocationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
   @RequirePermission(INVENTORY_PERMISSIONS.TRANSFER_CREATE)
   @ApiOperation({
     summary: 'Dispatch a transfer (writes the transfer_out leg).',
@@ -573,6 +597,7 @@ export class InventoryController {
   }
 
   @Post('transfers/receive')
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('toLocationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
   @RequirePermission(INVENTORY_PERMISSIONS.TRANSFER_RECEIVE)
   @ApiOperation({
     summary:
@@ -599,6 +624,7 @@ export class InventoryController {
 
   // ------------------------------------------------------------------ counts --
   @Post('counts')
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COUNT_PERFORM)
   @ApiOperation({
     summary:
@@ -621,6 +647,7 @@ export class InventoryController {
   }
 
   @Get('counts/:sessionId/lines')
+  @AuthorizationTarget(resourceTarget(INVENTORY_COUNT_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The count session names its location; posting it writes count_adjustment movements against that location\'s stock.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COUNT_PERFORM)
   @ApiOkResponse({
     description:
@@ -636,6 +663,7 @@ export class InventoryController {
   }
 
   @Post('count-lines/:lineId')
+  @AuthorizationTarget(resourceTarget(INVENTORY_COUNT_LINE_TARGET_RESOLVER, { lineId: fromParam('lineId') }, 'The line\'s session names the location whose stock the count will adjust.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COUNT_PERFORM)
   @ApiOperation({ summary: 'Record a counted quantity for one count line.' })
   @ApiCreatedResponse({
@@ -660,6 +688,7 @@ export class InventoryController {
   }
 
   @Post('counts/:sessionId/post')
+  @AuthorizationTarget(resourceTarget(INVENTORY_COUNT_SESSION_TARGET_RESOLVER, { sessionId: fromParam('sessionId') }, 'The count session names its location; posting it writes count_adjustment movements against that location\'s stock.'))
   @RequirePermission(INVENTORY_PERMISSIONS.COUNT_POST)
   @ApiOperation({
     summary:
@@ -686,6 +715,7 @@ export class InventoryController {
 
   // ------------------------------------------------------------------- waste --
   @Post('waste')
+  @AuthorizationTarget(resourceTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromBody('locationId') }, 'The inventory location registry says whether this stock belongs to a branch, a branch-owned warehouse, a standalone warehouse or a central kitchen.'))
   @RequirePermission(INVENTORY_PERMISSIONS.WASTE_RECORD)
   @ApiOperation({
     summary:
@@ -719,6 +749,7 @@ export class InventoryController {
   }
 
   @Get('waste')
+  @AuthorizationTarget(tenantTarget('Lists waste across every location in the tenant; there is no location filter to narrow it.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description: 'The most recent 200 waste records, newest first.',
@@ -730,6 +761,7 @@ export class InventoryController {
 
   // --------------------------------- levels / on-demand computations (D-INV-08) --
   @Get('levels')
+  @AuthorizationTarget(resourceOrTenantTarget(ORG_LOCATION_TARGET_RESOLVER, { locationId: fromQuery('locationId') }, 'Filtered by location: that location\'s owning scope. Unfiltered: a tenant-wide read.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description: 'Current stock levels (FR-INV-010/015).',
@@ -744,6 +776,7 @@ export class InventoryController {
 
   /** FR-INV-011/051 computation. Scheduling deferred (D-INV-08). */
   @Get('reconciliation')
+  @AuthorizationTarget(tenantTarget('Reconciles the whole tenant ledger against the whole tenant projection; it takes no location filter.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description:
@@ -756,6 +789,7 @@ export class InventoryController {
 
   /** FR-INV-014 computation. Alert delivery deferred. */
   @Get('negative-stock')
+  @AuthorizationTarget(tenantTarget('Surfaces negative levels across every location in the tenant; it takes no location filter.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description:
@@ -768,6 +802,7 @@ export class InventoryController {
 
   /** FR-INV-024 computation. Alert delivery deferred. */
   @Get('expiring')
+  @AuthorizationTarget(tenantTarget('Scans expiring batches across every location in the tenant; it takes no location filter.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description: 'Batches expiring within `days` (default 7) (FR-INV-024).',
@@ -782,6 +817,7 @@ export class InventoryController {
 
   /** FR-INV-066 computation against per-location reorder points. */
   @Get('low-stock')
+  @AuthorizationTarget(tenantTarget('Compares every location\'s levels against its reorder points across the whole tenant.'))
   @RequirePermission(INVENTORY_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description:

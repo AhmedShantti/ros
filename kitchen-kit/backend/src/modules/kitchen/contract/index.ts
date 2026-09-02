@@ -7,3 +7,4 @@
  * requires applies to this contract even though nothing implements it.
  */
 export * from './events';
+export * from './scope-target.resolvers';

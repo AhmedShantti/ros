@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import type {
   BranchReportingScopeQuery,
+  BranchReportingScopeQueryBranchInput,
   BranchReportingScopeQueryInput,
 } from '../contract/branch-reporting-scope.query';
 
@@ -23,5 +24,20 @@ export class BranchReportingScopeQueryService implements BranchReportingScopeQue
       take: input.limit,
     });
     return rows.map((r) => r.id);
+  }
+
+  async isOperativeBranch(
+    tx: Prisma.TransactionClient,
+    input: BranchReportingScopeQueryBranchInput,
+  ): Promise<boolean> {
+    const row = await tx.branch.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        id: input.branchId,
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    return row !== null;
   }
 }

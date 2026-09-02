@@ -55,6 +55,7 @@ import {
 import { type AssignmentScope, buildPermittedBranchSet } from './scope';
 import { IDENTITY_PERMISSIONS } from './permissions.constants';
 import { RolesService } from './roles.service';
+import { AuthorizationTarget, tenantTarget } from '../contract';
 
 // Shape verified against the `Role` Prisma model — `listForTenant`/
 // `createTenantRole` in `roles.service.ts` return it directly, with no
@@ -251,6 +252,7 @@ export class RbacController {
   }
 
   @Get('roles')
+  @AuthorizationTarget(tenantTarget('Role and assignment administration is tenant-level: `identity.roles` and `identity.membership_roles` belong to the tenant, and granting authority AT a branch is itself a tenant-level act. Making it branch-targetable would let a branch-scoped actor mint branch-scoped grants — self-elevation by construction.'))
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_READ)
   @ApiOperation({
     summary:
@@ -265,6 +267,7 @@ export class RbacController {
   }
 
   @Post('roles')
+  @AuthorizationTarget(tenantTarget('Role and assignment administration is tenant-level: `identity.roles` and `identity.membership_roles` belong to the tenant, and granting authority AT a branch is itself a tenant-level act. Making it branch-targetable would let a branch-scoped actor mint branch-scoped grants — self-elevation by construction.'))
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_CREATE)
   @ApiOperation({ summary: 'Create a tenant-owned role.' })
   @ApiCreatedResponse({
@@ -282,6 +285,7 @@ export class RbacController {
   }
 
   @Post('roles/:roleId/permissions')
+  @AuthorizationTarget(tenantTarget('Role and assignment administration is tenant-level: `identity.roles` and `identity.membership_roles` belong to the tenant, and granting authority AT a branch is itself a tenant-level act. Making it branch-targetable would let a branch-scoped actor mint branch-scoped grants — self-elevation by construction.'))
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_UPDATE)
   @ApiOperation({ summary: 'Grant permissions to a tenant-owned role.' })
@@ -304,6 +308,7 @@ export class RbacController {
   }
 
   @Post('memberships/:membershipId/roles')
+  @AuthorizationTarget(tenantTarget('Role and assignment administration is tenant-level: `identity.roles` and `identity.membership_roles` belong to the tenant, and granting authority AT a branch is itself a tenant-level act. Making it branch-targetable would let a branch-scoped actor mint branch-scoped grants — self-elevation by construction.'))
   @HttpCode(HttpStatus.CREATED)
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
   @ApiOperation({
@@ -353,6 +358,7 @@ export class RbacController {
   }
 
   @Get('memberships/:membershipId/roles')
+  @AuthorizationTarget(tenantTarget('Role and assignment administration is tenant-level: `identity.roles` and `identity.membership_roles` belong to the tenant, and granting authority AT a branch is itself a tenant-level act. Making it branch-targetable would let a branch-scoped actor mint branch-scoped grants — self-elevation by construction.'))
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_READ)
   @ApiOperation({
     summary: "A membership's scoped role assignments, including expired ones.",
@@ -376,6 +382,7 @@ export class RbacController {
   }
 
   @Patch('role-assignments/:assignmentId')
+  @AuthorizationTarget(tenantTarget('Role and assignment administration is tenant-level: `identity.roles` and `identity.membership_roles` belong to the tenant, and granting authority AT a branch is itself a tenant-level act. Making it branch-targetable would let a branch-scoped actor mint branch-scoped grants — self-elevation by construction.'))
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
   @ApiOperation({
     summary: "Re-scope an assignment and/or change its validity window.",
@@ -419,6 +426,7 @@ export class RbacController {
   }
 
   @Post('role-assignments/:assignmentId/review')
+  @AuthorizationTarget(tenantTarget('Role and assignment administration is tenant-level: `identity.roles` and `identity.membership_roles` belong to the tenant, and granting authority AT a branch is itself a tenant-level act. Making it branch-targetable would let a branch-scoped actor mint branch-scoped grants — self-elevation by construction.'))
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
   @ApiOperation({
     summary:
@@ -452,6 +460,7 @@ export class RbacController {
   }
 
   @Delete('role-assignments/:assignmentId')
+  @AuthorizationTarget(tenantTarget('Role and assignment administration is tenant-level: `identity.roles` and `identity.membership_roles` belong to the tenant, and granting authority AT a branch is itself a tenant-level act. Making it branch-targetable would let a branch-scoped actor mint branch-scoped grants — self-elevation by construction.'))
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
   @ApiOperation({ summary: 'Remove ONE scoped assignment by its stable id.' })
@@ -467,6 +476,7 @@ export class RbacController {
   }
 
   @Delete('memberships/:membershipId/roles/:roleId')
+  @AuthorizationTarget(tenantTarget('Role and assignment administration is tenant-level: `identity.roles` and `identity.membership_roles` belong to the tenant, and granting authority AT a branch is itself a tenant-level act. Making it branch-targetable would let a branch-scoped actor mint branch-scoped grants — self-elevation by construction.'))
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
   @ApiOperation({

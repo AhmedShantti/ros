@@ -25,6 +25,8 @@ import { SalesPaymentService } from './orders/sales-payment.service';
 import { TicketBumpedHandler } from './orders/ticket-bumped.handler';
 import { TicketRecalledHandler } from './orders/ticket-recalled.handler';
 import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
+import { OrderTargetResolver } from './orders/scope-target.resolver';
+import { SALES_ORDER_TARGET_RESOLVER } from './contract';
 
 /**
  * Sales bounded context.
@@ -112,6 +114,8 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
   ],
   controllers: [OrdersController],
   providers: [
+    OrderTargetResolver,
+    { provide: SALES_ORDER_TARGET_RESOLVER, useExisting: OrderTargetResolver },
     OrdersService,
     OrderLinesService,
     SalesFireService,
@@ -148,6 +152,7 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
     { provide: APP_FILTER, useClass: SalesDomainExceptionFilter },
   ],
   exports: [
+    SALES_ORDER_TARGET_RESOLVER,
     OrdersService,
     OrderLinesService,
     CASH_SESSION_TENDER_TOTALS_QUERY,

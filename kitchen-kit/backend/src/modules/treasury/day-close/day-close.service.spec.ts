@@ -39,12 +39,29 @@ describe('DayCloseService.post — Z-number bounded retry (unit)', () => {
     branchId: 'b1',
     businessDay: new Date('2026-08-01T00:00:00.000Z'),
   };
-  const permissions = new Set(['cash.day.close']);
+  /**
+   * B1-3: `post()` takes the resolved `RequestAuthorization` — the day-close
+   * authority check is now scoped to the branch, decided inside the write
+   * transaction. These tests mock `unitOfWork.execute`, so the object is never
+   * dereferenced; it exists to type the call exactly as the controller makes it.
+   */
+  const authorization = {
+    context: {
+      userId: 'u1',
+      sessionId: 's1',
+      tenantId: 't1',
+      membershipId: 'm1',
+    },
+    permissions: new Set(['cash.day.close']),
+    grants: [],
+    authzEpoch: 0,
+    scopeReviewRequired: false,
+  } as unknown as Parameters<DayCloseService['post']>[3];
 
   it('succeeds on the first attempt with zero retries when no collision occurs', async () => {
     const execute = jest.fn().mockResolvedValue({ outcome: 'CLOSED' });
     const service = mkService(execute);
-    const result = await service.post('t1', 'u1', {}, permissions, input);
+    const result = await service.post('t1', 'u1', {}, authorization, input);
     expect(result).toEqual({ outcome: 'CLOSED' });
     expect(execute).toHaveBeenCalledTimes(1);
   });
@@ -55,7 +72,7 @@ describe('DayCloseService.post — Z-number bounded retry (unit)', () => {
       .mockRejectedValueOnce(p2002())
       .mockResolvedValueOnce({ outcome: 'CLOSED', dayClose: { zNumber: '2' } });
     const service = mkService(execute);
-    const result = await service.post('t1', 'u1', {}, permissions, input);
+    const result = await service.post('t1', 'u1', {}, authorization, input);
     expect(result).toEqual({ outcome: 'CLOSED', dayClose: { zNumber: '2' } });
     expect(execute).toHaveBeenCalledTimes(2);
   });
@@ -64,7 +81,7 @@ describe('DayCloseService.post — Z-number bounded retry (unit)', () => {
     const execute = jest.fn().mockRejectedValue(p2002());
     const service = mkService(execute);
     await expect(
-      service.post('t1', 'u1', {}, permissions, input),
+      service.post('t1', 'u1', {}, authorization, input),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(execute).toHaveBeenCalledTimes(5);
   });
@@ -73,7 +90,7 @@ describe('DayCloseService.post — Z-number bounded retry (unit)', () => {
     const err = otherError();
     const execute = jest.fn().mockRejectedValue(err);
     const service = mkService(execute);
-    await expect(service.post('t1', 'u1', {}, permissions, input)).rejects.toBe(
+    await expect(service.post('t1', 'u1', {}, authorization, input)).rejects.toBe(
       err,
     );
     expect(execute).toHaveBeenCalledTimes(1);
@@ -89,7 +106,7 @@ describe('DayCloseService.post — Z-number bounded retry (unit)', () => {
         return Promise.resolve({ outcome: 'CLOSED' });
       });
     const service = mkService(execute);
-    await service.post('t1', 'u1', {}, permissions, input);
+    await service.post('t1', 'u1', {}, authorization, input);
     expect(execute).toHaveBeenCalledTimes(3);
     expect(new Set(seenCorrelationIds).size).toBe(1);
   });

@@ -26,6 +26,8 @@ import { DayCloseStateQueryService } from './day-close/day-close-state.query.ser
 import { DayCloseService } from './day-close/day-close.service';
 import { DrawersService } from './drawers/drawers.service';
 import { TreasuryController } from './treasury.controller';
+import { CashSessionTargetResolver } from './cash-sessions/scope-target.resolver';
+import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
 
 /**
  * Treasury bounded context — Drawer + CashSession OPEN.
@@ -119,6 +121,8 @@ import { TreasuryController } from './treasury.controller';
     DayCloseController,
   ],
   providers: [
+    CashSessionTargetResolver,
+    { provide: TREASURY_CASH_SESSION_TARGET_RESOLVER, useExisting: CashSessionTargetResolver },
     DrawersService,
     CashSessionsService,
     CashSessionFactsQueryService,
@@ -153,6 +157,7 @@ import { TreasuryController } from './treasury.controller';
     DayCloseService,
   ],
   exports: [
+    TREASURY_CASH_SESSION_TARGET_RESOLVER,
     DrawersService,
     CashSessionsService,
     CASH_SESSION_FACTS_QUERY,
