@@ -1265,7 +1265,9 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
       readdirSync(migrationsDir, { withFileTypes: true }).filter((e) =>
         e.isDirectory(),
       ).length,
-    ).toBe(35);
+      // B1-2 added migration 36 (identity scoped role assignments). Reporting
+      // still owns none of them — that is what this assertion guards.
+    ).toBe(36);
   });
 
   /**

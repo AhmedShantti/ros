@@ -16,6 +16,7 @@ import { TerminalsService } from '../terminals/terminals.service';
 import { SafeUser, toSafeUser } from '../users/user.view';
 import { UsersRepository } from '../users/users.repository';
 import { UsersService } from '../users/users.service';
+import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { AccessTokenService } from './access-token.service';
 import { AuthTokens } from './auth.types';
 import { LoginDto } from './dto/login.dto';
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly terminals: TerminalsService,
     private readonly audit: AuditService,
     private readonly pins: PinService,
+    private readonly snapshots: AuthorizationSnapshotService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
@@ -148,6 +150,16 @@ export class AuthService {
     // per request from the membership, so a POS token without it could reach no
     // permission-guarded route at all. `emp` names the employee behind the
     // session, which POS routes need as the acting party (FR-SEC-021).
+    // T-4-LIVE: a tenant-bound token carries the SRS-required authorization
+    // snapshot (FR-API-012 clause 1) and the epoch that makes it verifiable.
+    // The snapshot never authorises — `TenantContextService` re-resolves live
+    // on every request, and additionally re-checks this POS session's terminal
+    // and permitted-branch facts.
+    const snapshot = await this.snapshots.build(
+      user.id,
+      dto.tenantId,
+      result.membershipId,
+    );
     const accessToken = await this.tokens.sign({
       sub: user.id,
       sid: session.id,
@@ -156,6 +168,9 @@ export class AuthService {
       trm: result.terminalId,
       emp: result.employeeId,
       typ: 'pos',
+      scp: [...snapshot.scp],
+      pbr: snapshot.pbr,
+      epo: snapshot.epo,
     });
 
     await this.audit.emit({
@@ -216,11 +231,23 @@ export class AuthService {
       }
     }
 
+    // A refreshed tenant-bound token gets a FRESH snapshot and epoch, so a
+    // refresh is the supported way to recover from a stale-snapshot refusal.
+    const snapshot = context
+      ? await this.snapshots.build(
+          user.id,
+          context.tenantId,
+          context.membershipId,
+        )
+      : null;
     const accessToken = await this.tokens.sign({
       sub: user.id,
       sid: session.id,
       ...(context ? { tid: context.tenantId, mid: context.membershipId } : {}),
       ...(terminalId ? { trm: terminalId } : {}),
+      ...(snapshot
+        ? { scp: [...snapshot.scp], pbr: snapshot.pbr, epo: snapshot.epo }
+        : {}),
     });
     return this.buildTokens(accessToken, nextRefreshToken, user);
   }

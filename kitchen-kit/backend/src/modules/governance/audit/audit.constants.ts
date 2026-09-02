@@ -90,6 +90,19 @@ export const AUDIT_ACTION = {
   REFRESH_REUSE_DETECTED: 'REFRESH_REUSE_DETECTED',
   TENANT_SELECTED: 'TENANT_SELECTED',
   ROLE_ASSIGNED: 'ROLE_ASSIGNED',
+  // B1-2 scoped RBAC (FR-AUD-006 "role changes"). The pre-B1-2 world had one
+  // shape of role change — assigned/removed — so `ROLE_ASSIGNED` sufficed. A
+  // scoped assignment can additionally be RE-SCOPED, have its validity window
+  // changed, or be REVIEWED as an inherited migration grant, and those are
+  // materially different security events: conflating them would make the audit
+  // trail unable to answer "who widened this authority, and when". Same
+  // <ENTITY>_<PAST_TENSE> convention as every other verb in this file. NO new
+  // permission code is created — the existing `identity.role.assign` remains
+  // the authority for all of them (amendment clause 20).
+  ROLE_ASSIGNMENT_REMOVED: 'ROLE_ASSIGNMENT_REMOVED',
+  ROLE_ASSIGNMENT_RESCOPED: 'ROLE_ASSIGNMENT_RESCOPED',
+  ROLE_ASSIGNMENT_VALIDITY_CHANGED: 'ROLE_ASSIGNMENT_VALIDITY_CHANGED',
+  ROLE_ASSIGNMENT_REVIEWED: 'ROLE_ASSIGNMENT_REVIEWED',
   TERMINAL_REGISTERED: 'TERMINAL_REGISTERED',
   PASSWORD_CHANGED: 'PASSWORD_CHANGED',
   PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
@@ -207,6 +220,8 @@ export const AUDIT_ENTITY = {
   SESSION: 'session',
   TENANT: 'tenant',
   MEMBERSHIP: 'membership',
+  /// B1-2 — a single scoped role assignment (`identity.membership_roles.id`).
+  ROLE_ASSIGNMENT: 'role_assignment',
   TERMINAL: 'terminal',
 
   // Phase 15 — Organisation entities.

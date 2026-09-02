@@ -9,6 +9,7 @@ import { UsersRepository } from '../users/users.repository';
 import { AccessTokenService } from './access-token.service';
 import { AuditService } from '../../governance/audit/audit.service';
 import { PinService } from '../employees/pin.service';
+import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { AuthService } from './auth.service';
 
 function activeUser(overrides: Record<string, unknown> = {}) {
@@ -65,6 +66,14 @@ describe('AuthService.login', () => {
     // PIN authentication has its own suites; these password/refresh specs only
     // need the dependency to exist.
     const pins = { authenticate: jest.fn() } as unknown as PinService;
+    // B1-2: the T-4-LIVE snapshot builder. These specs assert token SHAPE and
+    // session mechanics, not scope resolution, so an empty snapshot suffices —
+    // and an empty snapshot is a real state (zero authority), never a wildcard.
+    const snapshots = {
+      build: jest
+        .fn()
+        .mockResolvedValue({ scp: [], pbr: { v: 1, all: false, brands: [], branches: [] }, epo: 0 }),
+    } as unknown as AuthorizationSnapshotService;
 
     service = new AuthService(
       prisma as unknown as PrismaService,
@@ -76,7 +85,9 @@ describe('AuthService.login', () => {
       terminals,
       audit,
       pins,
+      snapshots,
       config,
+
     );
   });
 

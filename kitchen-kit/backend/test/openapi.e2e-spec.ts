@@ -549,8 +549,11 @@ describe('OpenAPI document (e2e)', () => {
    */
   const BODYLESS_ALLOWLIST = new Set([
     'POST /auth/logout 204',
-    'POST /auth/memberships/{membershipId}/roles 204',
+    // B1-2: assigning a role now RETURNS the created scoped assignment (201
+    // with a body), so it is no longer bodyless. Removing by assignment id and
+    // the deprecated remove-by-role route stay 204.
     'DELETE /auth/memberships/{membershipId}/roles/{roleId} 204',
+    'DELETE /auth/role-assignments/{assignmentId} 204',
     'POST /auth/password/change 204',
     'POST /auth/password/reset 204',
     'POST /auth/roles/{roleId}/permissions 204',

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessTokenService } from '../auth/access-token.service';
 import { AuditService } from '../../governance/audit/audit.service';
+import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { TenantSelectionService } from './tenant-selection.service';
 
 function membership(
@@ -48,10 +49,19 @@ describe('TenantSelectionService.select', () => {
     } as unknown as ConfigService;
 
     const audit = { emit: jest.fn() } as unknown as AuditService;
+    // B1-2: the T-4-LIVE snapshot builder. These specs assert token SHAPE and
+    // session mechanics, not scope resolution, so an empty snapshot suffices —
+    // and an empty snapshot is a real state (zero authority), never a wildcard.
+    const snapshots = {
+      build: jest
+        .fn()
+        .mockResolvedValue({ scp: [], pbr: { v: 1, all: false, brands: [], branches: [] }, epo: 0 }),
+    } as unknown as AuthorizationSnapshotService;
     service = new TenantSelectionService(
       prisma,
       tokens as unknown as AccessTokenService,
       audit,
+      snapshots,
       config,
     );
   });
@@ -70,6 +80,11 @@ describe('TenantSelectionService.select', () => {
       sid: 'sid-1',
       tid: 't-1',
       mid: 'm-1',
+      // B1-2 T-4-LIVE: a tenant-bound token also carries the SRS-required
+      // snapshot (scope set + permitted branch set) and its epoch.
+      scp: [],
+      pbr: { v: 1, all: false, brands: [], branches: [] },
+      epo: 0,
     });
     expect(result).toMatchObject({
       accessToken: 'scoped-token',

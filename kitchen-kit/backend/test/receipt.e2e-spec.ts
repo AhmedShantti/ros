@@ -308,13 +308,25 @@ describe('Receipt (RCPT-R1 e2e)', () => {
 
     const a = await mkUser(`rcpt.a.${stamp}@example.com`, tenantA);
     userA = a.userId;
-    await membershipRoles.assign(tenantA, a.membershipId, cashierA.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: a.membershipId,
+      roleId: cashierA.id,
+      scope: { type: 'tenant' },
+    });
 
     const np = await mkUser(`rcpt.noperm.${stamp}@example.com`, tenantA);
-    await membershipRoles.assign(tenantA, np.membershipId, noPermRole.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: np.membershipId,
+      roleId: noPermRole.id,
+      scope: { type: 'tenant' },
+    });
 
     const b = await mkUser(`rcpt.b.${stamp}@example.com`, tenantB);
-    await membershipRoles.assign(tenantB, b.membershipId, cashierB.id);
+    await membershipRoles.create(tenantB, null, {
+      membershipId: b.membershipId,
+      roleId: cashierB.id,
+      scope: { type: 'tenant' },
+    });
 
     employeeACode = `REA${stamp % 1000}`;
     employeeA = (

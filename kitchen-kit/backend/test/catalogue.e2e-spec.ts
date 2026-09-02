@@ -126,7 +126,11 @@ describe('Catalogue (e2e)', () => {
           name: `cat-${email}`,
         });
         await roles.addPermissions(tenantId, role.id, codes);
-        await membershipRoles.assign(tenantId, m.id, role.id);
+        await membershipRoles.create(tenantId, null, {
+      membershipId: m.id,
+      roleId: role.id,
+      scope: { type: 'tenant' },
+    });
       }
     };
 

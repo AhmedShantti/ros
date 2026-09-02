@@ -277,7 +277,11 @@ describe('Sales P1A (e2e)', () => {
     const membershipA = await admin.membership.findFirstOrThrow({
       where: { userId: userA, tenantId: tenantA },
     });
-    await membershipRoles.assign(tenantA, membershipA.id, cashier.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: membershipA.id,
+      roleId: cashier.id,
+      scope: { type: 'tenant' },
+    });
 
     const pins = app.get(PinService);
     await pins.setPin(tenantA, userA, employeeA, PIN);

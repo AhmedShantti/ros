@@ -147,7 +147,11 @@ export async function createDayCloseFixture(
       displayName: label,
     });
     const membership = await memberships.grant(user.id, tenantId, 'active');
-    await membershipRoles.assign(tenantId, membership.id, roleId);
+    await membershipRoles.create(tenantId, null, {
+      membershipId: membership.id,
+      roleId: roleId,
+      scope: { type: 'tenant' },
+    });
     return email;
   };
   const fullEmail = await mkDashboardUser('full', fullRole);
@@ -177,7 +181,11 @@ export async function createDayCloseFixture(
     tenantId,
     'active',
   );
-  await membershipRoles.assign(tenantId, employeeMembership.id, fullRole);
+  await membershipRoles.create(tenantId, null, {
+      membershipId: employeeMembership.id,
+      roleId: fullRole,
+      scope: { type: 'tenant' },
+    });
   const employeeCode = `E${seed.slice(-6)}`;
   const employee = await employees.create(tenantId, employeeUser.id, {
     code: employeeCode,

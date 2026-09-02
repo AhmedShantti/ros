@@ -192,7 +192,11 @@ describe('Recipes requiring completion (e2e)', () => {
     const membershipA = await admin.membership.findFirstOrThrow({
       where: { userId: userA, tenantId: tenantA },
     });
-    await membershipRoles.assign(tenantA, membershipA.id, role.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: membershipA.id,
+      roleId: role.id,
+      scope: { type: 'tenant' },
+    });
 
     const brand = await admin.brand.create({
       data: { id: newId(), tenantId: tenantA, name: `RCBrand ${stamp}` },
