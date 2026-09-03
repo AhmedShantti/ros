@@ -405,3 +405,285 @@ database — never the unfiltered `npm run test:e2e` sweep.
 FR-PLT-013, FR-PLT-014, FR-SEC-049 re-adjudication, secret-in-diff gate, CI wiring, sabotage
 proofs, targeted verification) was completed and verified. §10 lists items intentionally left
 open (blockers/deviations to report, not incomplete work of this slice).
+
+---
+
+## 13. ACCEPTANCE CORRECTION (2026-09-03, same-day follow-up session)
+
+This section corrects stale statements above and supersedes their status claims where noted below.
+**The original §1–§12 text above is left unedited** (per instruction: do not rewrite history to
+look clean) — read it together with this section, not in isolation. Where this section and the
+original text disagree, this section is authoritative for what actually happened and for current
+requirement status.
+
+### 13.1 What was stale in §0 (the header) and why
+
+The header above states "no commit has been made in this session; all changes below are in the
+working tree" and `HEAD at start and end: 1149be4`. That was accurate at the moment those lines
+were written, but the session that wrote them **did go on to commit** after drafting the report,
+and the header text was never revisited. Actual final state of that prior session, verified fresh
+at the start of this follow-up session:
+
+```
+$ git rev-parse HEAD
+04dcc53c998bdb379aa7a678c5980ec9ce5ee6b6
+
+$ git log --oneline -5
+04dcc53 docs: record CI security gate closure
+49bed33 ci: enforce tenant isolation and security gates
+2833727 test(platform): generate exhaustive tenant isolation checks
+1149be4 docs: record audit and DR integration
+7ed2268 docs: record DR-1 full E2E final acceptance verification
+
+$ git status --short
+(empty — clean)
+```
+
+Three commits, in the exact logical grouping the task specified (test → ci → docs), working tree
+clean, branch `full-srs/lane-g2-ci-security-gates` unchanged, **no push, no deploy, no merge, no
+rebase**. `1149be4` is the parent of the first of these three commits, not "unchanged HEAD" — the
+header's phrasing was simply written before the commits existed.
+
+### 13.2 Corrected tenant-table / fixture counts (measured, not inferred)
+
+Computed directly against a from-zero-migrated ephemeral PostgreSQL 16 instance (mirroring CI
+exactly — `ros_migrator`/`ros_app`/`ros_partition_admin` provisioned identically), using the
+**actual committed** `introspect.ts`/`synthesize.ts`/`fixture-overrides.ts` from commit `2833727`
+(no code changed this session), via a disposable driver script (not committed) that:
+1. discovered all root tenant tables through `discoverAllTenantTables`/`rootTenantTables`;
+2. for every table **not** in `DML_IMPOSSIBLE`, ran `synthesizeRow` against the **full**
+   `FIXTURE_OVERRIDES` map (so a table's parent dependencies still resolve through their own
+   overrides where needed) and classified the table itself into B or C by whether
+   `FIXTURE_OVERRIDES` has an entry keyed to that exact table;
+3. cross-checked the registry size against a direct `grep -c "^    key: '"` count in
+   `fixture-overrides.ts` (both agree: 22).
+
+```
+ALL tenant_id relations (root + partitions):     109
+  root (logical) tenant tables (A):                83
+  partition-only rows:                             26
+FIXTURE_OVERRIDES registry size:                   22
+DML_IMPOSSIBLE registry size:                       0
+
+B (generic-only, no own-table override):           61
+C (explicit fixture-override, own-table entry):    22
+D (DML_IMPOSSIBLE):                                 0
+UNCOVERED (neither B, C, nor D):                    0
+
+A = 83
+B + C + D = 61 + 22 + 0 = 83
+A === B + C + D:  TRUE
+
+FIXTURE_OVERRIDES entries not matched to a discovered root table (stale-registry check): 0
+```
+
+**Corrected figures: A=83, B=61, C=22, D=0, A=B+C+D reconciles exactly.** The original report's
+§4.5 table lists 21 override rows in its markdown table but says "22" in its own prose ("As of the
+run that produced this file... these are the remaining 16") and a trailing parenthetical claiming
+"16" — those three numbers (21 in the table, 16 in two places in prose) were never reconciled
+against each other or against the actual file. The correct, single figure, verified three
+independent ways (runtime `Map.size`, `grep -c` on the source, and cross-checking the C count from
+a live synthesis run) is **22**. The §4.5 table itself is accurate (it lists exactly the 22 tables,
+one row per table) — only the prose sentence and the parenthetical below it were wrong; both are
+left as-is per this section's own opening instruction, and are superseded by this paragraph.
+
+### 13.3 FR-PLT-014 re-adjudicated literally — identity.roles FORCE RLS
+
+**Corrected status: FR-PLT-014 = PARTIAL, not COMPLETE**, until the governance decision in §13.3.4
+is made. §12's "FR-PLT-014 COMPLETE with one disclosed exemption" is superseded by this section.
+
+#### 13.3.1 Exact ADR-0003 clauses examined
+
+From `docs/adr/0003-rls.md` (re-read verbatim this session, not paraphrased from memory):
+
+> - **roles** (ENABLE) — `SELECT tenant_id = app.tenant_id OR is_system`; writes
+>   `tenant_id = app.tenant_id`. Not FORCE, so the owner (ros_migrator) can seed
+>   system roles; tenant admins (ros_app) cannot create system/other-tenant roles.
+
+This is the ADR's entire stated rationale for the exemption: omitting FORCE is *necessary* so that
+`ros_migrator`, as table owner, can seed system roles. §13.3.3 below shows this premise is not
+correct as stated — the actual enabling factor is a different, independent property of
+`ros_migrator`.
+
+#### 13.3.2 Facts established this session (table owner, role flags, policies)
+
+Queried directly against the ephemeral instance (identical role/ownership setup to CI and to the
+persisted docker-compose dev DB — `docker/postgres/init/01-init-app-role.sh`'s own comment
+confirms `ros_migrator` is "the migrator/owner superuser" in every environment, not just locally):
+
+```
+SELECT rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb
+FROM pg_roles WHERE rolname IN ('ros_migrator','ros_app','ros_partition_admin');
+
+ rolname             | rolsuper | rolbypassrls | rolcreaterole | rolcreatedb
+----------------------+----------+--------------+---------------+-------------
+ ros_migrator         | t        | t            | t             | t
+ ros_app              | f        | f            | f             | f
+ ros_partition_admin  | f        | f            | f             | f
+
+SELECT tableowner FROM pg_tables WHERE schemaname='identity' AND tablename='roles';
+ tableowner
+------------
+ ros_migrator
+```
+
+`ros_migrator` is a full PostgreSQL **superuser** (`rolsuper = t`) — the Postgres official Docker
+image always grants `POSTGRES_USER` superuser at initdb time, and both `docker-compose.yml` (local
+dev) and `backend-ci.yml`'s `migrate-from-zero`/`e2e` jobs (CI) use `ros_migrator` as exactly that
+bootstrap user, in every environment. `ros_app` and `ros_partition_admin` are neither superuser nor
+`BYPASSRLS`, matching `docker/postgres/init/*.sh`'s explicit `NOSUPERUSER ... NOBYPASSRLS`.
+
+System-role seeding's actual, current code path was located (no committed migration seeds a system
+role — only a test exercises the pattern, presumably mirroring the intended real path):
+`test/rbac.e2e-spec.ts:171-179` inserts a system role (`tenantId: null, isSystem: true`) through
+`admin` — the migrator/superuser Prisma client (`createMigratorClient`), with **no**
+`app.tenant_id` session context set. This is the seed path the ADR's rationale is about.
+
+Policies on `identity.roles` (re-confirmed unchanged from the original report):
+`roles_select` (`tenant_id = app.tenant_id OR is_system`), `roles_insert`/`roles_update`/
+`roles_delete` (`tenant_id = app.tenant_id`, no `is_system` branch) — all four present, all
+tenant-scoped as documented.
+
+#### 13.3.3 The experiment (disposable database, not the persisted DB, not CI)
+
+Postgres's actual RLS rule (not assumed — this is exactly what the task asked to prove
+experimentally rather than infer): **"superusers and roles with the BYPASSRLS attribute always
+bypass row security, regardless of whether row security is enabled or forced for the table they
+are accessing."** FORCE only changes enforcement for the table **owner** when that owner is
+*not* also a superuser/BYPASSRLS role. `ros_migrator` is both the owner and a superuser
+simultaneously — its bypass is already unconditional before FORCE ever enters the picture.
+
+Proved directly, against a disposable ephemeral database (never the shared dev DB, never CI, never
+touched again after the experiment):
+
+```sql
+-- BEFORE: t | f  (ENABLE, no FORCE — current committed state)
+ALTER TABLE identity.roles FORCE ROW LEVEL SECURITY;
+-- AFTER:  t | t
+
+-- as ros_migrator (superuser), NO app.tenant_id set:
+INSERT INTO identity.roles (id, tenant_id, name, is_system, created_at, updated_at)
+VALUES (gen_random_uuid(), NULL, 'experiment_system_role', true, now(), now())
+RETURNING id, tenant_id, name, is_system;
+--                   id                  | tenant_id |          name           | is_system
+-- 3bb1c491-b5ac-48c6-96a3-633b49f0ea3b  |  (null)   | experiment_system_role  | t
+-- INSERT 0 1   (succeeded)
+```
+
+**With FORCE enabled, the exact system-role seed pattern `test/rbac.e2e-spec.ts` uses still
+succeeds, unchanged.** Two further checks confirmed FORCE is *also* a no-op for `ros_app` (as
+expected, since `ros_app` is never the table owner — ENABLE alone already governs it either way):
+with FORCE on, `ros_app` with `app.tenant_id` set could still INSERT its own tenant-scoped role,
+and could still SELECT the `is_system` row via the `OR is_system` branch. All experiment rows and
+the disposable tenant used to run them were deleted before the container was torn down (`docker rm
+-f`) — nothing persisted.
+
+#### 13.3.4 Disposition and the governance decision needed
+
+**FORCE ROW LEVEL SECURITY can be enabled on `identity.roles` without changing any accepted
+application semantics** — the seed path (superuser bypass) and the runtime path (`ros_app`, never
+the owner) are both provably unaffected. The ADR's stated rationale ("Not FORCE, so the owner...
+can seed system roles") conflates two independent things: *the absence of FORCE* and *the
+superuser's unconditional bypass*. The superuser bypass alone already fully explains why seeding
+works; FORCE was never actually load-bearing for that purpose.
+
+**Proposed correction (not applied — governance decision required first):**
+
+```sql
+-- Proposed migration, e.g. prisma/migrations/<timestamp>_identity_roles_force_rls/migration.sql
+ALTER TABLE "identity"."roles" FORCE ROW LEVEL SECURITY;
+```
+
+No grant changes, no policy changes, no application code changes are needed alongside it — proven
+by §13.3.3's experiment against the exact current policy set.
+
+**This was not applied to any migration, and `docs/adr/0003-rls.md` was not edited.** Per this
+task's explicit instruction, a correction that would contradict — or, more precisely here, correct
+the stated rationale of — an existing Accepted ADR is a governance decision, not something this
+session self-ratifies. The decision needed from the user/product/governance owner is one of:
+
+  (a) Accept the correction: ratify a small ADR-0003 amendment (correcting the rationale to
+      "ros_migrator's superuser status, not the absence of FORCE, is what permits seeding" or
+      removing the exemption's stated need entirely) and apply the one-line migration above —
+      after which `identity.roles` needs no FORCE_EXEMPTIONS entry at all and FR-PLT-014 becomes
+      COMPLETE with zero exemptions; or
+  (b) Keep the exemption as ratified (e.g. for reasons beyond this session's scope — defence in
+      depth against a future non-superuser migration role, documentation clarity, or simply not
+      wanting to touch RLS flags outside a dedicated slice) — in which case FR-PLT-014 remains
+      PARTIAL against a fully literal reading, with the one disclosed, ADR-traceable exemption
+      exactly as implemented, and this correction stands as the recorded, available fix for a
+      future slice to apply once (a) is chosen.
+
+Until either is decided, this report records: **FR-PLT-014 = PARTIAL.**
+
+### 13.4 FR-SEC-049 / §28.5 release gate / NFR-MAINT-005 — reconfirmed and separated
+
+Re-ran `npm audit --omit=dev --audit-level=high` fresh this session: **exit 1, 7 high / 1
+moderate**, identical findings to the original report (`deepmerge-ts`, `fast-uri`, `js-yaml` via
+`@nestjs/swagger`, `mysql2`, `qs`). No dependency was touched, no waiver exists, no gate was
+weakened.
+
+These are three distinct claims and must not be conflated:
+
+- **FR-SEC-049 implementation status: COMPLETE.** The literal requirement text ("Dependencies
+  SHALL be scanned for known vulnerabilities on every build, and builds SHALL fail on critical
+  findings") is mechanically satisfied: `npm audit --omit=dev --audit-level=high` runs on every
+  build and fails the build on critical-or-high findings (a superset of "critical", satisfying the
+  requirement's literal floor). The *gate's implementation* is not what is broken.
+- **SRS §28.5 release-gate current status: FAILING (correctly).** The gate table's "Critical or
+  high dependency vulnerability → Blocks Merge" row is enforced, and current HEAD trips it. A red
+  gate on a real, unresolved finding is the gate working as designed, not a defect to fix by
+  loosening the gate.
+- **NFR-MAINT-005 status: NOT MET.** Target is "Zero [critical/high vulnerabilities in
+  dependencies] at release"; current HEAD has 7. This NFR is a target the *codebase* must reach
+  (via dependency remediation), not something a CI gate slice can satisfy by itself — the gate's
+  job (and it does its job) is to make this NFR's violation visible and merge-blocking rather than
+  silent.
+
+### 13.5 OpenAPI — classification only, no production code touched
+
+No investigation beyond re-classifying the original report's §10.5 finding was performed this
+session (per this task's explicit "run only enough investigation to classify" instruction) — no
+new command was run against `generate-openapi.ts`, `main.ts`, or any bootstrap service, and no
+production code was changed.
+
+**Classification: pre-existing local-execution-environment/script anomaly, not a code defect, and
+the command's exit code must not be reported as "green."** The original report's own finding
+stands: the regenerated `docs/api/openapi.json`/`.yaml` were byte-identical to the committed
+version (`git diff --exit-code -- docs/api` reported no difference) while the wrapping Node
+process nonetheless exited 1, traced via `node --trace-exit` to NestJS's internal
+`exceptions-zone.js` `DEFAULT_TEARDOWN` forcing `process.exit(1)` on some asynchronous event
+unrelated to the file-generation logic itself (which had already completed correctly). This
+session did not re-verify that trace, only re-affirms the original classification and explicitly
+does **not** upgrade it to "the check passes" — the correct status to carry forward is "content
+verified identical; process exit code unreliable in this local sandbox; unresolved as an
+environment question, not claimed as a passing CI check."
+
+### 13.6 Targeted verification performed this session (no full E2E)
+
+All against a from-zero-migrated ephemeral PostgreSQL 16 container (built and torn down twice —
+once for the FORCE-RLS experiment in §13.3.3, discarded entirely afterward; once fresh for this
+verification pass), matching CI's role/ownership setup exactly:
+
+| Check | Result |
+|---|---|
+| `git rev-parse HEAD` / `git log --oneline -5` / `git status --short` | §13.1 — `04dcc53`, 3 commits present, clean |
+| `git diff --check` | clean |
+| `.github/workflows/backend-ci.yml` YAML parse | valid (`js-yaml`) |
+| `prisma validate` | valid |
+| `prisma migrate deploy` (from zero, fresh instance) | 40/40 applied |
+| Generated RLS inventory gate (`rls-inventory.e2e-spec.ts`, via `npm run test:e2e -- tenant-isolation`) | pass (part of 12/12, see below) |
+| Generated cross-tenant isolation suite (`generated-cross-tenant.e2e-spec.ts`) | pass (part of 12/12, see below) |
+| Both suites together, real harness | **2 suites / 12 tests passed**, fresh ephemeral instance, 0 orphan resources |
+| Secret scan (`scripts/ci/secret-scan.sh`, whole-tree, current HEAD, unmodified this session) | `OK` / exit 0 |
+| `npm audit --omit=dev --audit-level=high` | exit 1, 7 high / 1 moderate (§13.4) |
+
+No full/unfiltered `npm run test:e2e` was run. No production code, no migration, no ADR, and no
+`test/tenant-isolation/*` file was modified this session — this was a read/investigate/verify-only
+follow-up, plus the one disposable-database experiment in §13.3.3 (never touching the persisted
+dev DB or CI).
+
+### 13.7 This section's own status
+
+**Docs-only correction.** No `src/`, no migration, no workflow, no `test/tenant-isolation/*` file
+was changed. Committed separately as `docs: correct CI-1 acceptance evidence`.
