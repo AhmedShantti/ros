@@ -15,24 +15,6 @@ import { discoverAllTenantTables, type TenantTable } from './introspect';
  * partitions too is free and catches a partition RLS didn't cascade to).
  */
 
-const FORCE_EXEMPTIONS: Record<string, string> = {
-  // ADR-0003 (docs/adr/0003-rls.md, Accepted 2026-08-12): identity.roles has
-  // a NULLABLE tenant_id (NULL = platform/system role, shared across
-  // tenants). ENABLE alone already fully protects ros_app: ros_app is not
-  // the table owner, and RLS applies to every non-owner role regardless of
-  // FORCE — FORCE only changes enforcement against the *owner* (ros_migrator),
-  // which deliberately keeps bypass so migrations can seed system roles
-  // (tenant_id IS NULL) without an app.tenant_id session context. This is
-  // the ONLY literal deviation from FR-PLT-014 in this suite, it is scoped to
-  // exactly one named table, and it is traceable to a dated, Accepted ADR —
-  // not a suite-local waiver. A new tenant_id table gets no exemption by
-  // default; this map only ever grows by another explicit, ADR-backed entry.
-  'identity.roles':
-    'ADR-0003 — nullable tenant_id (NULL = shared system role); ros_migrator ' +
-    '(table owner) must seed is_system rows with no app.tenant_id context; ' +
-    'ENABLE alone fully protects the non-owner ros_app runtime role.',
-};
-
 export interface RlsInventoryViolation {
   table: string;
   problem: string;
@@ -41,10 +23,18 @@ export interface RlsInventoryViolation {
 /** The gate's actual pass/fail logic, factored out so both the real
  * discovered-schema assertion and the sabotage tests below call the exact
  * same code path — a sabotage test that reimplemented this would only prove
- * the reimplementation is sensitive, not the gate. */
+ * the reimplementation is sensitive, not the gate.
+ *
+ * No exemptions of any kind: every table with a tenant_id column must have
+ * RLS enabled, forced, and at least one policy. ADR-0003's prior
+ * identity.roles FORCE exemption was removed by ADR-0003's 2026-09-03
+ * amendment (identity.roles now carries FORCE — see
+ * prisma/migrations/20260903100000_identity_roles_force_rls); this suite no
+ * longer carries an exemption mechanism at all, so a newly discovered
+ * tenant_id table missing FORCE fails the gate automatically with no escape
+ * hatch to add it to. */
 export function evaluateRlsInventory(
   tables: TenantTable[],
-  exemptions: Record<string, string> = FORCE_EXEMPTIONS,
 ): RlsInventoryViolation[] {
   const violations: RlsInventoryViolation[] = [];
   for (const t of tables) {
@@ -57,10 +47,10 @@ export function evaluateRlsInventory(
     if (t.policyCount === 0) {
       violations.push({ table: t.key, problem: 'no RLS policy defined' });
     }
-    if (!t.rowSecurityForced && !exemptions[t.key]) {
+    if (!t.rowSecurityForced) {
       violations.push({
         table: t.key,
-        problem: 'FORCE ROW LEVEL SECURITY not set (no ADR-backed exemption)',
+        problem: 'FORCE ROW LEVEL SECURITY not set',
       });
     }
   }
@@ -83,7 +73,7 @@ describe('FR-PLT-014 — generated RLS enable+force+policy inventory (e2e)', () 
     expect(tables.length).toBeGreaterThan(0);
   });
 
-  it('every table with a tenant_id column has RLS enabled, forced (or ADR-exempted), and at least one policy', async () => {
+  it('every table with a tenant_id column has RLS enabled, forced, and at least one policy (zero exemptions)', async () => {
     const tables = await discoverAllTenantTables(pool);
     const violations = evaluateRlsInventory(tables);
     expect(violations).toEqual([]);
@@ -126,7 +116,7 @@ describe('FR-PLT-014 — generated RLS enable+force+policy inventory (e2e)', () 
       );
     });
 
-    it('a tenant_id table with ENABLE but no FORCE and no ADR exemption fails the gate', async () => {
+    it('a tenant_id table with ENABLE but no FORCE fails the gate (no exemption mechanism exists)', async () => {
       const table = 'enable_no_force';
       await makeTable(
         table,
@@ -139,7 +129,7 @@ describe('FR-PLT-014 — generated RLS enable+force+policy inventory (e2e)', () 
       expect(violations).toEqual([
         {
           table: `${schema}.${table}`,
-          problem: 'FORCE ROW LEVEL SECURITY not set (no ADR-backed exemption)',
+          problem: 'FORCE ROW LEVEL SECURITY not set',
         },
       ]);
     });
