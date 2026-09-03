@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
 import { OrganisationModule } from '../organisation/organisation.module';
+import { SyncModule } from '../sync/sync.module';
 import { KdsStationGuard } from './auth/kds-station.guard';
 import { KitchenController } from './kitchen.controller';
 import { OrderLineFiredHandler } from './tickets/order-line-fired.handler';
@@ -8,6 +9,8 @@ import { KdsOperationsService } from './tickets/kds-operations.service';
 import { TicketPersistenceService } from './tickets/ticket-persistence.service';
 import { TicketProjectionService } from './tickets/ticket-projection.service';
 import { TicketReaderService } from './tickets/ticket-reader.service';
+import { TicketBumpLineSyncHandler } from './tickets/sync/ticket-bump-line.sync-handler';
+import { TicketRecallSyncHandler } from './tickets/sync/ticket-recall.sync-handler';
 import { RoutingResolverService } from './routing/routing-resolver.service';
 import { TicketTargetResolver } from './tickets/scope-target.resolver';
 import { KDS_TICKET_TARGET_RESOLVER } from './contract';
@@ -45,7 +48,7 @@ import { KDS_TICKET_TARGET_RESOLVER } from './contract';
  * called `RoutingResolverService` yet — that caller now exists).
  */
 @Module({
-  imports: [IdentityModule, OrganisationModule],
+  imports: [IdentityModule, OrganisationModule, SyncModule],
   controllers: [KitchenController],
   providers: [
     TicketTargetResolver,
@@ -57,6 +60,11 @@ import { KDS_TICKET_TARGET_RESOLVER } from './contract';
     OrderLineFiredHandler,
     KdsOperationsService,
     KdsStationGuard,
+    // D4-1B — offline domain handlers. Discovered by `SyncOperationRegistry`
+    // via `@SyncOperationHandlerFor`, never imported by Sync directly (see
+    // that decorator's docblock).
+    TicketBumpLineSyncHandler,
+    TicketRecallSyncHandler,
   ],
   exports: [
     KDS_TICKET_TARGET_RESOLVER,

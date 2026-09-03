@@ -176,6 +176,49 @@ describe('Sync causal ordering (e2e)', () => {
     expect(results.get(child.opId)?.reasonCode).toBe('causal_parent_rejected');
   });
 
+  it('D4-1B: defers — does not reject — a child whose parent settled as a conflict (already settled, later batch)', async () => {
+    // A `conflict` parent is NOT proven to be permanently unresolvable (it
+    // may still be resolved manually, `sync.conflict_records.resolution ===
+    // 'manual_pending'`) — unlike a `rejected` parent, which structurally
+    // cannot ever apply. See operation-scheduler.ts's "WHY A CONFLICTED
+    // PARENT DEFERS, NOT REJECTS".
+    const parent = buildOperation(fx.node, { payload: { mode: 'conflict' } });
+    const parentRes = await post(buildBatch(fx.terminalId, [parent])).expect(
+      200,
+    );
+    expect(
+      byOpId(parentRes.body as BatchResultView).get(parent.opId),
+    ).toMatchObject({ status: 'conflict', definitive: true });
+
+    const child = buildOperation(fx.node, { causedBy: parent.opId });
+    const res = await post(buildBatch(fx.terminalId, [child])).expect(200);
+    const r = byOpId(res.body as BatchResultView).get(child.opId);
+    expect(r?.status).toBe('deferred');
+    expect(r?.definitive).toBe(false);
+    expect(r?.reasonCode).toBe('causal_parent_conflicted');
+  });
+
+  it('D4-1B: defers an in-batch child whose parent settles as a conflict in the same batch', async () => {
+    const parent = buildOperation(fx.node, {
+      logical: 1,
+      payload: { mode: 'conflict' },
+    });
+    const child = buildOperation(fx.node, {
+      logical: 2,
+      causedBy: parent.opId,
+    });
+    const res = await post(buildBatch(fx.terminalId, [parent, child])).expect(
+      200,
+    );
+    const results = byOpId(res.body as BatchResultView);
+    expect(results.get(parent.opId)?.status).toBe('conflict');
+    expect(results.get(child.opId)?.status).toBe('deferred');
+    expect(results.get(child.opId)?.definitive).toBe(false);
+    expect(results.get(child.opId)?.reasonCode).toBe(
+      'causal_parent_conflicted',
+    );
+  });
+
   it('rejects a causedBy cycle rather than deferring it forever', async () => {
     const a = buildOperation(fx.node, { logical: 1 });
     const b = buildOperation(fx.node, { logical: 2, causedBy: a.opId });

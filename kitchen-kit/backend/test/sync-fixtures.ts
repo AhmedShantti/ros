@@ -74,6 +74,17 @@ export class SyncProtocolProbeHandler implements SyncOperationHandler {
       // Kernel-floor benchmark: the kernel's own writes and nothing else.
       return { detail: { echoedEntityId: context.entityId } };
     }
+    if (payload.mode === 'conflict') {
+      // D4-1B — proves the `conflict` != `rejected` causal-parent distinction
+      // (`operation-scheduler.ts`'s "WHY A CONFLICTED PARENT DEFERS, NOT
+      // REJECTS"): a `conflict` settlement is definitive for THIS operation
+      // but must NOT propagate as `causal_parent_rejected` to a child.
+      return {
+        status: 'conflict',
+        reasonCode: 'illegal_transition',
+        reasonDetail: 'probe: deliberate conflict',
+      };
+    }
 
     await this.audit.record(context.tx, {
       tenantId: context.tenantId,
@@ -350,6 +361,7 @@ export interface OperationResultView {
   reasonCode?: string;
   reasonDetail?: string;
   detail?: Record<string, unknown>;
+  conflictId?: string;
 }
 
 export interface BatchResultView {
