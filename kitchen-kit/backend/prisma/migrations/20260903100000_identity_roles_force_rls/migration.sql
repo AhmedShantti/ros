@@ -1,0 +1,27 @@
+-- ============================================================================
+-- FR-PLT-014 closure (task CI-1B) — ADR-0003 Amendment 2026-09-03.
+--
+-- identity.roles was ENABLE-only (no FORCE) since 20260812145207_identity_rls,
+-- on the rationale that omitting FORCE let the table owner (ros_migrator)
+-- seed system roles (tenant_id IS NULL, is_system = true) without an
+-- app.tenant_id session context. That rationale was re-investigated and found
+-- to conflate two independent things: the absence of FORCE, and
+-- ros_migrator's unconditional PostgreSQL superuser RLS bypass (superusers
+-- and BYPASSRLS roles always bypass row security, regardless of ENABLE/FORCE,
+-- for the table they own or any other). ros_migrator is `rolsuper = t`; its
+-- bypass was never contingent on FORCE being absent. Proved experimentally
+-- against a disposable database: with FORCE enabled, the exact system-role
+-- seed pattern still succeeds unchanged, and ros_app's existing tenant-scoped
+-- policies (it was never the table owner) are unaffected either way.
+--
+-- Ratified 2026-09-03 by explicit human governance action: "The project
+-- approves amending ADR-0003 to permit enabling FORCE RLS on identity.roles,
+-- while preserving the current system-role seed path through ros_migrator and
+-- making no privilege change to ros_app." See docs/adr/0003-rls.md
+-- ("Amendment 2026-09-03") and docs/reports/claude/full-srs-4day/
+-- 2026-09-03_CI-1_security-isolation-release-gates.md (§13.3 and closure).
+--
+-- No grant changes. No policy changes. No application code changes.
+-- ============================================================================
+
+ALTER TABLE identity.roles FORCE ROW LEVEL SECURITY;
