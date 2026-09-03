@@ -268,6 +268,8 @@ model Tenant {
   syncDeviceStates           SyncDeviceState[]
   syncConflictRecords        SyncConflictRecord[]
   syncRevalidationExceptions SyncRevalidationException[]
+  /// D4-1B — lossless revoked-terminal recovery (GD-D1-07 hard gate).
+  syncRecoveryGrants         SyncRecoveryGrant[]
 
   @@map("tenants")
   @@schema("identity")
@@ -4265,5 +4267,67 @@ model SyncRevalidationException {
   @@index([tenantId, reviewState, detectedAt(sort: Desc)])
   @@index([tenantId, terminalId, detectedAt(sort: Desc)])
   @@map("revalidation_exceptions")
+  @@schema("sync")
+}
+
+/// D4-1B — the LOSSLESS REVOKED-TERMINAL RECOVERY hard gate (D1-1 ratification
+/// §21.3; GD-D1-07 REJECTED discarding a revoked terminal's committed backlog).
+///
+/// `SyncTerminalGuard` fail-closes a disabled/revoked terminal out of ordinary
+/// `POST /v1/sync/batch` — correctly, since that channel carries no admin
+/// authorization step. This table is the explicit, auditable, BOUNDED escape
+/// hatch D1-1 required but did not ratify a concrete mechanism for: an admin
+/// who already holds `identity.terminal.manage` (the SAME permission that
+/// revokes a terminal in the first place — no new code invented) issues a
+/// time-boxed grant naming ONE terminal; the terminal may then upload EXACTLY
+/// ONE logical batch — identified by `consumedBatchId` — through
+/// `POST /v1/sync/recovery/:grantId/batch`, which still runs every operation
+/// through the SAME `SyncBatchService.process`, the SAME per-op
+/// `SYNC_AUTHORIZATION_PORT` live authority check, and the SAME
+/// `(tenant_id, op_id)` global dedup as ordinary sync — this table adds an
+/// authorization gate in FRONT of that pipeline, never a second one beside it.
+///
+/// `status` transitions `pending -> consumed` exactly once, via an atomic
+/// `UPDATE ... WHERE status = 'pending'` (optimistic CAS, mirroring every other
+/// CAS in this schema) — but a RETRY of the SAME `consumedBatchId` against an
+/// already-`consumed` grant is still accepted (not re-consumed), because
+/// `SyncBatchService`'s own crash-recovery lease may need to replay that exact
+/// batch; a DIFFERENT batchId against a consumed grant is refused. The
+/// terminal's own `status` is never written by this table or by anything that
+/// consumes it — recovery cannot hand ordinary operating authority back.
+model SyncRecoveryGrant {
+  id       String @id @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  terminalId String @map("terminal_id") @db.Uuid
+  /// The terminal's branch AT GRANT TIME, server-derived — never client-supplied.
+  branchId   String @map("branch_id") @db.Uuid
+
+  /// The admin membership that authorized this grant (FR-OFF/D1-1 "explicitly
+  /// authorised"). Recorded, not FK-enforced, mirroring `resolvedBy` above.
+  authorizedByMembershipId String @map("authorized_by_membership_id") @db.Uuid
+  /// Required — an unaccountable recovery grant is not auditable.
+  reason                   String
+
+  /// `pending` | `consumed` | `revoked`. No `expired` status value: expiry is
+  /// derived from `expiresAt`, never written back (a background sweep is not
+  /// needed for a value nothing but this row's own predicate consults).
+  status String @default("pending") @db.VarChar(16)
+
+  issuedAt  DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  consumedAt      DateTime? @map("consumed_at") @db.Timestamptz(6)
+  /// The ONE batch this grant was consumed for. A retry of this exact batchId
+  /// (crash/timeout resubmission) is still honoured; any OTHER batchId is not.
+  consumedBatchId String?   @map("consumed_batch_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, terminalId, status])
+  @@map("recovery_grants")
   @@schema("sync")
 }
