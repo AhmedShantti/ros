@@ -320,6 +320,10 @@ export async function onlyJob(
   const all = [
     ...Object.values(TEST_JOB),
     'inventory.daily_reconciliation',
+    // AUD-1 — FR-AUD-005's scheduled verification job is registered globally,
+    // exactly like inventory's above, and must be disabled the same way for a
+    // suite that narrows its scope to one job type.
+    'governance.audit_chain_verification',
   ] as const;
   for (const jobType of all) {
     if (jobType === keep) continue;
