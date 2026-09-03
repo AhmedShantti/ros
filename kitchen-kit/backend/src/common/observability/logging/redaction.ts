@@ -57,6 +57,18 @@ export const ALLOWED_METADATA_KEYS: ReadonlySet<string> = new Set([
   'query',
   'target',
   'name',
+  // ── SCHED-1 scheduled-job execution ────────────────────────────────────
+  // All five are server-derived, bounded-shape identifiers of a scheduled
+  // occurrence — never payload, never user input. `jobType` comes from the
+  // handler registry, `occurrenceKey` is a `YYYY-MM-DDTHH:MM` slot, `attempt`
+  // and `lagMs` are integers, `outcome` is the closed `SCHEDULED_JOB_OUTCOME`
+  // vocabulary. They are allow-listed for LOGS only; the metric label set is
+  // narrower still (see `ScheduledJobMetricLabels`).
+  'jobType',
+  'occurrenceKey',
+  'attempt',
+  'outcome',
+  'lagMs',
 ]);
 
 /**

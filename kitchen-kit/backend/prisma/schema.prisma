@@ -13,7 +13,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["catalogue", "fiscal", "governance", "identity", "inventory", "kitchen", "org", "production", "sales", "sync", "treasury", "workforce"]
+  schemas  = ["catalogue", "fiscal", "governance", "identity", "inventory", "kitchen", "org", "platform", "production", "sales", "sync", "treasury", "workforce"]
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +270,11 @@ model Tenant {
   syncRevalidationExceptions SyncRevalidationException[]
   /// D4-1B — lossless revoked-terminal recovery (GD-D1-07 hard gate).
   syncRecoveryGrants         SyncRecoveryGrant[]
+  /// SCHED-1 durable scheduled job execution (migration 39). Back-relations
+  /// only — no column and no behaviour change on `identity.tenants`.
+  scheduledJobSchedules      ScheduledJobSchedule[]
+  scheduledJobOccurrences    ScheduledJobOccurrence[]
+  scheduledJobFindings       ScheduledJobFinding[]
 
   @@map("tenants")
   @@schema("identity")
@@ -4330,4 +4335,134 @@ model SyncRecoveryGrant {
   @@index([tenantId, terminalId, status])
   @@map("recovery_grants")
   @@schema("sync")
+}
+
+// ---------------------------------------------------------------------------
+// PLATFORM bounded context — SCHED-1 durable scheduled job execution.
+//
+// SRS §25.1 names a `platform` schema holding "outbox, jobs, notifications,
+// feature_flags, migrations". Only the `jobs` half exists here (migration 39);
+// the rest belong to slices that have not been designed, and inventing them
+// would pre-empt those designs.
+//
+// Every model below is tenant-scoped with ENABLE + FORCE row level security
+// and the four standard `app.tenant_id` policies, so a scheduler worker reads
+// and writes under exactly the same RLS constraint as a request-path caller —
+// no `BYPASSRLS`, no superuser, no invented system-worker authority.
+// ---------------------------------------------------------------------------
+
+/// The durable per-tenant schedule for one job type. ABSENCE of a row means
+/// "use the job type's registered default", so a tenant onboarded while the
+/// scheduler runs is never silently unscheduled.
+model ScheduledJobSchedule {
+  tenantId String @map("tenant_id") @db.Uuid
+  jobType  String @map("job_type") @db.VarChar(64)
+
+  enabled Boolean @default(true)
+  /// Only `daily` exists. No cron dialect is parsed anywhere in this slice —
+  /// the SRS names "daily" and "a configurable time", never a cron expression.
+  cadence String  @default("daily") @db.VarChar(16)
+
+  /// IANA zone, same domain as `org.branches.timezone`. NEVER the server's
+  /// local zone.
+  timezone       String @db.VarChar(48)
+  /// Minutes since LOCAL midnight in `timezone` (0..1439).
+  localTimeOfDay Int    @map("local_time_of_day") @db.SmallInt
+
+  /// Bounded catch-up: how many past due occurrences one tick may materialise
+  /// after downtime, so a delayed scheduler cannot create a catch-up storm.
+  catchUpLimit Int @default(3) @map("catch_up_limit") @db.SmallInt
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, jobType])
+  @@map("job_schedules")
+  @@schema("platform")
+}
+
+/// ONE ROW = ONE SCHEDULED OCCURRENCE, and the whole exactly-once story.
+///
+/// The primary key `(tenantId, jobType, occurrenceKey)` IS the occurrence
+/// identity, enforced by PostgreSQL rather than by application luck. A
+/// duplicate tick, a second application instance and a retry all derive the
+/// same `occurrenceKey` and therefore collide on this key.
+model ScheduledJobOccurrence {
+  tenantId      String @map("tenant_id") @db.Uuid
+  jobType       String @map("job_type") @db.VarChar(64)
+  /// The occurrence's LOCAL wall-clock slot, `YYYY-MM-DDTHH:MM`, rendered in
+  /// the schedule's own timezone. Local rather than UTC so that a DST
+  /// fall-back cannot produce two occurrences of a once-a-day job.
+  occurrenceKey String @map("occurrence_key") @db.VarChar(32)
+
+  /// The UTC instant the occurrence became due, derived from
+  /// (occurrenceKey, timezone). Recorded so lag is measurable and the DST
+  /// resolution is auditable.
+  scheduledFor DateTime @map("scheduled_for") @db.Timestamptz(6)
+
+  state String @default("pending") @db.VarChar(16)
+
+  attempt       Int      @default(0)
+  maxAttempts   Int      @map("max_attempts")
+  /// Backoff gate: a pending occurrence is invisible to the claim until now
+  /// reaches this. Equals `scheduledFor` for a first attempt.
+  nextAttemptAt DateTime @map("next_attempt_at") @db.Timestamptz(6)
+
+  /// The claim lease. Same shape as `sync.sync_batches`: a live lease means a
+  /// peer really is working, an expired lease means its owner died.
+  leaseOwner     String?   @map("lease_owner") @db.VarChar(80)
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
+
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  durationMs  Int?      @map("duration_ms")
+
+  /// A BOUNDED vocabulary token, never an exception message.
+  outcomeCode String? @map("outcome_code") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  findings ScheduledJobFinding[]
+
+  @@id([tenantId, jobType, occurrenceKey])
+  @@index([tenantId, state, nextAttemptAt], map: "job_occurrences_claim_idx")
+  @@index([tenantId, state, leaseExpiresAt], map: "job_occurrences_reclaim_idx")
+  @@index([tenantId, jobType, scheduledFor(sort: Desc)], map: "job_occurrences_tenant_job_scheduled_idx")
+  @@map("job_occurrences")
+  @@schema("platform")
+}
+
+/// What a job DETECTED, recorded durably and attributable to an exact
+/// occurrence. This is the detection half of "SHALL raise an alert"; it is NOT
+/// a delivery channel — governance decision N-A ratified that no notification
+/// substrate is introduced in this phase, and none is.
+///
+/// The unique `(tenantId, jobType, occurrenceKey, findingCode)` is what makes a
+/// retry produce no duplicate domain effect: attempt 2 upserts the same row.
+model ScheduledJobFinding {
+  id            String @id @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  jobType       String @map("job_type") @db.VarChar(64)
+  occurrenceKey String @map("occurrence_key") @db.VarChar(32)
+
+  severity    String @db.VarChar(16)
+  findingCode String @map("finding_code") @db.VarChar(64)
+  detail      Json   @default("{}") @db.JsonB
+
+  detectedAt     DateTime  @default(now()) @map("detected_at") @db.Timestamptz(6)
+  acknowledgedAt DateTime? @map("acknowledged_at") @db.Timestamptz(6)
+  /// Recorded, not FK-enforced — the convention `conflictRecords.resolvedBy`
+  /// already uses.
+  acknowledgedBy String?   @map("acknowledged_by") @db.Uuid
+
+  tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  occurrence ScheduledJobOccurrence @relation(fields: [tenantId, jobType, occurrenceKey], references: [tenantId, jobType, occurrenceKey], onDelete: Cascade)
+
+  @@unique([tenantId, jobType, occurrenceKey, findingCode], map: "job_findings_occurrence_code_key")
+  @@index([tenantId, acknowledgedAt, detectedAt(sort: Desc)], map: "job_findings_tenant_open_idx")
+  @@map("job_findings")
+  @@schema("platform")
 }

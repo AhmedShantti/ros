@@ -190,3 +190,151 @@ describe('MetricsService — RED metrics (NFR-OBS-003)', () => {
     expect(textB).not.toContain('route="/a"');
   });
 });
+
+/**
+ * SCHED-1 — scheduled-job telemetry. Same discipline as the RED metrics above:
+ * the label set is fixed at deploy time and cannot grow with tenants, days or
+ * occurrences. The sabotage proof below is the scheduler's equivalent of the
+ * "500 distinct resource ids" test — many tenants and many days must collapse
+ * onto one series per (job type, phase).
+ */
+describe('MetricsService — scheduled job telemetry (SCHED-1)', () => {
+  const metrics = () => new MetricsService();
+  const seriesOf = (text: string, name: string) =>
+    text.split('\n').filter((l) => l.startsWith(`${name}{`));
+
+  it('counts occurrence lifecycle phases per job type', async () => {
+    const m = metrics();
+    m.recordScheduledJobPhase({
+      jobType: 'inventory.daily_reconciliation',
+      phase: 'claimed',
+    });
+    m.recordScheduledJobPhase({
+      jobType: 'inventory.daily_reconciliation',
+      phase: 'succeeded',
+    });
+    const text = await m.metricsText();
+    expect(text).toContain(
+      'scheduled_job_occurrences_total{job_type="inventory.daily_reconciliation",phase="claimed"} 1',
+    );
+    expect(text).toContain(
+      'scheduled_job_occurrences_total{job_type="inventory.daily_reconciliation",phase="succeeded"} 1',
+    );
+  });
+
+  it('exposes duration as a histogram suitable for quantile computation', async () => {
+    const m = metrics();
+    m.recordScheduledJobDuration('inventory.daily_reconciliation', 1.5);
+    const text = await m.metricsText();
+    expect(text).toContain('scheduled_job_duration_seconds_bucket{');
+    expect(text).toContain(
+      'scheduled_job_duration_seconds_count{job_type="inventory.daily_reconciliation"} 1',
+    );
+  });
+
+  it('exposes LAG, the number that says whether the scheduler is keeping up', async () => {
+    const m = metrics();
+    m.recordScheduledJobLag('inventory.daily_reconciliation', 3600);
+    const text = await m.metricsText();
+    expect(text).toContain(
+      'scheduled_job_lag_seconds_count{job_type="inventory.daily_reconciliation"} 1',
+    );
+    // A 1-hour lag must land ABOVE the 1800s bucket and at/below 3600s.
+    expect(text).toContain(
+      'scheduled_job_lag_seconds_bucket{le="1800",job_type="inventory.daily_reconciliation"} 0',
+    );
+    expect(text).toContain(
+      'scheduled_job_lag_seconds_bucket{le="3600",job_type="inventory.daily_reconciliation"} 1',
+    );
+  });
+
+  it('clamps a negative lag rather than recording an impossible negative delay', async () => {
+    const m = metrics();
+    m.recordScheduledJobLag('inventory.daily_reconciliation', -10);
+    const text = await m.metricsText();
+    expect(text).toContain(
+      'scheduled_job_lag_seconds_bucket{le="1",job_type="inventory.daily_reconciliation"} 1',
+    );
+  });
+
+  describe('cardinality sabotage — tenants and occurrence keys must NOT grow the series count', () => {
+    it('collapses 500 tenants x 500 occurrence days onto ONE series', async () => {
+      const m = metrics();
+      for (let i = 0; i < 500; i += 1) {
+        // A call site cannot smuggle a tenant id or an occurrence key in: the
+        // label type has exactly two fields, both drawn from closed sets.
+        m.recordScheduledJobPhase({
+          jobType: 'inventory.daily_reconciliation',
+          phase: 'succeeded',
+        });
+        m.recordScheduledJobDuration(
+          'inventory.daily_reconciliation',
+          i / 1000,
+        );
+        m.recordScheduledJobLag('inventory.daily_reconciliation', i);
+      }
+      const text = await m.metricsText();
+      expect(seriesOf(text, 'scheduled_job_occurrences_total')).toHaveLength(1);
+      expect(text).toContain(
+        'scheduled_job_occurrences_total{job_type="inventory.daily_reconciliation",phase="succeeded"} 500',
+      );
+      expect(text).toContain(
+        'scheduled_job_duration_seconds_count{job_type="inventory.daily_reconciliation"} 500',
+      );
+    });
+
+    it('two job types stay distinguishable as two series (not merged)', async () => {
+      const m = metrics();
+      m.recordScheduledJobPhase({
+        jobType: 'inventory.daily_reconciliation',
+        phase: 'claimed',
+      });
+      m.recordScheduledJobPhase({
+        jobType: 'governance.audit_chain_verify',
+        phase: 'claimed',
+      });
+      const text = await m.metricsText();
+      expect(seriesOf(text, 'scheduled_job_occurrences_total')).toHaveLength(2);
+    });
+
+    it('no scheduled-job metric line ever contains a UUID', async () => {
+      const m = metrics();
+      m.recordScheduledJobPhase({
+        jobType: 'inventory.daily_reconciliation',
+        phase: 'failed',
+      });
+      const text = await m.metricsText();
+      for (const line of text
+        .split('\n')
+        .filter((l) => l.startsWith('scheduled_job_'))) {
+        expect(line).not.toMatch(
+          /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+        );
+      }
+    });
+  });
+});
+
+describe('MetricsService — scheduled job findings (SCHED-1)', () => {
+  it('counts findings by job type and severity', async () => {
+    const m = new MetricsService();
+    m.recordScheduledJobFinding('inventory.daily_reconciliation', 'critical');
+    const text = await m.metricsText();
+    expect(text).toContain(
+      'scheduled_job_findings_total{job_type="inventory.daily_reconciliation",severity="critical"} 1',
+    );
+  });
+
+  it('does NOT carry the tenant, the occurrence, or the finding code as a label', async () => {
+    const m = new MetricsService();
+    for (let i = 0; i < 200; i += 1) {
+      m.recordScheduledJobFinding('inventory.daily_reconciliation', 'critical');
+    }
+    const text = await m.metricsText();
+    const series = text
+      .split('\n')
+      .filter((l) => l.startsWith('scheduled_job_findings_total{'));
+    expect(series).toHaveLength(1);
+    expect(series[0]).toContain('} 200');
+  });
+});
