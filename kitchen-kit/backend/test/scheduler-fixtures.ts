@@ -325,6 +325,10 @@ export async function onlyJob(
     // also disable this one, or its own default daily schedule makes it
     // due alongside whatever the suite is actually testing.
     'platform.partition_lifecycle',
+    // AUD-1 — FR-AUD-005's scheduled verification job is registered globally,
+    // exactly like inventory's above, and must be disabled the same way for a
+    // suite that narrows its scope to one job type.
+    'governance.audit_chain_verification',
   ] as const;
   for (const jobType of all) {
     if (jobType === keep) continue;
