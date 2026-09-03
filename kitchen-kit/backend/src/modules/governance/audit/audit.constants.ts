@@ -225,6 +225,15 @@ export const AUDIT_ACTION = {
   TERMINAL_RECOVERY_GRANTED: 'TERMINAL_RECOVERY_GRANTED',
   TERMINAL_RECOVERY_BATCH_ACCEPTED: 'TERMINAL_RECOVERY_BATCH_ACCEPTED',
   TERMINAL_RECOVERY_BATCH_PROCESSED: 'TERMINAL_RECOVERY_BATCH_PROCESSED',
+
+  // AUD-1 — FR-AUD-007 "Audit log access SHALL itself be audited." Two verbs
+  // (not one, unlike CASH_MOVEMENT_RECORDED's single-verb-many-types
+  // convention) because a search and an export are materially different
+  // accountable events for an audit trail specifically: a search is a read, an
+  // export is a durable copy leaving the system's own query surface. Written
+  // by `AuditQueryService` for EVERY call to either route, success or not.
+  AUDIT_LOG_QUERIED: 'AUDIT_LOG_QUERIED',
+  AUDIT_LOG_EXPORTED: 'AUDIT_LOG_EXPORTED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -299,4 +308,7 @@ export const AUDIT_ENTITY = {
   // KDS operator lifecycle entities.
   TICKET: 'ticket',
   TICKET_LINE: 'ticket_line',
+
+  // AUD-1 — the audit log itself, as the object of an access (FR-AUD-007).
+  AUDIT_LOG: 'audit_log',
 } as const;

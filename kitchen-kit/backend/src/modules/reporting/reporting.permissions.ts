@@ -22,6 +22,13 @@ import type { PermissionDef } from '../identity/contract';
  * MUST NOT be broadened, split, or accompanied by `report.export` or any
  * other `report.view.*` code (RPT-R1 clauses 5/NOT-authorized list). No
  * standard-role seeding is performed by this file.
+ *
+ * AUD-R1 (2026-09-03) narrowly reopened RPT-R1 clause 6 to authorize
+ * `report.export` — but ONLY for `GET /governance/audit/entries/export`
+ * (`governance/audit/audit.permissions.ts`), a route in a DIFFERENT module.
+ * That amendment does not touch this file, does not add `report.export` to
+ * the reporting module's own route, and this prohibition remains in force
+ * for every route this module owns.
  */
 export const REPORTING_PERMISSIONS = {
   VIEW_SALES: 'report.view.sales',
