@@ -1,4 +1,5 @@
 import { Prisma } from '../../../generated/prisma/client';
+import type { ActorResolutionCache } from '../auth/actor-resolution.cache';
 import {
   SyncOperationStatus,
   SyncReasonCode,
@@ -51,6 +52,15 @@ export interface SyncOperationContext {
   readonly occurredAt: Date;
   readonly schemaVersion: number;
   readonly payload: unknown;
+  /**
+   * D4-1B ACCEPTANCE CORRECTION — `NFR-PERF-032` resolved-actor memoization,
+   * BATCH-LOCAL only. A handler that authorizes through `SYNC_AUTHORIZATION_PORT`
+   * SHOULD forward this on the `SyncAuthorizationRequest` so repeated
+   * operations by the same actor in one batch skip redundant membership/role
+   * reads. See `actor-resolution.cache.ts` for exactly what is and is not
+   * cached. Never persisted, never global — see that file's docblock.
+   */
+  readonly actorCache: ActorResolutionCache;
 }
 
 /** What a handler may return. Omitting it means `accepted` with no detail. */

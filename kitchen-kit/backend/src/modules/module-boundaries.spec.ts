@@ -673,6 +673,49 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
     expect(violations.filter((v) => v.importer === 'kitchen')).toEqual([]);
   });
 
+  /**
+   * D4-1B ACCEPTANCE CORRECTION — module boundary direction.
+   *
+   * Kitchen no longer imports ANYTHING from `modules/sync` (no
+   * `SyncOperationHandlerFor`, no `SyncOperationContext`, no
+   * `SYNC_AUTHORIZATION_PORT` — all removed from `kitchen/tickets/sync/`,
+   * which no longer exists). The integration handler lives on the OTHER
+   * side of the seam, in `modules/sync/integration/`, and reaches Kitchen
+   * ONLY through `kitchen/contract` (`KDS_OFFLINE_TICKET_OPERATIONS`,
+   * `KDS_PERMISSIONS`) — never a private `kitchen/tickets/...` path. Both
+   * directions therefore add ZERO `KNOWN_DEVIATIONS` entries — the strict
+   * form of "no new module-boundary deviation" this correction requires.
+   */
+  it('Kitchen never imports Sync, and Sync reaches Kitchen only through kitchen/contract — zero new KNOWN_DEVIATIONS either direction', () => {
+    expect(KNOWN_DEVIATIONS['kitchen->sync']).toBeUndefined();
+    expect(KNOWN_DEVIATIONS['sync->kitchen']).toBeUndefined();
+    expect(
+      violations.filter(
+        (v) => v.importer === 'kitchen' && v.imported === 'sync',
+      ),
+    ).toEqual([]);
+    expect(
+      violations.filter(
+        (v) => v.importer === 'sync' && v.imported === 'kitchen',
+      ),
+    ).toEqual([]);
+
+    const bumpLineHandler = readFileSync(
+      join(
+        MODULES_ROOT,
+        'sync/integration/kds-ticket-bump-line.sync-handler.ts',
+      ),
+      'utf8',
+    );
+    expect(bumpLineHandler).toContain("from '../../kitchen/contract'");
+    const importLines = bumpLineHandler
+      .split('\n')
+      .filter((line) => /^\s*import\b/.test(line));
+    expect(importLines.some((line) => line.includes('kitchen/tickets'))).toBe(
+      false,
+    );
+  });
+
   it('Identity publishes the cross-cutting HTTP/auth surface through contract/http, and Kitchen consumes only that contract', () => {
     const contract = readFileSync(
       join(MODULES_ROOT, 'identity/contract/index.ts'),

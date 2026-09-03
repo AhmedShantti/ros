@@ -37,6 +37,14 @@ import type {
  * server-derived `branchId` — both already establish at
  * `SyncOperationContext` construction time (`sync-batch.service.ts`), never
  * read from the operation payload.
+ *
+ * ── D4-1B ACCEPTANCE CORRECTION — NFR-PERF-032 ────────────────────────────
+ * When `request.actorCache` is supplied, step 1's resolved actor FACTS are
+ * memoized batch-locally (see `actor-resolution.cache.ts`); step 2 —
+ * `ScopeAuthorizationService.isAuthorized` — is UNCONDITIONALLY called for
+ * every operation regardless of cache state, because it decides against that
+ * operation's own target scope, which the cache does not and must not
+ * capture.
  */
 @Injectable()
 export class SyncAuthorizationAdapter implements SyncAuthorizationPort {
@@ -61,11 +69,33 @@ export class SyncAuthorizationAdapter implements SyncAuthorizationPort {
       return false;
     }
 
-    const actor = await this.posActor.resolve(tx, {
-      tenantId: request.tenantId,
-      employeeId: request.actorEmployeeId,
-      branchId: request.branchId,
-    });
+    const { actorCache } = request;
+    const cached = actorCache?.get(
+      request.tenantId,
+      request.terminalId,
+      request.branchId,
+      request.actorEmployeeId,
+    );
+    // `undefined` = not resolved yet this batch. A cached `null` (actor does
+    // not exist / not permitted at this branch) is a real, reusable answer —
+    // NOT a cache miss — so it must not trigger a redundant re-resolve.
+    const actor =
+      cached !== undefined
+        ? cached
+        : await this.posActor.resolve(tx, {
+            tenantId: request.tenantId,
+            employeeId: request.actorEmployeeId,
+            branchId: request.branchId,
+          });
+    if (cached === undefined) {
+      actorCache?.set(
+        request.tenantId,
+        request.terminalId,
+        request.branchId,
+        request.actorEmployeeId,
+        actor,
+      );
+    }
     if (actor === null) {
       return false;
     }

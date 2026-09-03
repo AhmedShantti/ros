@@ -1,4 +1,5 @@
 import { Prisma } from '../../../generated/prisma/client';
+import type { ActorResolutionCache } from '../auth/actor-resolution.cache';
 
 /**
  * Sync PUBLIC contract — the BRANCH-RBAC INTEGRATION BOUNDARY.
@@ -47,6 +48,14 @@ export interface SyncAuthorizationRequest {
    * needs.
    */
   readonly targetBranchId?: string;
+  /**
+   * D4-1B ACCEPTANCE CORRECTION — batch-local resolved-actor memoization
+   * (`NFR-PERF-032`). Optional so this remains a valid request shape without
+   * it; `SyncAuthorizationAdapter.isAllowed` caches ONLY the resolved actor
+   * facts through it, never the authorization decision itself — see
+   * `actor-resolution.cache.ts`.
+   */
+  readonly actorCache?: ActorResolutionCache;
 }
 
 export interface SyncAuthorizationPort {
