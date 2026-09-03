@@ -70,10 +70,38 @@ export async function ensureAppRole(
   }
 }
 
+/** Idempotent: mirrors docker/postgres/init/02-init-partition-admin-role.sh
+ * — FR-DR-002's DDL-only role, created the same way `ros_app` is (see
+ * `ensureAppRole`), so the same freshly-created-CI-container /
+ * already-provisioned-shared-server harness works unchanged. Ownership of
+ * the partitioned parent tables is granted by the migration itself
+ * (`20260903090000_platform_partition_lifecycle`), not here — this function
+ * only ensures the LOGIN role exists, matching what a migration file cannot
+ * do (it cannot carry a password). */
+export async function ensurePartitionAdminRole(
+  admin: Client,
+  roleName: string,
+  rolePassword: string,
+): Promise<void> {
+  try {
+    await admin.query(
+      `CREATE ROLE ${quoteIdentifier(roleName)} LOGIN PASSWORD ${quoteLiteral(
+        rolePassword,
+      )} NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`,
+    );
+  } catch (err) {
+    if ((err as { code?: string }).code !== ROLE_ALREADY_EXISTS) throw err;
+  }
+}
+
 export async function createDatabase(
   admin: Client,
   name: string,
-  options: { owner: string; template?: string; grantConnectTo?: string },
+  options: {
+    owner: string;
+    template?: string;
+    grantConnectTo?: string | readonly string[];
+  },
 ): Promise<void> {
   assertScratchDatabaseName(name);
   const templateClause = options.template
@@ -82,9 +110,12 @@ export async function createDatabase(
   await admin.query(
     `CREATE DATABASE ${quoteIdentifier(name)} OWNER ${quoteIdentifier(options.owner)}${templateClause}`,
   );
-  if (options.grantConnectTo) {
+  const grantees = options.grantConnectTo
+    ? ([] as string[]).concat(options.grantConnectTo)
+    : [];
+  for (const grantee of grantees) {
     await admin.query(
-      `GRANT CONNECT ON DATABASE ${quoteIdentifier(name)} TO ${quoteIdentifier(options.grantConnectTo)}`,
+      `GRANT CONNECT ON DATABASE ${quoteIdentifier(name)} TO ${quoteIdentifier(grantee)}`,
     );
   }
 }

@@ -103,6 +103,9 @@ jobs:
       PGDATABASE: ros_ci
       DATABASE_URL: postgresql://ros_migrator:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
       APP_DATABASE_URL: postgresql://ros_app:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+      # FR-DR-002 — the partition-lifecycle job's DDL-only connection. See
+      # PartitionAdminConnectionService.
+      PARTITION_ADMIN_DATABASE_URL: postgresql://ros_partition_admin:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
     steps:
       - uses: actions/checkout@v4
 
@@ -127,6 +130,20 @@ jobs:
           END
           $$;
           GRANT CONNECT ON DATABASE ros_ci TO ros_app;
+          SQL
+
+      - name: Provision ros_partition_admin role (mirrors docker/postgres/init/02-init-partition-admin-role.sh)
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ros_partition_admin') THEN
+              CREATE ROLE ros_partition_admin LOGIN PASSWORD 'ci_ephemeral_not_a_secret'
+                NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+            END IF;
+          END
+          $$;
+          GRANT CONNECT ON DATABASE ros_ci TO ros_partition_admin;
           SQL
 
       - name: Migrate from zero (prisma migrate deploy)
@@ -162,6 +179,10 @@ jobs:
       # mirroring docker/postgres/init/01-init-app-role.sh itself.
       DATABASE_URL: postgresql://ros_migrator:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
       APP_DATABASE_URL: postgresql://ros_app:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+      # FR-DR-002 — ros_partition_admin does not need to be pre-provisioned
+      # here either: the harness's own globalSetup creates it idempotently
+      # (test/e2e-db-isolation/provision.ts `ensurePartitionAdminRole`).
+      PARTITION_ADMIN_DATABASE_URL: postgresql://ros_partition_admin:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
     steps:
       - uses: actions/checkout@v4
 
