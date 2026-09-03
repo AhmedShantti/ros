@@ -142,6 +142,41 @@ export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   METRICS_HOST?: string;
+
+  /**
+   * SCHED-1 — whether THIS instance runs the scheduler heartbeat. String
+   * `'true'` enables it; anything else (including unset) disables it.
+   *
+   * Disabled by default so a test run, a one-off migration container, or a
+   * console attach never starts background execution nobody asked for. Enabling
+   * it on EVERY instance is the intended production configuration: the heartbeat
+   * is only a liveness poll, and exactly-once is enforced by the durable
+   * occurrence key and the claim lease, not by electing a single instance.
+   */
+  @IsOptional()
+  @IsString()
+  SCHEDULER_ENABLED?: string;
+
+  /**
+   * How often an enabled instance polls for due occurrences. Latency only — a
+   * longer tick delays work, it cannot duplicate or lose it.
+   */
+  @IsInt()
+  @Min(1000)
+  @Max(3_600_000)
+  SCHEDULER_TICK_MS: number = 30_000;
+
+  /** How many tenants one tick may scan. Bounds a tick's cost on a large fleet. */
+  @IsInt()
+  @Min(1)
+  @Max(10_000)
+  SCHEDULER_TENANT_BATCH: number = 100;
+
+  /** How many occurrences one tick may claim per tenant. */
+  @IsInt()
+  @Min(1)
+  @Max(1_000)
+  SCHEDULER_CLAIM_BATCH: number = 10;
 }
 
 // Values that unambiguously indicate an un-replaced placeholder / dev secret.
