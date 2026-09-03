@@ -171,3 +171,33 @@ groups:
           metric_query: >-
             histogram_quantile(0.95, sum(rate(scheduled_job_lag_seconds_bucket[1h])) by (le, job_type))
 
+      # ── BR-INV-003 / FR-INV-011 / FR-INV-051 ───────────────────────────
+      # The DETECTION signal. `scheduled_job_findings_total` is incremented ONLY
+      # after the transaction that persisted a `platform.job_findings` row has
+      # committed, so this cannot fire on an attempt that rolled back.
+      #
+      # The metric carries job type and severity, NOT the tenant and NOT the
+      # divergence count: a per-tenant label would be unbounded cardinality.
+      # The alert therefore says "a critical finding exists"; the durable
+      # `platform.job_findings` row says which tenant and what diverged, and is
+      # the authoritative record.
+      - alert: ROSInventoryLedgerProjectionDivergence
+        expr: >-
+          increase(
+            scheduled_job_findings_total{job_type="inventory.daily_reconciliation",severity="critical"}[1d]
+          ) > 0
+        for: 0m
+        labels:
+          severity: critical
+          slo: BR-INV-003
+        annotations:
+          summary: 'ROS inventory ledger and stock_levels projection disagree'
+          description: >-
+            The daily reconciliation job found at least one (item, location)
+            pair whose movement-ledger sum does not equal its stock_levels
+            projection. BR-INV-003 requires these to be equal. Nothing has been
+            auto-corrected — the divergence is evidence and must be diagnosed
+            before either side is touched.
+          runbook_url: 'docs/observability/runbooks/inventory-ledger-divergence.md'
+          metric_query: >-
+            increase(scheduled_job_findings_total{job_type="inventory.daily_reconciliation",severity="critical"}[1d])
