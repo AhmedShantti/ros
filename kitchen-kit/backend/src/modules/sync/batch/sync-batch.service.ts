@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ActorResolutionCache } from '../auth/actor-resolution.cache';
 import {
   SyncOperationRejectedError,
   type SyncOperationContext,
@@ -60,6 +61,15 @@ interface ChunkBase {
   readonly prepared: readonly PreparedOperation[];
   readonly dedup: ReadonlyMap<string, DedupRow>;
   readonly settledInBatch: Map<string, SyncOperationStatus>;
+  /**
+   * D4-1B ACCEPTANCE CORRECTION — `NFR-PERF-032`. Constructed ONCE per
+   * `run()` call (one `POST /v1/sync/batch` request) below, and threaded
+   * unchanged into every chunk of this batch, fast-path attempt and
+   * safe-path fallback alike — see `actor-resolution.cache.ts` for why that
+   * reuse is sound. Never constructed anywhere else, so it can never survive
+   * past this one batch.
+   */
+  readonly actorCache: ActorResolutionCache;
 }
 
 interface DedupRow {
@@ -302,6 +312,11 @@ export class SyncBatchService {
     const expiresAt = new Date(
       receivedAt.getTime() + SYNC_DEDUP_RETENTION_DAYS * 24 * 60 * 60 * 1000,
     );
+    // D4-1B ACCEPTANCE CORRECTION — `NFR-PERF-032`: ONE cache for the WHOLE
+    // batch (every chunk, fast path and any safe-path fallback), never
+    // reconstructed per chunk and never reused across a different `run()`
+    // call. See `ChunkBase.actorCache` and `actor-resolution.cache.ts`.
+    const actorCache = new ActorResolutionCache();
     const order = [...schedule.order];
     for (
       let start = 0;
@@ -319,6 +334,7 @@ export class SyncBatchService {
         prepared,
         dedup,
         settledInBatch,
+        actorCache,
       };
       // Snapshot, so a fast-path abort cannot leave half of the chunk's
       // statuses recorded before the safe re-run recomputes them.
@@ -728,6 +744,7 @@ export class SyncBatchService {
       occurredAt: new Date(dto.occurredAt),
       schemaVersion: dto.schemaVersion,
       payload: dto.payload,
+      actorCache: base.actorCache,
     };
   }
 

@@ -191,6 +191,20 @@ describe('P-D4-01 — NFR-PERF-032 kernel benchmark (e2e)', () => {
  * (bump_line is a one-way transition), bulk-inserted rather than looped
  * through `fireTicketLine` so fixture setup itself does not dominate the
  * measurement.
+ *
+ * ── D4-1B ACCEPTANCE CORRECTION ────────────────────────────────────────────
+ * The original "MIXED CONFLICT/REVALIDATION PATH" benchmark below measured
+ * `kds.ticket.recall`, driving every operation into a guaranteed `conflict`
+ * outcome. `kds.ticket.recall` is no longer registered as an offline sync
+ * handler (KDS RECALL GOVERNANCE correction — it did not implement the
+ * ratified LWW-by-HLC rule) so that benchmark is REMOVED, not adapted:
+ * `kds.ticket.bump_line` has no conflict-producing path of its own to
+ * substitute (its only non-`accepted` outcomes are `rejected`, not
+ * `conflict`). The closest still-measured proxy for a conflict-bearing
+ * production path is layer B ("REPRESENTATIVE") in the kernel benchmark
+ * above (`protocol.probe`'s audit mode, unaffected by this correction) —
+ * this is recorded honestly here rather than silently reusing the old test
+ * name against a different, non-conflict handler.
  */
 describe('P-D4-02 — NFR-PERF-032 production-handler benchmark (e2e)', () => {
   let app: INestApplication;
@@ -226,7 +240,10 @@ describe('P-D4-02 — NFR-PERF-032 production-handler benchmark (e2e)', () => {
           {
             batchSize: SYNC_MAX_OPERATIONS_PER_BATCH,
             iterations: PROD_ITERATIONS,
-            handlers: ['kds.ticket.bump_line', 'kds.ticket.recall'],
+            handlers: ['kds.ticket.bump_line'],
+            note:
+              'kds.ticket.recall is no longer registered as an offline handler ' +
+              '(D4-1B ACCEPTANCE CORRECTION, KDS RECALL GOVERNANCE) — no conflict-path production benchmark exists this session.',
             ...report,
           },
           null,
@@ -395,33 +412,6 @@ describe('P-D4-02 — NFR-PERF-032 production-handler benchmark (e2e)', () => {
     return elapsedMs;
   };
 
-  const runRecallConflictBatch = async (
-    ticketIds: string[],
-  ): Promise<number> => {
-    const ops = ticketIds.map((ticketId, i) =>
-      buildOperation(node, {
-        logical: i % 90_000,
-        type: 'kds.ticket.recall',
-        entityId: ticketId,
-        actorEmployeeId: fixture.employeeId,
-        payload: {},
-      }),
-    );
-    const batch = buildBatch(fixture.posTerminalId, ops, newId());
-    const started = process.hrtime.bigint();
-    const res = await request(http)
-      .post(SYNC_BATCH_PATH)
-      .set('Authorization', `Bearer ${token}`)
-      .send(batch);
-    expect(res.status).toBe(200);
-    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
-    const body = res.body as BatchResultView;
-    // Every recall here is against a NEVER-bumped ticket: guaranteed
-    // `conflict` outcomes, exercising the revalidation/conflict path.
-    expect(body.counts.conflict).toBe(ticketIds.length);
-    return elapsedMs;
-  };
-
   it(`A. ALL-SUCCESS FAST PATH — kds.ticket.bump_line x ${SYNC_MAX_OPERATIONS_PER_BATCH} x ${PROD_ITERATIONS} iterations`, async () => {
     const samples: number[] = [];
     for (let i = 0; i < PROD_ITERATIONS; i += 1) {
@@ -435,17 +425,7 @@ describe('P-D4-02 — NFR-PERF-032 production-handler benchmark (e2e)', () => {
     expect(samples).toHaveLength(PROD_ITERATIONS);
   }, 900_000);
 
-  it(`B. MIXED CONFLICT/REVALIDATION PATH — kds.ticket.recall x ${SYNC_MAX_OPERATIONS_PER_BATCH} x ${PROD_ITERATIONS} iterations (every op a conflict)`, async () => {
-    const samples: number[] = [];
-    for (let i = 0; i < PROD_ITERATIONS; i += 1) {
-      const lines = await createTicketLines(SYNC_MAX_OPERATIONS_PER_BATCH);
-      samples.push(await runRecallConflictBatch(lines.map((l) => l.ticketId)));
-    }
-    report.conflictRecall = { ...stats(samples), iterations: PROD_ITERATIONS };
-    expect(samples).toHaveLength(PROD_ITERATIONS);
-  }, 900_000);
-
-  it('C. DUPLICATE-HEAVY REPLAY — resubmitting an already-accepted production batch', async () => {
+  it('B. DUPLICATE-HEAVY REPLAY — resubmitting an already-accepted production batch', async () => {
     const lines = await createTicketLines(SYNC_MAX_OPERATIONS_PER_BATCH);
     const ops = lines.map((l, i) =>
       buildOperation(node, {
@@ -480,12 +460,10 @@ describe('P-D4-02 — NFR-PERF-032 production-handler benchmark (e2e)', () => {
 
   it('records the measured production-mix p95 against the 3 s budget', () => {
     expect(report.allSuccessBumpLine).toBeDefined();
-    expect(report.conflictRecall).toBeDefined();
     expect(report.duplicateReplay).toBeDefined();
 
     console.log(
       `production all-success p95 = ${report.allSuccessBumpLine.p95.toFixed(0)} ms; ` +
-        `conflict p95 = ${report.conflictRecall.p95.toFixed(0)} ms; ` +
         `duplicate-replay p95 = ${report.duplicateReplay.p95.toFixed(0)} ms; budget = 3000 ms`,
     );
   });

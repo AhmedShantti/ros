@@ -17,10 +17,15 @@ import {
 } from './sync-fixtures';
 
 /**
- * D4-1B production offline domain handlers — `kds.ticket.bump_line` and
- * `kds.ticket.recall` — exercised through the REAL `POST /v1/sync/batch`
- * pipeline against real PostgreSQL: live authorization, revalidation against
- * CURRENT server state, replay safety, and audit.
+ * D4-1B production offline domain handler — `kds.ticket.bump_line` —
+ * exercised through the REAL `POST /v1/sync/batch` pipeline against real
+ * PostgreSQL: live authorization, revalidation against CURRENT server state,
+ * replay safety, and audit.
+ *
+ * D4-1B ACCEPTANCE CORRECTION (KDS RECALL GOVERNANCE): `kds.ticket.recall`
+ * is NO LONGER registered as an offline sync handler — see the
+ * `unregistered kds.ticket.recall` describe block below and the D4-1B
+ * report's ACCEPTANCE CORRECTION section for why.
  */
 describe('Sync production handlers — KDS tickets (e2e)', () => {
   let app: INestApplication;
@@ -181,8 +186,8 @@ describe('Sync production handlers — KDS tickets (e2e)', () => {
     });
   });
 
-  describe('kds.ticket.recall', () => {
-    it('recalls a bumped ticket back to started (line has startedAt)', async () => {
+  describe('unregistered kds.ticket.recall (D4-1B ACCEPTANCE CORRECTION)', () => {
+    it('kds.ticket.recall is rejected as unknown_operation_type — no handler is registered, no effect applied', async () => {
       const { ticketId, ticketLineId } = await makeTicket();
       await admin.ticketLine.update({
         where: { id: ticketLineId },
@@ -203,47 +208,20 @@ describe('Sync production handlers — KDS tickets (e2e)', () => {
         200,
       );
       const r = byOpId(res.body as BatchResultView).get(op.opId);
-      expect(r?.status).toBe('accepted');
+      expect(r?.status).toBe('rejected');
+      expect(r?.reasonCode).toBe('unknown_operation_type');
 
+      // No effect: the ticket/line are untouched by a rejected, never-applied
+      // operation.
       const line = await admin.ticketLine.findUnique({
         where: { id: ticketLineId },
       });
-      expect(line?.status).toBe('started');
-    });
+      expect(line?.status).toBe('bumped');
 
-    it('D4-1B revalidation: conflict (not rejected) when the ticket is no longer bumped — server’s CURRENT state wins over the offline capture-time assumption', async () => {
-      const { ticketId, ticketLineId } = await makeTicket();
-      // Ticket is `queued`, never bumped — the offline device's assumption
-      // ("this ticket was bumped when I captured the recall") is stale.
-      const op = buildOperation(node, {
-        type: 'kds.ticket.recall',
-        entityId: ticketId,
-        actorEmployeeId: fixture.employeeId,
-        payload: {},
+      const conflicts = await admin.syncConflictRecord.count({
+        where: { tenantId: fixture.tenantId, entityId: ticketId },
       });
-      const res = await post(buildBatch(fixture.posTerminalId, [op])).expect(
-        200,
-      );
-      const r = byOpId(res.body as BatchResultView).get(op.opId);
-      expect(r?.status).toBe('conflict');
-      expect(r?.reasonCode).toBe('illegal_transition');
-      expect(r?.definitive).toBe(true);
-      expect(r?.conflictId).toBeTruthy();
-
-      // FR-OFF-043: a manager can review BOTH the local (offline-assumed)
-      // and server (actual) states of this conflict.
-      const record = await admin.syncConflictRecord.findUnique({
-        where: { id: r!.conflictId! },
-      });
-      expect(record?.tenantId).toBe(fixture.tenantId);
-      expect(record?.entityId).toBe(ticketId);
-      expect(record?.localState).toMatchObject({ assumedStatus: 'bumped' });
-      expect(record?.serverState).toMatchObject({ status: 'queued' });
-
-      const line = await admin.ticketLine.findUnique({
-        where: { id: ticketLineId },
-      });
-      expect(line?.status).toBe('queued');
+      expect(conflicts).toBe(0);
     });
   });
 
