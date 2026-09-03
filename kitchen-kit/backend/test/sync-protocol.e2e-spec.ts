@@ -155,6 +155,43 @@ describe('Sync protocol kernel (e2e)', () => {
         });
       }
     });
+
+    it('D4-1B: 403s an active terminal bound to an INACTIVE branch, before any handler mutation (MW1C gap, closed)', async () => {
+      // MW1C proved: active terminal + inactive branch still reached
+      // SyncBatchService and returned 200. `SyncTerminalGuard` now checks
+      // `BRANCH_BRAND_QUERY.findBranchAuthorizationFacts` — the SAME
+      // published query T-12 uses for every other route — before
+      // `SyncController` is ever reached. Reproduces MW1C's exact probe:
+      // active terminal, otherwise-valid production op, inactive branch.
+      const dedupCountBefore = await admin.syncOperationDedup.count({
+        where: { tenantId: fx.tenantId },
+      });
+      await admin.branch.update({
+        where: { id: fx.branchId },
+        data: { status: 'inactive' },
+      });
+      try {
+        const res = await post(
+          buildBatch(fx.terminalId, [buildOperation(fx.node)]),
+        ).expect(403);
+        // Same generic, non-enumerating wording as the terminal-inactive
+        // refusal — a caller must not be able to distinguish "your terminal
+        // is dead" from "your terminal's branch is dead".
+        expect(JSON.stringify(res.body)).toMatch(/not active/i);
+        const dedupCountAfter = await admin.syncOperationDedup.count({
+          where: { tenantId: fx.tenantId },
+        });
+        // No operation_dedup row was written — no handler executed, no
+        // effect applied, no success/final state recorded as though
+        // execution happened.
+        expect(dedupCountAfter).toBe(dedupCountBefore);
+      } finally {
+        await admin.branch.update({
+          where: { id: fx.branchId },
+          data: { status: 'active' },
+        });
+      }
+    });
   });
 
   // ──────────────────────────────────────────────────────── strict envelope

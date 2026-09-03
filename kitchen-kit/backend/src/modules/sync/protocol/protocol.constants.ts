@@ -118,6 +118,20 @@ export const SYNC_REASON = {
     'duplicate_op_id_different_fingerprint',
   HANDLER_ERROR: 'handler_error',
   MALFORMED_HLC: 'malformed_hlc',
+  /** D4-1B — a production handler's authorization check refused the operation. */
+  AUTHORIZATION_DENIED: 'authorization_denied',
+  /** D4-1B — the operation's `entityId` (or a referenced resource) does not
+   * exist, or is not visible, in the caller's tenant/branch. */
+  RESOURCE_NOT_FOUND: 'resource_not_found',
+  /** D4-1B — the operation would move a resource through a transition its
+   * domain state machine does not permit from its CURRENT server state. */
+  ILLEGAL_TRANSITION: 'illegal_transition',
+  /** D4-1B — the causal parent settled as `conflict` (not `rejected`): its
+   * effect did not apply as submitted, but the conflict may still be
+   * resolved by a manager (`sync.conflict_records.resolution =
+   * 'manual_pending'`) — see `operation-scheduler.ts`'s "WHY A CONFLICTED
+   * PARENT DEFERS, NOT REJECTS" for why this is NOT `causal_parent_rejected`. */
+  CAUSAL_PARENT_CONFLICTED: 'causal_parent_conflicted',
 } as const;
 
 export type SyncReasonCode = (typeof SYNC_REASON)[keyof typeof SYNC_REASON];

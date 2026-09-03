@@ -20,23 +20,43 @@ import {
  * ── WHY A REJECTED PARENT REJECTS ITS CHILD ───────────────────────────────
  * `FR-OFF-022` says a child whose parent "has not been applied" is deferred.
  * That is right when the parent MIGHT still arrive. It is wrong when the parent
- * has already been settled definitively as `rejected` or `conflict`: that parent
- * will never be applied, so deferring the child stalls it in the outbox forever,
- * and `FR-OFF-024` would then never let the client clear it. The child is
- * therefore REJECTED with `causal_parent_rejected` — definitive, so the client
- * can dead-letter it instead of retrying until the end of time.
+ * has already been settled definitively as `rejected`: a handler THREW, the
+ * kernel rolled that attempt back to its savepoint, and `sync.operation_dedup`
+ * replays that exact outcome forever — the parent's effect did not happen and
+ * structurally cannot ever happen through this protocol. Deferring the child
+ * would stall it in the outbox forever, and `FR-OFF-024` would then never let
+ * the client clear it. The child is therefore REJECTED with
+ * `causal_parent_rejected` — definitive, so the client can dead-letter it
+ * instead of retrying until the end of time.
  *
- * This is a kernel-level protocol decision, derived from `FR-OFF-022` and
- * `FR-OFF-024` read together, and it is recorded in the D4-1A report for D4-1B
- * review rather than being applied silently.
+ * ── WHY A CONFLICTED PARENT DEFERS, NOT REJECTS (D4-1B review of the above) ──
+ * D4-1A's own report flagged this exact line for D4-1B review, and this task's
+ * brief (§10) independently requires the distinction: a parent settled as
+ * `conflict` is NOT the same fact as one settled `rejected`. A handler
+ * returning `{status: 'conflict', ...}` records a `sync.conflict_records` row
+ * whose `resolution` may be `manual_pending` — a manager has not yet decided
+ * the outcome, and manual resolution can still cause the conflicted change to
+ * take effect through a path outside this batch. Treating that the same as a
+ * structurally-impossible rejection would permanently dead-letter a child
+ * whose parent might yet be resolved in its favour — the exact
+ * over-propagation this task instructs against ("do not blanket-propagate
+ * from a generic conflict bucket"). Such a child is therefore DEFERRED with
+ * `causal_parent_conflicted`, not rejected: retried on the client's normal
+ * outbox cadence, at the (accepted) cost that a conflict resolved as
+ * "permanently not applied" leaves the child retrying until an operator
+ * intervenes — the safer failure mode of the two, and named explicitly rather
+ * than silently chosen (D4-1B report, "causal-parent semantics").
  */
 
 /** What the dedup registry knows about an operation the batch refers to. */
 export type ParentSettlement =
   /** Settled as `accepted` (or already answered `duplicate`) — the parent IS applied. */
   | 'applied'
-  /** Settled definitively as `rejected` or `conflict` — it will never be applied. */
+  /** Settled definitively as `rejected` — structurally can never be applied. */
   | 'not-applied'
+  /** Settled as `conflict` — did not apply as submitted, but NOT proven to be
+   * permanently unresolvable (see the class docblock). Treated as retryable. */
+  | 'conflicted'
   /** No definitive record. It may still arrive in a later batch. */
   | 'unknown';
 
@@ -114,13 +134,23 @@ export function scheduleOperations(
               `Causal parent ${parent} was settled definitively without being ` +
               'applied, so this operation can never become applicable.',
           }
-        : {
-            status: SYNC_OPERATION_STATUS.DEFERRED,
-            reasonCode: SYNC_REASON.CAUSAL_PARENT_MISSING,
-            reasonDetail:
-              `Causal parent ${parent} has not been applied. Retain this ` +
-              'operation and resend it once the parent is accepted.',
-          },
+        : settlement === 'conflicted'
+          ? {
+              status: SYNC_OPERATION_STATUS.DEFERRED,
+              reasonCode: SYNC_REASON.CAUSAL_PARENT_CONFLICTED,
+              reasonDetail:
+                `Causal parent ${parent} settled as a conflict, not a ` +
+                'definitive rejection — it may yet be resolved. Retain this ' +
+                'operation and resend it once the parent settles as accepted ' +
+                'or is definitively rejected.',
+            }
+          : {
+              status: SYNC_OPERATION_STATUS.DEFERRED,
+              reasonCode: SYNC_REASON.CAUSAL_PARENT_MISSING,
+              reasonDetail:
+                `Causal parent ${parent} has not been applied. Retain this ` +
+                'operation and resend it once the parent is accepted.',
+            },
     );
   }
 

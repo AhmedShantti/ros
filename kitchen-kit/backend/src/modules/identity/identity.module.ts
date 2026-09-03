@@ -11,6 +11,8 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { OrganisationModule } from '../organisation/organisation.module';
 import { AuthorizationSnapshotService } from './authz/authorization-snapshot.service';
 import { ScopeAuthorizationService } from './authz/scope-authorization.service';
+import { PosActorAuthorizationService } from './authz/pos-actor-authorization.service';
+import { POS_ACTOR_AUTHORIZATION } from './contract/pos-actor-authorization';
 import { AuthorizationTargetResolver } from './authz/authorization-target.resolver';
 import { TerminalTargetResolver } from './terminals/scope-target.resolver';
 import {
@@ -143,6 +145,11 @@ import { UsersService } from './users/users.service';
     AuthorizationSnapshotService,
     ScopeAuthorizationService,
     { provide: SCOPE_AUTHORIZATION, useExisting: ScopeAuthorizationService },
+    PosActorAuthorizationService,
+    {
+      provide: POS_ACTOR_AUTHORIZATION,
+      useExisting: PosActorAuthorizationService,
+    },
     AuthorizationTargetResolver,
     TerminalTargetResolver,
     {
@@ -198,6 +205,10 @@ import { UsersService } from './users/users.service';
     // the route-level guard cannot express (a different approver; a check that
     // must be atomic with the write it protects).
     SCOPE_AUTHORIZATION,
+    // D4-1B — the SYNC_AUTHORIZATION_PORT binding seam's employee resolution.
+    // See `contract/pos-actor-authorization.ts` for why Sync needs a SEPARATE
+    // entry point than the token-bound `TenantContextService.resolve`.
+    POS_ACTOR_AUTHORIZATION,
     AuthorizationTargetResolver,
     IDENTITY_TERMINAL_TARGET_RESOLVER,
     // M-4+ inherited-scope review state, consumed by Organisation's

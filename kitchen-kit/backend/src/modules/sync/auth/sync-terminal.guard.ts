@@ -12,6 +12,8 @@ import type {
   AuthenticatedPrincipal,
   TerminalFactsQuery,
 } from '../../identity/contract';
+import { BRANCH_BRAND_QUERY } from '../../organisation/contract';
+import type { BranchBrandQuery } from '../../organisation/contract';
 
 export interface SyncTerminal {
   readonly terminalId: string;
@@ -58,7 +60,26 @@ export type SyncAuthorizedRequest = Request & {
  * outcome. It is NOT a statement that its unsynced backlog may be discarded:
  * GD-D1-07 was REJECTED, committed-sale loss is explicitly not accepted
  * behaviour, and LOSSLESS REVOKED-TERMINAL RECOVERY is a ratified HARD GATE
- * that D4-1 cannot be closed without. See the D4-1A report §17.
+ * — see `recovery/sync-recovery.controller.ts` for the D4-1B implementation.
+ *
+ * ── D4-1B — INACTIVE BRANCH × SYNC (closes the MW1C gap centrally) ─────────
+ * MW1C proved that an ACTIVE terminal bound to an INACTIVE branch still
+ * reached `SyncBatchService` — the terminal-active check above says nothing
+ * about the BRANCH's own lifecycle. T-12 already states the rule for every
+ * OTHER route: "a branch that is not `active` is denied for EVERY scope, TENANT
+ * included" (`AuthorizationTargetResolver.finalizeBranchTarget`). Sync gets the
+ * SAME answer from the SAME published query — `BRANCH_BRAND_QUERY
+ * .findBranchAuthorizationFacts` — rather than a second, independently-written
+ * definition of "operative branch" copied into every future handler. Checked
+ * HERE, once, before `SyncController` ever reaches `SyncBatchService`, so no
+ * handler executes, no effect applies, and no `operation_dedup` row is written
+ * for a batch that never got this far.
+ *
+ * The branch is invisible only if the terminal's own FK is somehow dangling
+ * (unreachable in practice — `identity.terminals.branch_id` is FK-enforced);
+ * treated as fail-closed exactly like an inactive branch, using the SAME
+ * generic wording as the terminal-inactive refusal above, so neither answer
+ * becomes a distinguishing oracle for whatever produced it.
  */
 @Injectable()
 export class SyncTerminalGuard implements CanActivate {
@@ -66,6 +87,8 @@ export class SyncTerminalGuard implements CanActivate {
     private readonly prisma: PrismaService,
     @Inject(TERMINAL_FACTS_QUERY)
     private readonly terminalFacts: TerminalFactsQuery,
+    @Inject(BRANCH_BRAND_QUERY)
+    private readonly branchBrand: BranchBrandQuery,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -87,6 +110,20 @@ export class SyncTerminalGuard implements CanActivate {
       throw new ForbiddenException('Terminal not found.');
     }
     if (terminal.status !== 'active') {
+      throw new ForbiddenException(
+        'This terminal is not active. Ordinary sync is refused. Committed ' +
+          'offline transactions are NOT discarded by this refusal — recovery ' +
+          'requires the separately authorised lossless recovery path.',
+      );
+    }
+
+    const branchFacts = await this.prisma.withAuthContext({ tenantId }, (tx) =>
+      this.branchBrand.findBranchAuthorizationFacts(tx, terminal.branchId),
+    );
+    if (branchFacts === null || !branchFacts.isActive) {
+      // Same generic, non-enumerating shape as the terminal-inactive refusal:
+      // a caller must not be able to distinguish "your terminal is dead" from
+      // "your terminal's branch is dead" from the response alone.
       throw new ForbiddenException(
         'This terminal is not active. Ordinary sync is refused. Committed ' +
           'offline transactions are NOT discarded by this refusal — recovery ' +

@@ -83,3 +83,27 @@ export interface SyncOperationHandler {
 
 /** DI token for the handler multi-provider set. */
 export const SYNC_OPERATION_HANDLERS = Symbol('SYNC_OPERATION_HANDLERS');
+
+/**
+ * D4-1B — throw this (never a bare `Error`) to reject an operation with a
+ * SPECIFIC, machine-readable reason instead of the kernel's generic
+ * `handler_error` bucket (`sync-batch.service.ts`'s `applyIsolated` reads
+ * `reasonCode`/`reasonDetail` off this type specially — see that call site).
+ *
+ * Still a THROW, per the base contract's rule: the kernel rolls the operation
+ * back to its savepoint and records a definitive `rejected` result. This type
+ * exists only to make that rejection's `reasonCode` precise — e.g.
+ * `authorization_denied`, `resource_not_found`, `illegal_transition` — rather
+ * than every handler-thrown rejection collapsing into one opaque bucket,
+ * which `sync-batch.service.ts`'s §14 CONFLICT CONTRACT obligations (bounded,
+ * machine-readable outcomes) require.
+ */
+export class SyncOperationRejectedError extends Error {
+  constructor(
+    readonly reasonCode: string,
+    reasonDetail: string,
+  ) {
+    super(reasonDetail);
+    this.name = 'SyncOperationRejectedError';
+  }
+}
