@@ -1319,6 +1319,29 @@
         ],
         "type": "object"
       },
+      "IssueRecoveryGrantDto": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
+          },
+          "ttlMinutes": {
+            "description": "Default and cap enforced server-side in `SyncRecoveryService`.",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "terminalId",
+          "reason"
+        ],
+        "type": "object"
+      },
       "LinkModifierGroupDto": {
         "properties": {
           "defaultSelectionOverride": {
@@ -26153,6 +26176,366 @@
           }
         ],
         "summary": "Upload a batch of offline operations",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/v1/sync/recovery/grants": {
+      "post": {
+        "operationId": "SyncRecoveryController_issueGrant_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueRecoveryGrantDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "issuedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "pending"
+                      ],
+                      "type": "string"
+                    },
+                    "terminalId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recovery grant."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid ttlMinutes."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Terminal not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Terminal is active, or a pending grant already exists for it."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Authorize a bounded, one-shot recovery upload window for a disabled or revoked terminal's committed offline backlog (D1-1 GD-D1-07).",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/v1/sync/recovery/{grantId}/batch": {
+      "post": {
+        "operationId": "SyncRecoveryController_uploadRecoveryBatch_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "grantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncBatchDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "batchId": {
+                      "description": "The batch id the client supplied, echoed unchanged.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "clockSkewExceededThreshold": {
+                      "description": "True when the skew exceeded the configured threshold (default 5 minutes). The skew is recorded and an alert raised; the operations are still accepted and their original timestamps preserved.",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "clockSkewMs": {
+                      "description": "Largest observed |device HLC physical clock − server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042).",
+                      "example": 1200,
+                      "type": "integer"
+                    },
+                    "counts": {
+                      "description": "Per-status totals for this batch.",
+                      "properties": {
+                        "accepted": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "conflict": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "deferred": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "duplicate": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "rejected": {
+                          "example": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "accepted",
+                        "duplicate",
+                        "conflict",
+                        "rejected",
+                        "deferred"
+                      ],
+                      "type": "object"
+                    },
+                    "protocolVersion": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "receivedAt": {
+                      "description": "The server's own receipt instant.",
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "description": "True when this batch had already been completed and the stored response was replayed verbatim. Nothing was re-applied (FR-OFF-025).",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "results": {
+                      "description": "One result per submitted operation, in submission order.",
+                      "items": {
+                        "properties": {
+                          "conflictId": {
+                            "description": "The sync.conflict_records row raised for this operation, when status is conflict.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "definitive": {
+                            "description": "True exactly when the client may delete this operation from its outbox. Restated as a field so a client never has to hard-code the status vocabulary to decide.",
+                            "example": true,
+                            "type": "boolean"
+                          },
+                          "detail": {
+                            "description": "Handler-supplied result detail, echoed to the client.",
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          },
+                          "opId": {
+                            "description": "The client-generated operation id, echoed back UNCHANGED — FR-OFF-015: the server never reassigns an identifier.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "reasonCode": {
+                            "description": "Machine-readable reason. Always present on rejected, conflict and deferred, so a client can decide between dead-lettering, fixing and resending, or waiting for a causal parent.",
+                            "example": "causal_parent_missing",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonDetail": {
+                            "description": "Human-readable explanation.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "description": "accepted | duplicate | conflict | rejected are DEFINITIVE — the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024).",
+                            "enum": [
+                              "accepted",
+                              "duplicate",
+                              "conflict",
+                              "rejected",
+                              "deferred"
+                            ],
+                            "example": "accepted",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "opId",
+                          "status",
+                          "definitive"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "batchId",
+                    "receivedAt",
+                    "protocolVersion",
+                    "replayed",
+                    "counts",
+                    "clockSkewMs",
+                    "clockSkewExceededThreshold",
+                    "results"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-operation results — identical shape to ordinary sync."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed envelope, oversized batch, or deviceId mismatch."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Caller lacks identity.terminal.manage at the grant’s branch."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Recovery grant not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Grant expired, revoked, or already consumed for a different batch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload one batch of a revoked terminal's committed offline backlog, authenticated as the admin who holds (or was granted) recovery authority for it — never as the terminal itself (see the service docblock for why).",
         "tags": [
           "sync"
         ]

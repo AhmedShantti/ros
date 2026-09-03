@@ -216,6 +216,15 @@ export const AUDIT_ACTION = {
   // occurred; it is accepted, both values are recorded, and this is the entry
   // that says so.
   SYNC_REVALIDATION_EXCEPTION_RAISED: 'SYNC_REVALIDATION_EXCEPTION_RAISED',
+  // D4-1B — lossless revoked-terminal recovery (migration 38, GD-D1-07). Same
+  // <ENTITY>_<PAST_TENSE> convention. Three distinct verbs for three distinct
+  // accountable events: an admin authorizing the window, the window being
+  // bound to one specific batch, and that batch finishing — each is a
+  // separately meaningful fact for "who authorized recovery of what, and did
+  // it actually happen".
+  TERMINAL_RECOVERY_GRANTED: 'TERMINAL_RECOVERY_GRANTED',
+  TERMINAL_RECOVERY_BATCH_ACCEPTED: 'TERMINAL_RECOVERY_BATCH_ACCEPTED',
+  TERMINAL_RECOVERY_BATCH_PROCESSED: 'TERMINAL_RECOVERY_BATCH_PROCESSED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -246,6 +255,8 @@ export const AUDIT_ENTITY = {
   /// B1-2 — a single scoped role assignment (`identity.membership_roles.id`).
   ROLE_ASSIGNMENT: 'role_assignment',
   TERMINAL: 'terminal',
+  // D4-1B — migration 38.
+  SYNC_RECOVERY_GRANT: 'sync_recovery_grant',
 
   // Phase 15 — Organisation entities.
   BRAND: 'brand',

@@ -101,6 +101,21 @@ const REVIEWED_UNPROTECTED_ROUTES: Readonly<Record<string, string>> = {
     'guards; branch is server-derived; operation-level domain authorization ' +
     'is delegated to SYNC_AUTHORIZATION_PORT when production handlers are ' +
     'added.',
+  'POST /sync/recovery/:grantId/batch':
+    'D4-1B lossless revoked-terminal recovery upload. Authenticated as an ' +
+    'ADMIN (JwtAuthGuard + TenantContextGuard only — never the revoked ' +
+    'terminal itself; PinService.authenticate refuses a non-active terminal ' +
+    'outright, so a terminal-authenticated route would be unreachable in ' +
+    'exactly the case it exists for — see SyncRecoveryService’s docblock). ' +
+    'No static @AuthorizationTarget is possible because the target branch ' +
+    'is only known once the :grantId row is loaded; ' +
+    'SyncRecoveryService.authorizeGrantForBatch instead calls the SAME ' +
+    'SCOPE_AUTHORIZATION.assertAuthorized primitive PermissionGuard uses, ' +
+    'programmatically, against the grant’s own recorded branch, requiring ' +
+    'live identity.terminal.manage (the SAME permission that gates grant ' +
+    'issuance, POST /sync/recovery/grants). Operation-level domain ' +
+    'authorization inside the batch is the same SYNC_AUTHORIZATION_PORT ' +
+    'every production handler already enforces.',
 };
 
 // ───────────────────────────────────────────────────────── route discovery ──
