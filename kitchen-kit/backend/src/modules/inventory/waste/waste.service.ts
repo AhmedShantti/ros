@@ -66,7 +66,24 @@ export class WasteService {
             unitCost: bigint;
           }[] = [];
 
-          for (const line of input.lines) {
+          // A1-4 (deadlock matrix, §11): a multi-line waste record posts one
+          // outbound movement per stock item in ONE transaction, each
+          // taking `stock_batches`/`stock_levels` locks that are held to
+          // COMMIT. Processing in caller-supplied order would let two
+          // concurrent multi-item writers (e.g. this waste record and a
+          // count posting, or another waste record) touch the same two
+          // items in opposite order and deadlock. Sorting by stockItemId
+          // ASC matches the ONE global deterministic lock order already
+          // established for Completion (`SaleDepletionService` sorts its
+          // triples the same way) — never a generic deadlock retry.
+          const orderedLines = [...input.lines].sort((a, b) =>
+            a.stockItemId < b.stockItemId
+              ? -1
+              : a.stockItemId > b.stockItemId
+                ? 1
+                : 0,
+          );
+          for (const line of orderedLines) {
             // Exact from the authoritative input onward — one Prisma.Decimal
             // magnitude feeds both the persisted movement quantity (negated)
             // and the waste_lines quantity (positive); no Math.abs/negation
