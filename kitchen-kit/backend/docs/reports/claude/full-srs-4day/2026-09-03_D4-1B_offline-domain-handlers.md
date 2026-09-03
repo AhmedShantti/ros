@@ -811,28 +811,45 @@ the candidate.
 | 1 | A revoked terminal does not regain normal POS authority | **PASS WITH PROOF** | No code path in `SyncRecoveryService`/`SyncRecoveryController` ever writes `identity.terminals.status` (confirmed by inspection — grep for `terminal.status`/`.status =` in both files: zero hits). `test/sync-recovery.e2e-spec.ts`'s main scenario asserts the terminal's `status` remains `'revoked'` throughout, and that ordinary `POST /v1/sync/batch` remains refused for it the whole time. |
 | 2 | Recovery is explicitly authorised | **PASS WITH PROOF** | Grant issuance requires live `identity.terminal.manage` (`@RequirePermission`, HTTP-guard-enforced); batch upload RE-CHECKS the same permission live, against the grant's own branch, via `SCOPE_AUTHORIZATION.assertAuthorized` — not cached from issuance time. Proven by the `403s grant issuance without identity.terminal.manage` and the upload-time permission-recheck test. |
 | 3 | Recovery is auditable | **PASS WITH PROOF** | `TERMINAL_RECOVERY_GRANTED`, `TERMINAL_RECOVERY_BATCH_ACCEPTED` (atomic with the grant's one-shot CAS), `TERMINAL_RECOVERY_BATCH_PROCESSED` are all written and asserted present in the e2e suite. |
-| 4 | Recovery cannot create new sales | **PASS WITH PROOF, SCOPE-LIMITED** | True today because `SyncOperationRegistry` has exactly ONE registered handler (`kds.ticket.bump_line`), which mutates only an existing ticket line's status and creates no sale of any kind — an unregistered operation type is `rejected/unknown_operation_type` before any handler runs, recovery included. **This is not a recovery-specific restriction** — the recovery route places no allowlist of its own on which operation TYPES it accepts beyond what ordinary sync already accepts. Named explicitly as a residual: if a sale-creating handler (e.g. a future `order.create`) is ever registered, recovery would gain the identical power unless a dedicated type-restriction is added to the recovery channel specifically. Not fixed in this correction — recorded as a follow-up recommendation, not implemented. |
+| 4 | Recovery cannot create new sales | **NOT PROVEN** | The report's own evidence for this row does not establish the ratified invariant — it establishes only a fact about TODAY's handler registry. `SyncOperationRegistry` happens to have exactly ONE registered handler (`kds.ticket.bump_line`), which creates no sale, so no batch submitted through the recovery channel can create one RIGHT NOW — but that is a fact about what is currently registered, not a property the recovery channel itself enforces. **No recovery-specific operation-type allowlist or denylist exists anywhere in `SyncRecoveryService`/`SyncRecoveryController`** (confirmed by inspection): the recovery upload route feeds `batch.process()` — the exact same `SyncBatchService`/`SyncOperationRegistry` pipeline ordinary sync uses — with no additional restriction on which operation TYPES it will apply. The ratified invariant is a standing constraint that must continue to hold as ordinary offline handlers are added; nothing in this implementation is structured to keep holding it once a sale-creating handler (e.g. a future `order.create`) is registered for ordinary sync — that handler would become reachable through recovery automatically, with zero code change to the recovery path. A disposition that depends entirely on the CURRENT contents of an unrelated registry, with no structural link enforcing the invariant as that registry changes, is not a proof of the invariant — it is an observation that today's registry happens not to violate it yet. Corrected from this report's own prior (too strong) **PASS WITH PROOF, SCOPE-LIMITED** classification. |
 | 5 | Recovery cannot modify arbitrary server state | **PASS WITH PROOF, SCOPE-LIMITED** | Same structural reasoning as #4: bounded by the SAME handler registry ordinary sync uses, and the one registered handler's write surface is a narrow, revalidated CAS on `kitchen.ticket_lines`/`kitchen.tickets`. Same residual noted: the boundary is a property of what is currently registered, not a recovery-specific guard. |
 | 6 | Operation idempotency remains enforced | **PASS WITH PROOF** | The recovery route calls the UNMODIFIED `SyncBatchService.process()` — the exact same global `(tenant_id, op_id)` dedup registry ordinary sync uses. Proven by the "a retry of the exact same batch replays (`replayed: true`), no new dedup rows" assertion in `sync-recovery.e2e-spec.ts`. |
 | 7 | Recovered financial operations receive enhanced provenance / mandatory review | **FAIL** | No mechanism of any kind exists. The only provenance signal is the BATCH-level audit trail (`TERMINAL_RECOVERY_BATCH_ACCEPTED`/`PROCESSED`, keyed to the grant); no individual operation record — `sync.sync_operations`, `sync.operation_dedup`, or the domain audit entry itself (e.g. `TICKET_LINE_BUMPED`) — carries any flag distinguishing "applied via a revoked-terminal recovery grant" from an ordinary sync operation (confirmed by inspecting all three Prisma models: none has such a column). A reviewer would have to manually cross-reference `batchId` against `sync.recovery_grants.consumed_batch_id` to even discover an operation was recovery-sourced. No mandatory-review workflow (queue entry, flag, escalation) is triggered for a recovered operation of any kind. Independently, D4-1B implements zero financial (`order.*`/`payment.*`) operation types, so the invariant's literal subject cannot yet be exercised even if the mechanism existed — but the absence of ANY operation-level provenance flag is a real, independent gap that exists regardless of financial status. |
 | 8 | A lost/stolen terminal cannot use the recovery path to escalate authority | **PASS WITH PROOF** | Neither recovery route accepts terminal authentication of any kind — both require `JwtAuthGuard` + `TenantContextGuard` + an admin's own live-checked `identity.terminal.manage`; a terminal's own (even unexpired) session token is never accepted by either route, and `uploadRecoveryBatch` additionally rejects a `deviceId` that does not match the grant's named terminal. A physically stolen device's credentials confer nothing here beyond what an ordinary unauthorized caller already has. Proven by the "active terminal refused a grant" and "no-permission 403" tests, and by inspection: `SyncRecoveryController` carries no terminal-facing guard at all. |
 | 9 | Legitimate committed transactions are not silently discarded | **NOT PROVEN** | Splits into two halves. The SERVER-SIDE half — given a batch payload, apply it losslessly and exactly once — IS proven (§5.2 above, re-verified this session). The CLIENT/DEVICE-SIDE half — **how backlog is actually obtained from a revoked/encrypted terminal in the first place** — has NO code anywhere in this repository; it is entirely out of scope of `modules/sync`, unaddressed by any client-side or device-recovery tooling at this HEAD. Independently, **nothing proves a recovered operation existed BEFORE revocation rather than being fabricated afterward**: `identity.terminals` has no `revokedAt` (or equivalent) column at all (confirmed by inspecting the `Terminal` model in `prisma/schema.prisma`), so there is no timestamp to compare an operation's client-asserted `hlc`/`occurredAt` against, and neither `SyncRecoveryService` nor `SyncBatchService` performs any such comparison. An admin (coerced, compromised, or simply mistaken about what a recovered device actually contains) could upload a batch with a freshly-fabricated timestamp and it would be accepted identically to a genuine pre-revocation operation. This is the invariant most directly connected to the "committed-sale loss is unacceptable" rejection of `GD-D1-07` (D1-1 §21.1) — and it is the one this correction finds least proven. |
 
-**LOSSLESS RECOVERY HARD GATE = NOT CLOSED.** Invariants 7 and 9 are not
-structurally proven (7 is a FAIL; 9 is NOT PROVEN), which is sufficient on
-its own, per this task's own rule, to keep the hard gate open regardless of
-invariants 1–6 and 8 passing. The existing mechanism **remains a CANDIDATE**,
-exactly as `2026-09-02_D1-1_offline-sync-ratification.md` §21.3 names it —
-**it is NOT ratified as final lossless-recovery architecture by this
-correction, and this correction does not attempt to self-ratify it.**
-Closing the gate requires, at minimum: (a) an operation-level provenance
-flag / enhanced-review workflow for recovery-sourced operations (invariant
-7), and (b) either a `revokedAt`-comparable timestamp plus a documented
-provenance argument for why client-asserted `hlc`/`occurredAt` is trustworthy
-enough for this purpose, or an independent, cryptographically-groundable
-mechanism proving an operation predates its terminal's revocation (invariant
-9) — neither of which this correction implements, per its own scope (a
-governance audit, not a new design).
+**LOSSLESS RECOVERY HARD GATE = NOT CLOSED.**
+
+Unresolved recovery invariants:
+
+- **#4 NOT PROVEN** — no recovery-specific operation-type allowlist/denylist
+  exists; present safety is entirely contingent on today's handler registry
+  (only `kds.ticket.bump_line` is registered) and is not a property the
+  recovery channel structurally enforces as ordinary offline handlers are
+  added.
+- **#7 FAIL** — no operation-level provenance flag or mandatory-review
+  mechanism exists for recovery-sourced operations.
+- **#9 NOT PROVEN** — no code obtains backlog from a revoked/encrypted
+  terminal, and nothing proves a recovered operation predates its
+  terminal's revocation rather than being fabricated afterward.
+
+Any one of these is sufficient on its own, per this task's own rule, to keep
+the hard gate open, regardless of invariants 1–3, 5, 6 and 8 passing. The
+existing mechanism **remains a CANDIDATE**, exactly as
+`2026-09-02_D1-1_offline-sync-ratification.md` §21.3 names it — **it is NOT
+ratified as final lossless-recovery architecture by this correction, and
+this correction does not attempt to self-ratify it.** Closing the gate
+requires, at minimum: (a) a recovery-specific operation-type allowlist (or an
+equivalent structural constraint) that keeps invariant 4 true as the
+`SyncOperationRegistry` grows, independent of which handlers exist at any
+given moment (invariant 4); (b) an operation-level provenance flag /
+enhanced-review workflow for recovery-sourced operations (invariant 7); and
+(c) either a `revokedAt`-comparable timestamp plus a documented provenance
+argument for why client-asserted `hlc`/`occurredAt` is trustworthy enough for
+this purpose, or an independent, cryptographically-groundable mechanism
+proving an operation predates its terminal's revocation (invariant 9) —
+none of which this correction implements, per its own scope (a governance
+audit, not a new design).
 
 ### AC-4. NFR-PERF-032 — PER-BATCH RESOLVED-ACTOR CACHE
 
@@ -1015,7 +1032,7 @@ of any kind in this session.
 | `kds.ticket.recall` (offline) | **Unregistered.** BLOCKED by missing persisted HLC watermark (AC-1). Online recall route unaffected. |
 | `kds.ticket.bump_line` (offline) | Unchanged domain semantics; re-registered on the corrected module-boundary direction (AC-2); re-verified green. |
 | Module boundary (`kitchen`<->`sync`) | **Zero `KNOWN_DEVIATIONS` in either direction**, corrected direction (integration depends on domain contract), asserted by a dedicated new test (AC-2). |
-| Lossless revoked-terminal recovery | **CANDIDATE, NOT RATIFIED. HARD GATE NOT CLOSED** — invariants 7 (FAIL) and 9 (NOT PROVEN) are unresolved (AC-3). Not self-ratified by this correction. |
+| Lossless revoked-terminal recovery | **CANDIDATE, NOT RATIFIED. HARD GATE NOT CLOSED** — invariants 4 (NOT PROVEN), 7 (FAIL) and 9 (NOT PROVEN) are unresolved (AC-3). Not self-ratified by this correction. |
 | `NFR-PERF-032` | **MET for every path measured this session**, including the previously-over-budget all-success production path (4023 ms -> 2367 ms p95) (AC-4). Not a claim about the CI reference environment. |
 | Migration count | **37 at `2603099` -> 38 at `1fe490f` and at this correction's HEAD** — measured, contradiction in the original report's wording resolved (AC-6). This correction adds zero migrations. |
 | Authorization coverage | 159 routes; 142 permission-bearing (0 undeclared); 17 reviewed auth-only (AC-7). |
