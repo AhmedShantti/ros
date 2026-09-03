@@ -687,3 +687,275 @@ dev DB or CI).
 
 **Docs-only correction.** No `src/`, no migration, no workflow, no `test/tenant-isolation/*` file
 was changed. Committed separately as `docs: correct CI-1 acceptance evidence`.
+
+---
+
+## 14. Closure — task `CI-1B` (2026-09-03, same-day follow-up session)
+
+**Report type:** Implementation report (closure of a prior PARTIAL disposition).
+**Authority statement:** This section, like the rest of this file, is non-authoritative evidence
+of work performed in this session. It does not amend or supersede the SRS (`ROS_SRS_v1.0.pdf`) or
+any ratified entry in `docs/governance/GOVERNANCE_DECISION_REGISTER.md`. The governance decision
+this section implements was made by explicit human action outside this report (quoted in §14.1
+below); this report records that decision's implementation and verification, it does not itself
+ratify anything.
+**Date:** 2026-09-03
+**HEAD at start:** `fc90bebeda4b2b39a0907c5cf139a12abce54edc` (branch
+`full-srs/lane-g2-ci-security-gates`, worktree `/Users/mac/projects/ros-worktrees/lane-g`) —
+confirmed via `git rev-parse HEAD` at task start.
+**Working tree at start:** clean (`git status --short` empty).
+**Working tree at end:** see §14.9 (3 changes: 2 modified, 1 new untracked migration directory) —
+not yet committed at the time this section was written; §14.10 records the commit step's outcome.
+**Task identifier:** ROS FULL SRS 4-day war room, Lane G2, task `CI-1B` (closes `CI-1`'s §13.3.4
+open governance decision for `FR-PLT-014`).
+
+**Reporting-location note (per this repository's `CLAUDE.md`):** the historical `CI-1` report this
+closure is appended to lives under `docs/reports/claude/full-srs-4day/`, not directly under
+`docs/reports/claude/` as the reporting policy's dated-filename convention would place a brand-new
+report. Per this task's explicit instruction, the historical file is not relocated or rewritten —
+this closure is appended to it in place, at the location the prior `CI-1` session already
+established, rather than started as a new top-level file. `INDEX.md` (§14.11) is updated with one
+new row so the closure is discoverable from the canonical index regardless of the historical file's
+subdirectory.
+
+### 14.1 The ratification this closure implements
+
+Quoted verbatim, as given to this session (human governance decision, dated 2026-09-03):
+
+> The project approves amending ADR-0003 to permit enabling FORCE RLS on identity.roles, while
+> preserving the current system-role seed path through ros_migrator and making no privilege change
+> to ros_app.
+
+This resolves §13.3.4's option (a) — the correction proposed but not applied in the prior `CI-1`
+acceptance-correction session.
+
+### 14.2 ADR-0003 amendment
+
+`docs/adr/0003-rls.md` was amended (not rewritten): the status line now reads "Accepted (amended
+2026-09-03 — see 'Amendment 2026-09-03' below)"; the `roles` bullet under "Tables & policies" is
+annotated in place, marking the original "Not FORCE, so the owner (ros_migrator) can seed system
+roles" rationale as **superseded** (the text itself is preserved, not deleted, per this task's
+instruction not to pretend the prior design never existed); and a new terminal section, "Amendment
+2026-09-03 — identity.roles FORCE ROW LEVEL SECURITY", was appended recording: the ratification
+quote and date (§14.1); that the prior ENABLE-only exception is superseded; that `identity.roles`
+now uses ENABLE + FORCE; that system/platform role seeding remains through `ros_migrator`
+unchanged; that no new runtime bypass is authorized; that `ros_app` remains fully subject to RLS
+on this table; that `ros_app`'s permissions are unchanged; and that no additional FORCE exemption
+is authorized anywhere in the schema. No other ADR clause was touched.
+
+### 14.3 Migration
+
+`prisma/migrations/20260903100000_identity_roles_force_rls/migration.sql` — one statement:
+
+```sql
+ALTER TABLE identity.roles FORCE ROW LEVEL SECURITY;
+```
+
+No grant changes, no policy changes, no other DDL. Migration count: **40 before this task, 41
+after** — confirmed by direct `ls prisma/migrations | grep -v migration_lock | wc -l` (40) before
+creating the new migration directory, matching this task's expected pre-condition exactly.
+
+### 14.4 identity.roles FORCE proof (disposable database, live `pg_class` query)
+
+A disposable, throwaway `postgres:16` Docker container (`ros-ci1b-disposable`, host port `5561`,
+`POSTGRES_DB=ros_ci`) was created for this task — never the persisted `ros` database (port
+`5544`, container `ros-postgres`), never a shared CI database. `ros_app`/`ros_partition_admin`
+roles were provisioned exactly as `.github/workflows/backend-ci.yml`'s `migrate-from-zero` job
+does. The container was removed (`docker rm -f`) at the end of the task; nothing from it persists.
+
+Migration-from-zero (40 migrations) applied cleanly, then the new migration (→41) applied cleanly
+on top of the already-populated schema (`prisma migrate deploy` both times; `prisma migrate status`
+reported "Database schema is up to date!" after each). Direct `pg_class` query, before and after:
+
+```
+-- BEFORE (40-migration state):
+ relrowsecurity | relforcerowsecurity |   relowner
+----------------+---------------------+--------------
+ t              | f                   | ros_migrator
+
+-- AFTER (41-migration state):
+ relname | relrowsecurity | relforcerowsecurity |   relowner
+---------+----------------+---------------------+--------------
+ roles   | t              | t                   | ros_migrator
+```
+
+`relrowsecurity = true`, `relforcerowsecurity = true` — FORCE is now set, exactly as required.
+
+### 14.5 ros_app / ros_migrator posture and live cross-tenant proofs
+
+Role posture, queried directly (`pg_roles`), identical before and after the migration:
+
+```
+       rolname       | rolsuper | rolbypassrls | rolcreaterole | rolcreatedb
+----------------------+----------+--------------+---------------+-------------
+ ros_migrator         | t        | t            | t             | t
+ ros_app              | f        | f            | f             | f
+ ros_partition_admin  | f        | f            | f             | f
+```
+
+`ros_app`'s grant on `identity.roles` (`\dp identity.roles`) is byte-identical before and after:
+`ros_app=arwd/ros_migrator` (SELECT/INSERT/UPDATE/DELETE only, no DDL, no ownership) — no privilege
+change, confirming §14.1's "no privilege change to ros_app" condition literally.
+
+Seeded two disposable tenants and three roles (`tenant_a_role`/tenant A, `tenant_b_role`/tenant B,
+`system_role_ci1b`/`is_system=true, tenant_id=NULL`) as `ros_migrator` with **no** `app.tenant_id`
+session context set — the exact system-role seed pattern `test/rbac.e2e-spec.ts` exercises. All
+three inserts succeeded under FORCE RLS, confirming the seed path is unaffected (§14.6).
+
+As `ros_app`, in a transaction with `app.tenant_id` set to tenant A:
+- `SELECT` returned exactly tenant A's own role + the system role — **not** tenant B's role (2 of
+  3 seeded rows visible, tenant B's excluded).
+- `UPDATE ... WHERE id = <tenant B's role>` → `UPDATE 0` (no row matched under RLS).
+- `DELETE ... WHERE id = <tenant B's role>` → `DELETE 0`; re-verified as `ros_migrator` afterward
+  that tenant B's row still exists, untouched.
+- `INSERT` of a new role with `tenant_id = <tenant A>` (own tenant) → succeeded (existing runtime
+  semantics unchanged).
+- `INSERT` of a new role with `tenant_id = <tenant B>` (cross-tenant, tenant A's session context
+  still active) → **rejected**: `ERROR: new row violates row-level security policy for table
+  "roles"`.
+
+As `ros_app`, in a transaction with **no** `app.tenant_id` set at all (fail-closed check): `SELECT`
+returned only the `is_system` row — zero tenant-scoped rows leaked, matching ADR-0003's documented
+`NULLIF(current_setting(...), '')::uuid` → `NULL` → predicate-false fail-closed design.
+
+All seeded rows were deleted (as `ros_migrator`) before the disposable container was removed.
+
+### 14.6 System-role seed path — unaffected
+
+`ros_migrator`'s successful, no-context system-role insert in §14.5 **is** the seed path proof:
+FORCE changes enforcement only for the table owner when that owner is not also a superuser/
+`BYPASSRLS` role; `ros_migrator` is `rolsuper = t`, so its bypass was unconditional before and
+after this migration. No code path, migration, or test that seeds system roles was modified.
+
+### 14.7 Zero FORCE exemptions confirmed
+
+`test/tenant-isolation/rls-inventory.e2e-spec.ts`: the `FORCE_EXEMPTIONS` map and the
+`exemptions` parameter of `evaluateRlsInventory` were deleted entirely (not emptied-but-retained) —
+the function now unconditionally requires `rowSecurityEnabled`, `policyCount > 0`, and
+`rowSecurityForced` for every discovered `tenant_id` table, with no escape hatch. `grep -rn
+FORCE_EXEMPTIONS` across the repository (excluding `node_modules`/`dist`) now matches only the ADR
+amendment text (§14.2, describing the removal) and this historical report's earlier sections
+(§5.1, §13.3 — left as-is, superseded prose, per the "never rewrite historical sections" instruc-
+tion) — zero live code references remain.
+
+### 14.8 Sabotage proofs (Step 5E) — the gate still catches every failure mode
+
+Run against the disposable database, real Jest e2e harness
+(`npx jest --config ./test/jest-e2e.json rls-inventory.e2e-spec.ts`): **6/6 tests passed**:
+
+1. Discovery sanity (finds tenant_id tables — gate not vacuously passing).
+2. Full discovered schema (including the now-FORCE'd `identity.roles`) passes with **zero**
+   violations, **zero** exemptions consulted.
+3. Sabotage — no RLS at all → fails (`ROW LEVEL SECURITY not enabled`).
+4. Sabotage — ENABLE but no FORCE, no exemption mechanism to appeal to → fails (`FORCE ROW LEVEL
+   SECURITY not set`).
+5. Sabotage — ENABLE+FORCE but no policy → fails (`no RLS policy defined`).
+6. Positive control — ENABLE+FORCE+policy → passes.
+
+All sabotage schemas are disposable, dropped in `afterAll`, verified gone (0 orphan scratch
+schemas).
+
+### 14.9 FR-PLT-013 regression (Step 6) — unchanged, re-confirmed by direct measurement
+
+`npx jest --config ./test/jest-e2e.json generated-cross-tenant.e2e-spec.ts` against the same
+disposable, 41-migration database: **6/6 tests passed** (0 orphan scratch resources). Table-count
+reconciliation re-measured directly (not re-quoted from the prior session) via a throwaway script
+importing `discoverAllTenantTables`/`rootTenantTables`/`FIXTURE_OVERRIDES`/`DML_IMPOSSIBLE` against
+the live disposable database, then deleted:
+
+```
+{"A":83,"B":61,"C":22,"D":0,"reconciles":true,"totalWithPartitions":109,"partitions":26}
+```
+
+**A=83, B=61, C=22, D=0, A=B+C+D reconciles exactly** — identical to the prior session's corrected
+figures. No schema discovery change resulted from this task's migration (it changes an RLS flag on
+an already-discovered table; `identity.roles` does not carry a direct root-DML surface change).
+
+### 14.10 Requirement disposition
+
+- **`FR-PLT-014`: PARTIAL → COMPLETE.** All seven closure conditions from this task's brief are
+  true: (1) migration applies cleanly, from zero and as an upgrade (§14.3–14.4); (2)
+  `identity.roles` has FORCE RLS (§14.4); (3) zero FORCE exemptions remain (§14.7); (4) the dynamic
+  CI gate passes with zero exemptions (§14.8 item 2); (5) sabotage tests still correctly fail
+  (§14.8 items 3–5); (6) `ros_app` privileges are unchanged (§14.5); (7) the system-role seed path
+  remains functional (§14.5, §14.6). The gate is now a **fully literal** implementation of
+  `FR-PLT-014`'s text with no disclosed deviation of any kind.
+- **`FR-PLT-013`: COMPLETE, unchanged.** Regression suite green, A=83/B=61/C=22/D=0 re-confirmed by
+  direct measurement (§14.9), not merely re-asserted.
+- **`FR-SEC-049`: COMPLETE, unchanged (gate implementation).** Not re-litigated per this task's
+  instruction; the gate (`npm audit --omit=dev --audit-level=high` wired into CI) is mechanically
+  unaffected by this slice.
+- **Release gate (SRS §28.5): still RED.** `npm audit --omit=dev --audit-level=high` run this
+  session: **exit code 1**, **7 high + 1 moderate** findings (`deepmerge-ts`, `fast-uri`, `js-yaml`
+  transitively via `@nestjs/swagger`, `mysql2` transitively via `prisma`'s optional driver, `qs`
+  moderate) — identical counts to the prior `CI-1` session's figures. Not conflated with this
+  slice's RLS closure.
+- **`NFR-MAINT-005`: still NOT MET.** Target is zero critical/high at release; actual is 7 high (+
+  1 moderate). Unaffected by this slice, as instructed.
+
+### 14.11 Step 8 — targeted verification, exact results
+
+All against the disposable database described in §14.4 (built once for this task, torn down at the
+end; never the persisted `ros` database, never a shared/CI database):
+
+| # | Check | Command | Result |
+|---|---|---|---|
+| 1 | `git diff --check` | `git diff --check` | clean, exit 0 |
+| 2 | `prisma validate` | `npx prisma validate` | "The schema at prisma/schema.prisma is valid" |
+| 3 | Migration from zero | `prisma migrate deploy` (fresh 5561 container) | 40/40 applied cleanly |
+| 4 | Migration upgrade 40→41 | `prisma migrate deploy` (post-migration-file-add) | 1 new migration applied cleanly; "All migrations have been successfully applied." |
+| 5 | `prisma migrate status` | `npx prisma migrate status` | "41 migrations found... Database schema is up to date!" |
+| 6 | Generated RLS inventory suite (FR-PLT-014) | `npx jest --config ./test/jest-e2e.json rls-inventory.e2e-spec.ts` | 6/6 passed (§14.8) |
+| 7 | Generated cross-tenant isolation suite (FR-PLT-013) | `npx jest --config ./test/jest-e2e.json generated-cross-tenant.e2e-spec.ts` | 6/6 passed (§14.9) |
+| 8 | identity.roles targeted RLS proof | direct SQL as `ros_migrator`/`ros_app` (§14.4–14.5) | all assertions held exactly as expected |
+| 9 | Module boundaries check | `npx jest module-boundaries.spec.ts --ci` | 46/46 passed |
+| 10 | Authorization coverage check | `npx jest authorization-coverage.spec.ts --ci` | 9/9 passed |
+| 11 | Typecheck | `npm run typecheck` | clean, no errors |
+| 12 | Unit tests for touched helpers | `npm test -- --ci` (full unit suite; the touched `evaluateRlsInventory` has no separate unit spec, only its own e2e spec, already covered by #6) | 83 suites / 1150 tests passed |
+| 13 | Secret scan regression | `bash ./scripts/ci/secret-scan.sh` | "OK: no tracked .env file other than .env.example"; "OK: no known secret shape found in tracked files" |
+| 14 | Workflow YAML parse | Node `js-yaml` parse of `.github/workflows/backend-ci.yml` | valid; jobs: `quality, migrate-from-zero, e2e` (file untouched this session) |
+| 15 | `npm audit` | `npm audit --omit=dev --audit-level=high` | exit 1; 7 high, 1 moderate (§14.10) |
+| 16 | Lint — exact baseline comparison | `npm run lint:check`, once on the working tree with this task's changes, once with the changes `git stash`ed | **identical: 48 problems (48 errors, 0 warnings) both times** — zero new violations introduced. The touched file (`test/tenant-isolation/rls-inventory.e2e-spec.ts`) individually lints clean (`npx eslint` on it alone: no output). Markdown/SQL files are not covered by this linter. |
+
+Full unit suite (`npm test -- --ci`, #12 above) — **83 test suites, 1150 tests, all passed** — is
+additional confirmation beyond the brief's minimum, run because it was the most direct way to prove
+the touched gate file introduced no regression elsewhere.
+
+**Full E2E (`npm run test:e2e` unfiltered) was explicitly NOT run**, per this task's constraints.
+
+### 14.12 git status at the time of writing this section (pre-commit)
+
+```
+ M kitchen-kit/backend/docs/adr/0003-rls.md
+ M kitchen-kit/backend/test/tenant-isolation/rls-inventory.e2e-spec.ts
+?? kitchen-kit/backend/prisma/migrations/20260903100000_identity_roles_force_rls/
+```
+
+Three changes total: one ADR amendment, one gate-code exemption removal, one new one-statement
+migration. No other file was touched. §14.13 records the outcome of the commit step this task's
+brief authorizes contingent on the above all having genuinely passed (it did).
+
+### 14.13 No push / no deploy / no merge / no rebase
+
+Confirmed: no `git push`, no `git merge`, no `git rebase`, and no deployment action of any kind was
+performed or attempted this session. The persisted `ros` database (docker container `ros-postgres`,
+port `5544`) was never connected to, queried, or modified — only the disposable, throwaway
+`ros-ci1b-disposable` container (port `5561`) was used for every live proof in this closure, and it
+was removed (`docker rm -f`) before this section was finalized. `ros_app`'s privileges were not
+changed anywhere (confirmed identical grant string before/after, §14.5); no `BYPASSRLS` was added
+to any role; no RLS policy was weakened; no new RLS exemption was created (one was removed).
+
+### 14.14 Commits
+
+Two commits were made after every verification condition in §14.10/§14.11 was confirmed to pass —
+see the top-level commit log for the exact hashes and messages:
+
+1. `fix(security): force RLS on identity roles` — the migration and the `FORCE_EXEMPTIONS`
+   removal in `test/tenant-isolation/rls-inventory.e2e-spec.ts`.
+2. `docs: ratify identity roles FORCE RLS policy` — the ADR-0003 amendment and this closure
+   section (plus the `INDEX.md` row below).
+
+### 14.15 INDEX.md
+
+One new row was added to `docs/reports/claude/INDEX.md` for this closure (no duplicate `CI-1`
+implementation row added — the existing `CI-1`/`CI-1` acceptance-correction rows are left as-is).
