@@ -14,6 +14,7 @@ import { generateRunId, templateDatabaseName } from './run-id';
 import {
   createDatabase,
   ensureAppRole,
+  ensurePartitionAdminRole,
   migrateFromZero,
   withAdminConnection,
 } from './provision';
@@ -37,9 +38,14 @@ export default async function globalSetup(): Promise<void> {
 
   await withAdminConnection(env.migratorBaseUrl, async (admin) => {
     await ensureAppRole(admin, env.appRoleName, env.appRolePassword);
+    await ensurePartitionAdminRole(
+      admin,
+      env.partitionAdminRoleName,
+      env.partitionAdminPassword,
+    );
     await createDatabase(admin, templateName, {
       owner: env.migratorRoleName,
-      grantConnectTo: env.appRoleName,
+      grantConnectTo: [env.appRoleName, env.partitionAdminRoleName],
     });
   });
 
@@ -49,8 +55,10 @@ export default async function globalSetup(): Promise<void> {
     runId,
     migratorBaseUrl: env.migratorBaseUrl,
     appBaseUrl: env.appBaseUrl,
+    partitionAdminBaseUrl: env.partitionAdminBaseUrl,
     migratorRoleName: env.migratorRoleName,
     appRoleName: env.appRoleName,
+    partitionAdminRoleName: env.partitionAdminRoleName,
     templateDatabaseName: templateName,
   });
 

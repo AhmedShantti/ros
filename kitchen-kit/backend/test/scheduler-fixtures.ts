@@ -320,6 +320,11 @@ export async function onlyJob(
   const all = [
     ...Object.values(TEST_JOB),
     'inventory.daily_reconciliation',
+    // FR-DR-002 — registered globally (PlatformModule owns this handler
+    // itself), so every suite that isolates one job type via `onlyJob` must
+    // also disable this one, or its own default daily schedule makes it
+    // due alongside whatever the suite is actually testing.
+    'platform.partition_lifecycle',
   ] as const;
   for (const jobType of all) {
     if (jobType === keep) continue;
