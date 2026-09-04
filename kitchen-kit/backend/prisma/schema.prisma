@@ -2000,6 +2000,10 @@ model Order {
   lineStationOverrides OrderLineStationOverride[]
   tickets              Ticket[]
   payments             OrderPayment[]
+  // POS-FIN-1 back-relations (virtual; no DDL impact on this model).
+  discounts            Discount[]
+  refunds              Refund[]
+  postFireVoidRecords  PostFireVoidRecord[]
 
   @@id([id, businessDay])
   @@unique([tenantId, id, businessDay])
@@ -2065,6 +2069,10 @@ model OrderLine {
   componentConversions OrderLineComponentConversion[]
   // P1F-2 Inventory back-relation (virtual; no DDL impact on this model).
   depletionEffects     SaleDepletionEffect[]
+  // POS-FIN-1 back-relation (virtual; no DDL impact on this model). Discount
+  // has NO back-relation here: `Discount.orderLineId` is nullable
+  // (order-level discounts have none) and stays a plain scalar column.
+  postFireVoidRecords  PostFireVoidRecord[]
 
   @@id([id, businessDay])
   @@unique([tenantId, id, businessDay])
@@ -2274,6 +2282,233 @@ model OrderPayment {
   @@index([tenantId, orderId, businessDay])
   @@index([tenantId, cashSessionId])
   @@map("order_payments")
+  @@schema("sales")
+}
+
+// ---------------------------------------------------------------------------
+// POS-FIN-1 — Production financial corrections: discounts/comps, approval
+// thresholds, post-fire void disposition, append-only refunds.
+//
+// Authority: SRS §8.3.2 (FR-POS-045..051), §8.5 (FR-POS-070..075), §15.6
+// (FR-SEC-030..035), Chapter 20 (FR-AUD-001/006), CR-04, BR-POS-001/002.
+// D-13 (RATIFIED): Sales, not Governance, evaluates approval thresholds and
+// calls the generic `ApprovalCommands` contract — no second approval table
+// is created here. Every new financial table below is APPEND-ONLY at the
+// DB-grant level (SELECT+INSERT only), the same CR-04/ADR-010 discipline
+// `order_payments`/`governance.audit_entries` already use — see GRANTS in
+// the migration.
+// ---------------------------------------------------------------------------
+
+enum DiscountKind {
+  discount
+  comp
+
+  @@schema("sales")
+}
+
+enum DiscountValueType {
+  percentage
+  fixed
+
+  @@schema("sales")
+}
+
+enum PostFireVoidDisposition {
+  returned_to_stock
+  wasted
+  given_to_staff
+
+  @@schema("sales")
+}
+
+/// FR-POS-047 threshold configuration — a NARROW, EXPLICITLY-SCOPED MVP.
+///
+/// The SRS names four dimensions ("Per role, per branch" / "Per role") but
+/// gives no default value, table shape or role-precedence rule (design gate
+/// §7 item 1) — exactly the gap P1G-1 was ratified to resolve for cash
+/// variance tolerance. Absent an equivalent ratification for discounts, this
+/// is scoped to (tenant, branch) ONLY, not per-role: a role-scoped
+/// resolution would require an undecided precedence rule for an employee
+/// holding multiple roles with different thresholds. `pos.discount.unlimited`
+/// (an existing SRS §15.2 code) is the one per-actor override this MVP does
+/// implement — a holder bypasses every threshold below.
+///
+/// INSERT-ONLY, mirroring `CashClosePolicy` (migration 33): a configuration
+/// CHANGE is a new immutable version, never an edit (FR-AUD-006
+/// "configuration changes"); the current policy is the latest row per
+/// (tenant, branch).
+model DiscountApprovalPolicyVersion {
+  id       String @id @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  branchId String @map("branch_id") @db.Uuid
+
+  /// Dimension 1, in basis points (1bp = 0.01 percentage point; 2000 = 20%).
+  /// NULL = every percentage discount requires approval.
+  maxPercentWithoutApprovalBp BigInt? @map("max_percent_without_approval_bp")
+  /// Dimension 2, minor units. NULL = every fixed discount requires approval.
+  maxAmountWithoutApprovalMinor BigInt? @map("max_amount_without_approval_minor")
+  /// Dimension 3. NULL = no per-shift cap enforced.
+  maxDiscountsPerShiftPerEmployee Int? @map("max_discounts_per_shift_per_employee")
+  /// Dimension 4.
+  discountAfterPaymentStartedAllowed Boolean @default(false) @map("discount_after_payment_started_allowed")
+
+  createdBy String   @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, branchId, createdAt])
+  @@map("discount_approval_policy_versions")
+  @@schema("sales")
+}
+
+/// FR-POS-045/046/047/049/050 — one append-only row per discount/comp
+/// APPLICATION (not a running total — `Order.discountTotal`/
+/// `OrderLine.lineDiscount` remain the live projections `recomputeOrderTotals`
+/// derives; this table is the durable, auditable EVENT with the seven facts
+/// FR-POS-049 names, which the projection columns alone cannot carry).
+model Discount {
+  id          String   @id @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  branchId    String   @map("branch_id") @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  businessDay DateTime @map("business_day") @db.Date
+  /// NULL = order-level. Set = line-level.
+  orderLineId String?  @map("order_line_id") @db.Uuid
+
+  kind      DiscountKind
+  /// NULL for a comp (FR-POS-050: a comp is not a %/fixed discount value).
+  valueType DiscountValueType? @map("value_type")
+  /// Basis points (1/100 of a percent), exact integer. NULL unless valueType = percentage.
+  percentageValueBp BigInt? @map("percentage_value_bp")
+  /// Minor units. NULL unless valueType = fixed.
+  fixedValueMinor   BigInt? @map("fixed_value_minor")
+  /// The actual computed effect, minor units, always populated (FR-POS-049 "amount").
+  amountMinor BigInt @map("amount_minor")
+
+  reasonCodeId        String @map("reason_code_id") @db.Uuid
+  /// FR-POS-049 "applying employee" — literal wording; the Workforce
+  /// Employee, not merely the Identity User (mirrors `OrderPayment.employeeId`).
+  appliedByEmployeeId String @map("applied_by_employee_id") @db.Uuid
+  appliedByUserId     String @map("applied_by_user_id") @db.Uuid
+
+  approvalRequired  Boolean @map("approval_required")
+  /// FR-POS-049 "approving employee" — literal wording.
+  approvedByEmployeeId String? @map("approved_by_employee_id") @db.Uuid
+  approvedByUserId      String? @map("approved_by_user_id") @db.Uuid
+  approvalRequestId     String? @map("approval_request_id") @db.Uuid
+
+  /// FR-POS-049 "order context" — the order's version immediately after this
+  /// discount's recompute, so the entry is self-sufficient evidence.
+  orderVersionAfter Int @map("order_version_after")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order Order @relation(fields: [tenantId, orderId, businessDay, branchId], references: [tenantId, id, businessDay, branchId], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, orderId, businessDay])
+  @@index([tenantId, branchId, appliedByUserId, createdAt])
+  @@map("discounts")
+  @@schema("sales")
+}
+
+/// FR-POS-070/071 — one append-only row per post-fire void's disposition
+/// classification. The line itself is marked `voided` (reusing the existing
+/// `OrderLineState`, the same row `voidLinePreFire` uses) and excluded from
+/// `recomputeOrderTotals` exactly as a pre-fire void already is ("Removed
+/// from bill"); this table is the durable disposition + inventory-effect
+/// evidence FR-POS-071/075 require, which `OrderLine.voidReasonId` alone
+/// cannot carry.
+model PostFireVoidRecord {
+  id          String   @id @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  branchId    String   @map("branch_id") @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  businessDay DateTime @map("business_day") @db.Date
+  orderLineId String   @map("order_line_id") @db.Uuid
+
+  disposition  PostFireVoidDisposition
+  reasonCodeId String                  @map("reason_code_id") @db.Uuid
+
+  /// The line's `lineTotal` at the moment of void — the financial effect
+  /// removed from the bill (FR-POS-075 "amount").
+  financialAmountRemoved BigInt @map("financial_amount_removed")
+  /// Inventory movement ids created for `wasted`/`given_to_staff` (empty
+  /// array for `returned_to_stock` — see the service's own reasoning: this
+  /// system depletes stock at Order Completion, not at Fire, so a voided
+  /// line already never reaches that future depletion and "returned to
+  /// stock" is structurally a no-op).
+  inventoryMovementIds Json @default("[]") @map("inventory_movement_ids") @db.JsonB
+
+  actorUserId String   @map("actor_user_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order Order     @relation(fields: [tenantId, orderId, businessDay, branchId], references: [tenantId, id, businessDay, branchId], onDelete: Restrict)
+  line  OrderLine @relation(fields: [tenantId, orderLineId, businessDay], references: [tenantId, id, businessDay], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, orderId, businessDay])
+  @@index([tenantId, orderLineId])
+  @@map("post_fire_void_records")
+  @@schema("sales")
+}
+
+/// FR-POS-072/073/074/075 — append-only compensating financial record.
+/// CR-04/BR-POS-001: the original `Order`/`OrderLine`/`OrderPayment` rows
+/// are NEVER mutated by a refund; this is the ONLY row a refund creates,
+/// and it can itself never be updated or deleted (DB grants below).
+model Refund {
+  id          String   @id @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  branchId    String   @map("branch_id") @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  businessDay DateTime @map("business_day") @db.Date
+  /// The refund's OWN occurrence day — may differ from the order's
+  /// `businessDay` (a refund can be issued on a later day than the sale).
+  /// Reporting scopes "today's refunds" by THIS column, never the order's.
+  refundBusinessDay DateTime @map("refund_business_day") @db.Date
+
+  /// REQUIRED — FR-POS-072 "reference the original order", and FR-POS-074's
+  /// original-tender default needs one exact payment to compare against
+  /// (task instructions: reference the original payment "where
+  /// source-decidable" — an order's payments are fully enumerable, so this
+  /// is decidable, and requiring it removes all ambiguity about which
+  /// tender is being refunded when an order was paid by a split tender).
+  originalPaymentId String @map("original_payment_id") @db.Uuid
+
+  /// The tender the refund is actually paid out via. Compared against the
+  /// original payment's own tender to decide FR-POS-074's default-vs-
+  /// elevated-permission path.
+  tender OrderPaymentTender
+
+  /// Minor units, positive magnitude — the NEGATIVE financial effect
+  /// (FR-POS-072) is this row's very existence/sign convention in
+  /// aggregation, not a negative column value (BR-CORE-001 money columns
+  /// are magnitudes elsewhere in this schema too, e.g. `WasteLine.quantity`).
+  amountMinor BigInt @map("amount_minor")
+
+  /// REQUIRED for a CASH refund (mirrors `OrderPayment.cashSessionId`); NULL
+  /// for MANUAL_EXTERNAL_CARD.
+  cashSessionId String? @map("cash_session_id") @db.Uuid
+
+  reasonCodeId        String @map("reason_code_id") @db.Uuid
+  /// FR-POS-049-style "applying employee" fidelity, mirrored onto Refund.
+  appliedByEmployeeId String @map("applied_by_employee_id") @db.Uuid
+  appliedByUserId     String @map("applied_by_user_id") @db.Uuid
+
+  approvalRequired     Boolean @map("approval_required")
+  approvedByEmployeeId String? @map("approved_by_employee_id") @db.Uuid
+  approvedByUserId     String? @map("approved_by_user_id") @db.Uuid
+  approvalRequestId    String? @map("approval_request_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order Order @relation(fields: [tenantId, orderId, businessDay, branchId], references: [tenantId, id, businessDay, branchId], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, orderId, businessDay])
+  @@index([tenantId, branchId, refundBusinessDay])
+  @@map("refunds")
   @@schema("sales")
 }
 

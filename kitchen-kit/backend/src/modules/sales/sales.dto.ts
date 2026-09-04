@@ -249,3 +249,87 @@ export class CapturePaymentDto {
   /** Optional. */
   @IsOptional() @IsString() @MaxLength(32) authorizationCode?: string;
 }
+
+// ==================================================== POS-FIN-1 ==========
+
+const DISCOUNT_TYPES = ['percentage', 'fixed'] as const;
+
+/**
+ * Manager-approval fields — shared shape across discount/comp/refund
+ * routes. All four are optional at the DTO level (a discount below
+ * threshold needs none of them); the service refuses with 403 if approval
+ * turns out to be required and they were not supplied. Present ONLY as a
+ * flat group — a client cannot express "half a manager decision".
+ */
+class ManagerApprovalFieldsDto {
+  @IsOptional() @IsString() @MaxLength(32) managerEmployeeCode?: string;
+
+  @IsOptional() @Matches(/^\d{4,8}$/) managerPin?: string;
+
+  @IsOptional() @Matches(UUID_PATTERN) approvalRequestId?: string;
+
+  @IsOptional() @Matches(UUID_PATTERN) approvalDecisionId?: string;
+}
+
+/** Apply a line-level or order-level discount (FR-POS-045/046/047/049). */
+export class ApplyDiscountDto extends ManagerApprovalFieldsDto {
+  /** FR-OFF-015 — the ULID the device assigned to this Discount. */
+  @IsOptional() @Matches(UUID_PATTERN) id?: string;
+
+  @IsIn(DISCOUNT_TYPES) type!: (typeof DISCOUNT_TYPES)[number];
+
+  /**
+   * `type: percentage` — exact decimal string, at most 2 decimal places,
+   * `0 < value <= 100` (e.g. `"15.50"`). `type: fixed` — a whole number of
+   * minor units expressed as a string (ADR-008).
+   */
+  @IsString() @MaxLength(24) value!: string;
+
+  /** REQUIRED — FR-POS-046: selection from a configurable list, never free text. */
+  @Matches(UUID_PATTERN) reasonCodeId!: string;
+}
+
+/** Give a complimentary item (FR-POS-050) — distinct from a discount. */
+export class ApplyCompDto {
+  @IsOptional() @Matches(UUID_PATTERN) id?: string;
+
+  @Matches(UUID_PATTERN) reasonCodeId!: string;
+}
+
+const POST_FIRE_VOID_DISPOSITIONS = [
+  'returned_to_stock',
+  'wasted',
+  'given_to_staff',
+] as const;
+
+/** Void a POST-fire line, with mandatory disposition (FR-POS-070/071). */
+export class VoidOrderLinePostFireDto {
+  @IsOptional() @Matches(UUID_PATTERN) id?: string;
+
+  @Matches(UUID_PATTERN) reasonCodeId!: string;
+
+  @IsIn(POST_FIRE_VOID_DISPOSITIONS)
+  disposition!: (typeof POST_FIRE_VOID_DISPOSITIONS)[number];
+}
+
+/** Issue a refund against a completed order (FR-POS-072/073/074/075). */
+export class IssueRefundDto extends ManagerApprovalFieldsDto {
+  @IsOptional() @Matches(UUID_PATTERN) id?: string;
+
+  /** REQUIRED — the exact Payment this refund is issued against. */
+  @Matches(UUID_PATTERN) originalPaymentId!: string;
+
+  @IsIn(PAYMENT_TENDERS) tender!: (typeof PAYMENT_TENDERS)[number];
+
+  /** Minor units, exact integer string (ADR-008). */
+  @Matches(/^\d{1,18}$/, {
+    message:
+      'amountMinor must be a whole number of minor units expressed as a string',
+  })
+  amountMinor!: string;
+
+  @Matches(UUID_PATTERN) reasonCodeId!: string;
+
+  /** REQUIRED for a `cash` refund; refused for `manual_external_card`. */
+  @IsOptional() @Matches(UUID_PATTERN) cashSessionId?: string;
+}
