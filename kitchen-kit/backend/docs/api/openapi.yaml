@@ -21200,6 +21200,357 @@ paths:
       summary: Branch daily-trading report (dashboard-only; authorized against the branch it names).
       tags:
         - reporting
+  /reports/branches/{branchId}/overview:
+    get:
+      description: Operational Analytics / Reporting Demo Pack (RPT-DEMO-1). Read-only, query-time aggregation over the transactional primary — NOT a read replica, NOT a rollup, NOT a cache. Requires BOTH report.view.sales and report.view.financial (AND), held by a single role assignment whose scope COVERS this branch, exactly like daily-trading — no new permission code is introduced. sales/cash reuse daily-trading’s exact population/formulas and gates (branch existence, unreviewed-migration scope review, operative-branch, future-day 400). inventory/workforce use a CALENDAR-day window (not the POS business day — neither carries a business-day column); kds uses the SAME business day as sales/cash (kitchen.tickets does carry one). Every section’s `notes` discloses its own time model and any metric deliberately omitted for lack of real source data (e.g. KDS fulfilment/serving time — servedAt is never populated by any write path).
+      operationId: ReportingController_getOperationalOverview
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+        - in: query
+          name: businessDay
+          required: true
+          schema:
+            pattern: ^\d{4}-\d{2}-\d{2}$
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  branchCurrentBusinessDay:
+                    description: Business-day partition key (YYYY-MM-DD), not a timestamp.
+                    example: '2026-08-23'
+                    format: date
+                    pattern: ^\d{4}-\d{2}-\d{2}$
+                    type: string
+                  branchId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  businessDay:
+                    description: Business-day partition key (YYYY-MM-DD), not a timestamp.
+                    example: '2026-08-23'
+                    format: date
+                    pattern: ^\d{4}-\d{2}-\d{2}$
+                    type: string
+                  cash:
+                    properties:
+                      closedSessionCount:
+                        type: integer
+                      contributingSessionCount:
+                        type: integer
+                      scope:
+                        enum:
+                          - WHOLE_SESSION
+                        type: string
+                      sessions:
+                        items:
+                          properties:
+                            cashSessionId:
+                              example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                              format: uuid
+                              type: string
+                            countedCash:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type:
+                                - string
+                                - 'null'
+                            currency:
+                              example: AED
+                              type: string
+                            expectedCash:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type:
+                                - string
+                                - 'null'
+                            isFinalised:
+                              type: boolean
+                            openingFloat:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            payInTotal:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            payOutTotal:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            safeDropTotal:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            status:
+                              enum:
+                                - open
+                                - closing
+                                - closed
+                              type: string
+                            variance:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type:
+                                - string
+                                - 'null'
+                          type: object
+                        type: array
+                      unclosedSessionCount:
+                        type: integer
+                    type: object
+                  currency:
+                    description: ISO 4217 currency code.
+                    example: AED
+                    type: string
+                  currencySource:
+                    enum:
+                      - TRANSACTION
+                      - BRANCH_FALLBACK
+                    type: string
+                  dataAsOf:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  inventory:
+                    properties:
+                      lowStockItemCount:
+                        type: integer
+                      notes:
+                        items:
+                          type: string
+                        type: array
+                      waste:
+                        properties:
+                          quantityTotal:
+                            description: Decimal quantity as a string (preserves exact precision).
+                            example: '2.5'
+                            pattern: ^-?\d+(\.\d+)?$
+                            type: string
+                          recordCount:
+                            type: integer
+                          valueTotal:
+                            description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                            example: '1250'
+                            pattern: ^-?\d+$
+                            type: string
+                          windowFrom:
+                            example: '2026-08-23T14:30:00.000Z'
+                            format: date-time
+                            type: string
+                          windowTo:
+                            example: '2026-08-23T14:30:00.000Z'
+                            format: date-time
+                            type: string
+                        type: object
+                    type: object
+                  kds:
+                    properties:
+                      averagePrepDurationSeconds:
+                        type:
+                          - number
+                          - 'null'
+                      measuredPrepDurationCount:
+                        type: integer
+                      notes:
+                        items:
+                          type: string
+                        type: array
+                      statusCounts:
+                        additionalProperties:
+                          type: integer
+                        type: object
+                      ticketCount:
+                        type: integer
+                    type: object
+                  periodStatus:
+                    enum:
+                      - OPEN
+                      - UNSEALED
+                      - SETTLED
+                    type: string
+                  sales:
+                    properties:
+                      averageOrderValue:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type:
+                          - string
+                          - 'null'
+                      completedOrderCount:
+                        type: integer
+                      discounts:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      grossSales:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      netSales:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      openOrderCount:
+                        type: integer
+                      refunds:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      taxTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      tenderTotals:
+                        properties:
+                          cash:
+                            properties:
+                              amountTotal:
+                                description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                                example: '1250'
+                                pattern: ^-?\d+$
+                                type: string
+                              paymentCount:
+                                type: integer
+                              roundingAdjustmentTotal:
+                                description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                                example: '1250'
+                                pattern: ^-?\d+$
+                                type: string
+                            type: object
+                          cashDrawerContribution:
+                            description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                            example: '1250'
+                            pattern: ^-?\d+$
+                            type: string
+                          completedExcessCapturedTotal:
+                            description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                            example: '1250'
+                            pattern: ^-?\d+$
+                            type: string
+                          manualExternalCard:
+                            properties:
+                              amountTotal:
+                                description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                                example: '1250'
+                                pattern: ^-?\d+$
+                                type: string
+                              paymentCount:
+                                type: integer
+                              roundingAdjustmentTotal:
+                                description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                                example: '1250'
+                                pattern: ^-?\d+$
+                                type: string
+                            type: object
+                          paymentCount:
+                            type: integer
+                          tenderGrandTotal:
+                            description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                            example: '1250'
+                            pattern: ^-?\d+$
+                            type: string
+                          unsettledCapturedTotal:
+                            description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                            example: '1250'
+                            pattern: ^-?\d+$
+                            type: string
+                        type: object
+                    type: object
+                  scope:
+                    properties:
+                      notes:
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  workforce:
+                    properties:
+                      attendanceRecordCount:
+                        type: integer
+                      clockedInCount:
+                        type: integer
+                      earlyDepartureCount:
+                        type: integer
+                      lateArrivalCount:
+                        type: integer
+                      missingClockOutCount:
+                        type: integer
+                      notes:
+                        items:
+                          type: string
+                        type: array
+                      outsideGeofenceCount:
+                        type: integer
+                      unscheduledCount:
+                        type: integer
+                      windowFrom:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type: string
+                      windowTo:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type: string
+                    type: object
+                type: object
+          description: 'The operational overview: sales, cash (WHOLE_SESSION scope, unchanged from daily-trading), inventory (branch-scoped low-stock count + calendar-day waste), workforce (branch-scoped calendar-day attendance summary), kds (business-day ticket counts + real prep duration where measurable), and a scope block disclosing exactly what this Demo/Operational slice does and does not cover.'
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Malformed branchId/businessDay, any other query parameter, or businessDay is after the branch's current business day.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid bearer token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: A PIN/POS session; no active tenant context; report.view.sales and report.view.financial are not both held by one assignment covering this branch; the branch is not active; or the tenant still holds unreviewed migration-inherited role assignments (scopeReviewRequired).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: branchId is unknown or belongs to another tenant — byte-identical response for both, so a caller cannot learn a foreign branch exists.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: More than one transaction currency was observed for this business day, a contributing cash session's currency disagrees with the report’s currency, or an internal cash-reconciliation invariant was violated. No partial financial total is ever returned on a 409.
+      security:
+        - bearer: []
+      summary: Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names).
+      tags:
+        - reporting
   /substitute-groups:
     get:
       operationId: ProductionController_listGroups

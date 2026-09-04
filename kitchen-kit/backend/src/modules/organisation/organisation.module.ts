@@ -5,6 +5,7 @@ import { BranchCurrencyQueryService } from './branches/branch-currency.query.ser
 import { BranchBrandQueryService } from './branches/branch-brand.query.service';
 import { BranchReportingScopeQueryService } from './branches/branch-reporting-scope.query.service';
 import { BranchesService } from './branches/branches.service';
+import { BranchLocationsQueryService } from './locations/branch-locations.query.service';
 import {
   LocationTargetResolver,
   StationTargetResolver,
@@ -20,6 +21,7 @@ import {
   ORG_WAREHOUSE_TARGET_RESOLVER,
   BRANCH_BRAND_QUERY,
   BRANCH_CURRENCY_QUERY,
+  BRANCH_LOCATIONS_QUERY,
   BRANCH_REPORTING_SCOPE_QUERY,
   KDS_BRANCH_CONFIG_QUERY,
   ROUTING_CONFIG_QUERY,
@@ -104,6 +106,14 @@ import { WarehousesService } from './warehouses/warehouses.service';
     // authorization decision; grants nothing.
     BranchBrandQueryService,
     { provide: BRANCH_BRAND_QUERY, useExisting: BranchBrandQueryService },
+    // RPT-DEMO-1 — the branch's own storage location(s), for Inventory's
+    // branch-scoped operational snapshot in the Reporting overview. Not
+    // authorization; grants nothing.
+    BranchLocationsQueryService,
+    {
+      provide: BRANCH_LOCATIONS_QUERY,
+      useExisting: BranchLocationsQueryService,
+    },
     // B1-3 resource-derived authorization targets. These answer "what does this
     // row belong to?"; they never decide authorization.
     StationTargetResolver,
@@ -142,6 +152,7 @@ import { WarehousesService } from './warehouses/warehouses.service';
     KDS_BRANCH_CONFIG_QUERY,
     BRANCH_REPORTING_SCOPE_QUERY,
     BRANCH_BRAND_QUERY,
+    BRANCH_LOCATIONS_QUERY,
     ORG_STATION_TARGET_RESOLVER,
     ORG_TABLE_TARGET_RESOLVER,
     ORG_WAREHOUSE_TARGET_RESOLVER,

@@ -12,8 +12,10 @@ import { TicketProjectionService } from './tickets/ticket-projection.service';
 import { TicketReaderService } from './tickets/ticket-reader.service';
 import { RoutingResolverService } from './routing/routing-resolver.service';
 import { TicketTargetResolver } from './tickets/scope-target.resolver';
+import { KdsSummaryQueryService } from './tickets/kds-summary.query.service';
 import {
   KDS_OFFLINE_TICKET_OPERATIONS,
+  KDS_SUMMARY_QUERY,
   KDS_TICKET_TARGET_RESOLVER,
 } from './contract';
 
@@ -81,12 +83,18 @@ import {
       provide: KDS_OFFLINE_TICKET_OPERATIONS,
       useExisting: KdsOfflineTicketOperationsService,
     },
+    // RPT-DEMO-1 — the branch/business-day-scoped ticket summary the
+    // Reporting overview needs. Read-only; never derives a `servedAt`-based
+    // duration (that column is never populated by any write path).
+    KdsSummaryQueryService,
+    { provide: KDS_SUMMARY_QUERY, useExisting: KdsSummaryQueryService },
   ],
   exports: [
     KDS_TICKET_TARGET_RESOLVER,
     RoutingResolverService,
     TicketReaderService,
     KDS_OFFLINE_TICKET_OPERATIONS,
+    KDS_SUMMARY_QUERY,
   ],
 })
 export class KitchenModule {}
