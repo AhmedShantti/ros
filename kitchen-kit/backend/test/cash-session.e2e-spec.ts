@@ -1145,7 +1145,7 @@ describe('Cash session open (e2e)', () => {
       expect(attemptRows).toHaveLength(0);
     });
 
-    it('creates only the seven authorised tables in workforce and treasury', async () => {
+    it('creates only the authorised tables in workforce and treasury', async () => {
       // P1G-0 adds treasury.cash_movements (FR-POS-091). P1G-1 migration 33
       // adds treasury.cash_close_policies (FR-FIN-006/FR-POS-094/095) — the
       // narrow cash-close policy substrate, NOT the generic FR-PLT-025
@@ -1156,6 +1156,15 @@ describe('Cash session open (e2e)', () => {
       // treasury.day_close_activations, treasury.day_close_sessions,
       // treasury.day_close_tax_class_totals and
       // treasury.day_close_order_type_totals.
+      //
+      // HR-1 (migration `20260904010000_workforce_core_employee_schedule_
+      // attendance`) is the FIRST deliberate, ratified widening of
+      // `workforce` past P1D-A's single `shifts` table — FR-HRM-003/010/
+      // 012/020..025's Schedule/ScheduledShift/AttendanceRecord/ClockEvent/
+      // AttendanceCorrection/AttendanceSettings/EmployeeCompensation
+      // substrate. `treasury` is untouched by HR-1: no new column, no new
+      // table, `workforce.shifts` and `treasury.cash_sessions` remain
+      // exactly as distinct as P1D-A left them.
       const rows = await admin.$queryRawUnsafe<
         { schemaname: string; tablename: string }[]
       >(
@@ -1174,6 +1183,13 @@ describe('Cash session open (e2e)', () => {
         'treasury.day_close_tax_class_totals',
         'treasury.day_closes',
         'treasury.drawers',
+        'workforce.attendance_corrections',
+        'workforce.attendance_records',
+        'workforce.attendance_settings',
+        'workforce.clock_events',
+        'workforce.employee_compensations',
+        'workforce.scheduled_shifts',
+        'workforce.schedules',
         'workforce.shifts',
       ]);
     });
