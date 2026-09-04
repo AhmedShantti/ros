@@ -117,7 +117,9 @@ export interface FinalizeCloseInput {
 
 /** Structurally zero at this HEAD (design gate §6) — never invented as non-zero. */
 const CASH_TIPS_TOTAL = 0n;
-const CASH_REFUNDS_TOTAL = 0n;
+// POS-FIN-1: cash refunds are no longer structurally zero — see
+// `computeExpectedCash`'s own `cashRefundsTotal`, sourced from
+// `CashSessionTenderTotalsQuery` (real `sales.refunds` data).
 
 @Injectable()
 export class CashSessionCloseService {
@@ -339,7 +341,7 @@ export class CashSessionCloseService {
             ${input.closeAttemptId}::uuid, ${tenantId}::uuid, ${session.branchId}::uuid, ${session.id}::uuid,
             ${policy.policyVersionId}::uuid, ${policy.varianceToleranceMinorUnits}, ${policy.countMode}::"treasury"."CashCountMode",
             ${facts.openingFloat}, ${facts.cashSalesTotal}, ${CASH_TIPS_TOTAL}, ${facts.payInTotal},
-            ${CASH_REFUNDS_TOTAL}, ${facts.payOutTotal}, ${facts.safeDropTotal}, ${facts.cashRoundingAdjustments},
+            ${facts.cashRefundsTotal}, ${facts.payOutTotal}, ${facts.safeDropTotal}, ${facts.cashRoundingAdjustments},
             ${facts.expectedCash}, ${declaredTotal}, ${variance}, ${session.currency}, ${approvalRequired},
             ${actor.employeeId}::uuid, ${actorUserId}::uuid, ${actor.terminalId}::uuid, statement_timestamp()
           )
@@ -406,7 +408,7 @@ export class CashSessionCloseService {
           cashSalesTotalMinorUnits: facts.cashSalesTotal.toString(),
           cashTipsTotalMinorUnits: CASH_TIPS_TOTAL.toString(),
           payInTotalMinorUnits: facts.payInTotal.toString(),
-          cashRefundsTotalMinorUnits: CASH_REFUNDS_TOTAL.toString(),
+          cashRefundsTotalMinorUnits: facts.cashRefundsTotal.toString(),
           payOutTotalMinorUnits: facts.payOutTotal.toString(),
           safeDropTotalMinorUnits: facts.safeDropTotal.toString(),
           cashRoundingAdjustmentsMinorUnits:
@@ -761,12 +763,16 @@ export class CashSessionCloseService {
     const payOutTotal = movements.payOutTotal;
     const safeDropTotal = movements.safeDropTotal;
     const cashRoundingAdjustments = tenders.cashRoundingAdjustments;
+    // POS-FIN-1 — real cash refunds paid out of this session's drawer
+    // (previously structurally zero; see `sales/contract`'s
+    // `CashSessionTenderTotalsQuery.cashRefundsTotal` doc comment).
+    const cashRefundsTotal = tenders.cashRefundsTotal;
     const expectedCash =
       openingFloat +
       cashSalesTotal +
       CASH_TIPS_TOTAL +
       payInTotal -
-      CASH_REFUNDS_TOTAL -
+      cashRefundsTotal -
       payOutTotal -
       safeDropTotal +
       cashRoundingAdjustments;
@@ -777,6 +783,7 @@ export class CashSessionCloseService {
       payOutTotal,
       safeDropTotal,
       cashRoundingAdjustments,
+      cashRefundsTotal,
       expectedCash,
     };
   }
@@ -931,6 +938,7 @@ export class CashSessionCloseService {
       payOutTotal: bigint;
       safeDropTotal: bigint;
       cashRoundingAdjustments: bigint;
+      cashRefundsTotal: bigint;
     },
     policyVersionId: string,
     declaredByEmployeeId: string,
@@ -946,7 +954,7 @@ export class CashSessionCloseService {
       cashSalesTotalMinorUnits: facts.cashSalesTotal.toString(),
       cashTipsTotalMinorUnits: CASH_TIPS_TOTAL.toString(),
       payInTotalMinorUnits: facts.payInTotal.toString(),
-      cashRefundsTotalMinorUnits: CASH_REFUNDS_TOTAL.toString(),
+      cashRefundsTotalMinorUnits: facts.cashRefundsTotal.toString(),
       payOutTotalMinorUnits: facts.payOutTotal.toString(),
       safeDropTotalMinorUnits: facts.safeDropTotal.toString(),
       cashRoundingAdjustmentsMinorUnits:
