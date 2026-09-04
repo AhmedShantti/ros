@@ -1249,3 +1249,606 @@ deviation from the task's own DO-NOT list.
 **GIT_STATUS:** §16.
 
 **READY_FOR_FULL_E2E**
+
+---
+
+# PART THREE — ACCEPTANCE CORRECTION (2026-09-04)
+
+- **Task / slice:** POS-FIN-1 — Production financial corrections — targeted
+  acceptance-correction pass (NOT a new slice; re-adjudicates and closes
+  gaps left by Part Two above).
+- **Report type:** Acceptance-correction addendum, appended to the existing
+  report per the reporting policy ("never overwrite previous substantive
+  reports" — Parts One/Two above are UNCHANGED and UNEDITED by this
+  addendum).
+- **Authority statement:** This addendum, like the rest of this report, is
+  **non-authoritative evidence**. The SRS and the ratified entries in
+  `docs/governance/GOVERNANCE_DECISION_REGISTER.md` remain authoritative.
+  Nothing here ratifies, amends, reinterprets, or expands any governance
+  decision or requirement — §22 below explicitly declines to self-ratify
+  one ambiguous point and classifies it PARTIAL instead.
+- **Date:** 2026-09-04
+- **HEAD at the start of this correction:** `776c9e40b75876ced768c3dc20c9b6c863e84dd1`
+  (`776c9e4`) — the 5 commits that closed Part Two, unchanged:
+  `776c9e4` docs, `edf74ed` test, `71b16f7` docs(api), `1783a6c` feat(sales)
+  refunds/reporting, `2bf0825` feat(sales) discounts/comps/post-fire-void/
+  Kitchen signal.
+- **Branch:** `full-srs/lane-a3-pos-financial-corrections` (unchanged).
+- **Working tree at the start of this correction:** Clean (`git status
+  --short` produced no output) — verified directly, not assumed.
+- **Working tree at the close of this correction:** see §26 below; this
+  correction's own commits follow immediately after this file is saved.
+- **Task identifier:** "POS-FIN-1 ACCEPTANCE CORRECTION — targeted only, NO
+  full E2E" (the 8-section instruction covering re-verification, FR-POS-070/
+  071/072/075 re-adjudication, two test-gap closures, lint/evidence
+  correction, and a corrected final requirement matrix).
+
+## 20. §1 — Verified committed state (re-executed, not assumed)
+
+Executed directly in this session, from `/Users/mac/projects/ros-worktrees/lane-a`:
+
+```
+$ git rev-parse HEAD
+776c9e40b75876ced768c3dc20c9b6c863e84dd1
+$ git log --oneline -8
+776c9e4 docs: record POS-FIN-1 discounts/refunds financial corrections closure
+edf74ed test(sales): add POS-FIN-1 targeted real-Postgres e2e suite
+71b16f7 docs(api): regenerate OpenAPI and update route-surface exhaustiveness tests
+1783a6c feat(sales): add append-only refunds and reporting reconciliation (POS-FIN-1)
+2bf0825 feat(sales): add governed discounts, comps, post-fire void and Kitchen signal (POS-FIN-1)
+1149be4 docs: record audit and DR integration
+7ed2268 docs: record DR-1 full E2E final acceptance verification
+f596e1a docs: record AUD-R1 human ratification
+$ git status --short
+(no output — clean)
+$ ls kitchen-kit/backend/prisma/migrations | grep -c '^[0-9]'
+41
+```
+
+This confirms: exactly 5 POS-FIN-1 commits (`2bf0825`, `1783a6c`, `71b16f7`,
+`edf74ed`, `776c9e4`), actual final HEAD before this correction session is
+`776c9e4`, working tree was genuinely clean (not merely assumed clean), and
+the migration count before this session's own new migration is 41. This
+correction session then added one migration (§22 below), bringing the count
+to 42 — recorded exactly, not rounded or estimated.
+
+## 21. §2 — FR-POS-070 / FR-POS-075 re-adjudication (literal, whole-requirement)
+
+Part Two's §17 table classified FR-POS-070's order-cancel limb as **"N/A —
+NOT a named primary target of this task"** and FR-POS-075 as flatly
+**COMPLETE**. Both phrasings are corrected here — literal re-reading of the
+verbatim SRS text for these two requirements, with no change to any
+production code (the correction is a classification correction only, as
+instructed).
+
+**FR-POS-070** — the verbatim requirement covers void/refund/**cancellation**
+of a fired/completed order as one requirement. This slice implements:
+- Pre-fire void — pre-existing, unchanged by this slice.
+- Post-fire void — implemented and proven this slice (`PostFireVoidService`,
+  §10 above, plus the new Kitchen-integration proof in §23 below).
+- Refund — implemented and proven this slice (`RefundsService`).
+- **Order cancellation is NOT implemented anywhere in this codebase.**
+  `grep`-confirmed: no `cancel` route, service, or domain event exists for
+  an `Order` in `src/modules/sales`. This is a distinct operation from a
+  post-fire void of one line or a refund of a settled payment — the SRS
+  names it as its own limb, not as a synonym for either.
+
+Because one of the three named limbs of a single, undivided requirement is
+entirely unimplemented, the requirement AS A WHOLE cannot be COMPLETE. Per
+this correction's own explicit instruction, "N/A because not this task's
+primary target" is not a valid whole-requirement disposition for an SRS
+[M]/[S]-classified functional requirement — a limb being outside this
+slice's assigned scope does not make the overall requirement satisfied; it
+makes it **PARTIAL**, honestly.
+
+**FR-POS-070 FINAL: PARTIAL** — pre-fire void (pre-existing) COMPLETE,
+post-fire void (this slice) COMPLETE and proven, refund (this slice)
+COMPLETE and proven, order cancellation NOT IMPLEMENTED. One limb
+("post-fire void") is fully closed; the overall requirement is not.
+
+**FR-POS-075** — the verbatim requirement (audit trail for void/refund/
+correction operations) names the SAME set of operations as FR-POS-070,
+including cancellation. Part Two's COMPLETE classification was scoped,
+in its own prose, to "every operation in this slice's scope" — which is
+correct as far as it goes, but is not the same claim as "the overall
+FR-POS-075 requirement is COMPLETE." An operation that does not exist
+(order cancellation) cannot have audit coverage, by definition — so the
+requirement's own textual scope (audit coverage for cancellation, among
+other operations) is not fully satisfied, independent of how thoroughly
+the implemented operations are audited.
+
+**FR-POS-075 FINAL: PARTIAL** — pre-fire void, post-fire void, and refund
+audit coverage are all COMPLETE and proven (full actor/approver/reason/
+amount/before-after facts, §14 item 13/25 above, plus the two new
+integration proofs in §23-24 below); cancellation audit coverage does not
+exist because the underlying operation does not exist. The instruction's
+own wording is preserved verbatim here: **"Do not call an overall
+requirement COMPLETE merely because the operations implemented by this
+slice are fully audited."**
+
+No production code was changed for this section — this is a pure
+classification correction, per the task's own instruction.
+
+## 22. §3 — FR-POS-071: Inventory-owned disposition record for ALL THREE dispositions
+
+**Finding, before any code change:** `PostFireVoidRecord` (the record
+`PostFireVoidService.voidPostFire` writes on every post-fire void,
+regardless of disposition) lives in the **`sales`** Prisma schema/module —
+it is Sales-owned, not Inventory-owned, per this correction's own
+instruction that a Sales-owned record does not satisfy FR-POS-071's
+"the corresponding **inventory** record" wording. Before this correction,
+Inventory's own write path (`PostFireVoidDispositionService.recordDisposition`,
+called only for `wasted`/`given_to_staff`) posted a real `waste` movement,
+which is itself an Inventory-owned row — but for `returned_to_stock` the
+Inventory command was **not called at all**, so **no Inventory-owned record
+of any kind** existed for that disposition. Per-disposition, before this
+correction:
+
+| Disposition | Inventory-owned record before this correction | Quantity/value effect | Distinguishable later? | Audit evidence |
+|---|---|---|---|---|
+| `wasted` | Yes — a real `inventory.movements` row (`movementType: 'waste'`) | Real negative stock movement at cost | Yes, by `referenceType: 'post_fire_void'` + `referenceId` | Yes — `POST_FIRE_VOID_DISPOSITION_RECORDED`-equivalent audit entry existed via `MovementsService.post`'s own audit trail |
+| `given_to_staff` | Yes — same `waste` movement type (§11 item 4's recorded resolution: no new `MovementType` enum value invented) | Real negative stock movement at cost | Yes, by `disposition`/`reasonCodeId` recorded in the Sales-owned `PostFireVoidRecord`, cross-referenced by `referenceId` | Same as above |
+| `returned_to_stock` | **NONE** — the Inventory command was never invoked | None (deliberately — see the contract's own doc comment on why there is nothing to reverse) | **NOT distinguishable from ordinary Inventory silence** — an Inventory audit query could not tell "a return-to-stock void happened with zero net effect" from "nothing happened" | **NONE, on the Inventory side** — only the Sales-owned `PostFireVoidRecord`/audit entry existed |
+
+This is a genuine FR-POS-071 gap: the requirement's literal text is "the
+system SHALL create the **corresponding inventory record**" for the
+disposition, for ALL classifications, not only the two that move stock.
+**FR-POS-071 before this correction: PARTIAL** (2 of 3 dispositions had a
+genuine Inventory-owned record; the third had none).
+
+**Fix implemented (smallest architecture-correct change, source-decidable —
+no fabricated positive/negative movement, per the task's explicit
+instruction):**
+
+1. New Inventory-owned, append-only model
+   `inventory.post_fire_void_disposition_records`
+   (`PostFireVoidDispositionRecord` in `prisma/schema.prisma`), written by
+   `PostFireVoidDispositionService.recordDisposition` for **all three**
+   dispositions unconditionally. Columns: `id`, `tenantId`, `locationId`
+   (FK to `org.locations`, Inventory's own location concept — not a raw
+   `branchId`), `orderLineId` (opaque reference, no FK — the same "no FK"
+   posture `governance.approval_requests.entity_id` already uses, since
+   Inventory must not import a private Sales type to type this field),
+   `disposition`, `reasonCodeId` (FK to `inventory.reason_codes`),
+   `components` (JSON snapshot of the stock items/quantities considered),
+   `movementIds` (JSON array — empty for `returned_to_stock`), `totalValue`
+   (BigInt, `0` for `returned_to_stock`), `actorId`, `createdAt`.
+2. `returned_to_stock` still posts **zero** Inventory movements — no fake
+   positive/negative entry was fabricated to manufacture a ledger row (the
+   correction's own explicit instruction) — but now leaves exactly one
+   disposition record with `movementIds: []` and `totalValue: 0`, enforced
+   at the DATABASE level by a `CHECK` constraint
+   (`ck_pfvdr_returned_to_stock_is_inert`: `disposition <> 'returned_to_stock'
+   OR (jsonb_array_length(movement_ids) = 0 AND total_value = 0)`) so this
+   invariant cannot silently regress even from a future code change.
+3. `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY`, tenant-scoped
+   SELECT/INSERT policies only (`current_setting('app.tenant_id', true)`),
+   append-only DB grants (`GRANT SELECT, INSERT ... TO ros_app; REVOKE
+   UPDATE, DELETE, TRUNCATE`) — identical discipline to every other
+   financial/audit table this slice already added (CR-04).
+4. No private Sales→Inventory import: `PostFireVoidService` (Sales) still
+   only calls the existing public
+   `POST_FIRE_VOID_DISPOSITION_COMMAND` contract token; the contract's
+   result type gained one new field (`dispositionRecordId: string`),
+   already published through `inventory/contract/`.
+5. Forward-only migration:
+   `prisma/migrations/20260904131312_pos_fin1_inventory_disposition_record/`
+   — new `CREATE TYPE`/`CREATE TABLE`/grants/RLS only, no `ALTER`/`DROP` of
+   any existing object, hand-written after stripping unrelated
+   `prisma migrate dev` drift noise (index/constraint renames elsewhere in
+   the schema, not touched by this change).
+6. `PostFireVoidService.voidPostFire` (Sales) now calls
+   `recordDisposition` unconditionally (the prior `if (disposition !==
+   'returned_to_stock')` guard around the whole call was removed — the
+   guard now lives one level down, INSIDE `recordDisposition`, gating only
+   the movement-posting loop, not the record-writing itself) and threads
+   the new `dispositionRecordId` into the existing
+   `ORDER_LINE_VOIDED_POSTFIRE` audit metadata as
+   `inventoryDispositionRecordId`, so the Sales-owned audit entry and the
+   Inventory-owned record are cross-referenced in both directions.
+
+**Real-Postgres targeted proof, all 3 dispositions** (`test/
+pos-financial-corrections.e2e-spec.ts`, §E, tests E3/E5/E6 — extended, not
+newly created; the fire→void flow was already real): each test now queries
+`admin.postFireVoidDispositionRecord.findFirstOrThrow({ where: {
+orderLineId } })` and asserts the exact expected shape:
+- **E3 (`returned_to_stock`):** record exists, `movementIds === []`,
+  `totalValue === 0n`, `reasonCodeId`/`actorId` match the void request. PASS.
+- **E5 (`wasted`, real recipe):** record exists, `movementIds` contains the
+  real `inventory.movements` row id, `totalValue > 0n`, `components[0]
+  .stockItemId` matches the real stock item consumed. PASS.
+- **E6 (`given_to_staff`):** record exists, `movementIds === []` (this
+  disposition, per §11 item 4's resolution, shares `wasted`'s movement-type
+  but in this fixture's recipe posts no component — the pre-existing
+  behaviour, unchanged), `totalValue === 0n`. PASS.
+
+**FR-POS-071 FINAL: COMPLETE.** All three dispositions now leave a real,
+Inventory-owned, append-only, tenant-RLS-forced record; `returned_to_stock`'s
+zero-movement case is a database-enforced invariant, not merely an absence
+of evidence.
+
+## 23. §4 — FR-POS-072: refund aggregate cap basis re-opened and resolved
+
+The verbatim cap phrase — "SHALL NOT permit a refund exceeding the original
+amount, in aggregate" — was re-opened rather than assumed. Five cases,
+constructed and analyzed against the actual schema/code (`Order.grandTotal`,
+`Order.paidTotal`, `RefundsService`, `sales-payment.service.ts`'s completion
+gate, and `daily-trading-sales.query.service.ts`'s own documented
+`completedExcessCapturedTotal` semantics):
+
+- **Case A** (`grandTotal === paidTotal === 100`, the overwhelming majority
+  of orders per BR-POS-002's completion gate `paidTotal >= grandTotal`
+  combined with every ordinary payment path settling at exactly
+  `grandTotal`): the two bases are numerically identical — no case
+  distinguishes them.
+- **Case B** (cash `tenderedAmount = 120`, but change is given so
+  `paidTotal` still settles at `100 = grandTotal`): `tenderedAmount` is
+  never persisted as `paidTotal` — change-giving is a terminal-side
+  concern, not a ledger concept in this schema. Does not distinguish the
+  two bases either.
+- **Case C** (`grandTotal = 100`, `paidTotal = 110` via a genuinely
+  **accepted** over-capture — P1F-2's permitted over-tender case): this is
+  the ONLY case where the two bases diverge. `daily-trading-sales.query.
+  service.ts`'s own doc comment on `completedExcessCapturedTotal` states,
+  verbatim, that the excess "represents cash genuinely collected... but
+  **no revenue, tax, tip, discount, refund, cash-rounding, or variance
+  disposition is inferred** for it — reconciliation-only." This is a
+  DIRECT, source-decidable answer: the codebase's own existing reporting
+  layer already declares the over-capture excess has **no accepted
+  refundable disposition**. Capping refunds at `paidTotal` (i.e., allowing
+  the extra 10 to be refunded) would silently invent a disposition
+  (`refundable`) for exactly the value the reporting layer already commits,
+  in writing, to treating as undecided. This is source-decidable, not
+  ambiguous: **the cap basis is `grandTotal`.**
+- **Case D** (split tender summing to exactly `grandTotal`): collapses to
+  Case A — no divergence.
+- **Case E** (prior partial refunds exist): unaffected by the basis choice
+  — the cap is `cumulativeRefunds + newRefund <= cap`, for whichever `cap`
+  is chosen; this case only tests the aggregation arithmetic, which was
+  already correct and is unchanged.
+
+**Resolution:** since Case C has a genuine, existing, written-down source
+answer (the reporting layer's own "no disposition inferred" language),
+this was NOT a self-ratification — the fix is `refundableCap :=
+order.grandTotal` (changed from the prior `order.paidTotal`), applied at
+`refunds.service.ts`'s single cap-comparison site
+(`cumulativeAfter > refundableCap`), still evaluated inside the existing
+`pg_advisory_xact_lock(hashtext('ros_refund'), hashtext(orderId))`
+concurrency section — the lock scope and the CAS/idempotency machinery
+around it are unchanged, only the comparison operand changed. `grandTotal`
+is always `<= paidTotal` for any order that ever reached `completed`
+(BR-POS-002), so this change can only ever REJECT a refund that the prior
+code would have wrongly allowed (the over-capture excess) — it never
+under-refunds an order relative to what was actually owed.
+
+**Real-Postgres targeted proof (`test/pos-financial-corrections.e2e-spec.ts`,
+new test C11):**
+- An order over-captured by 2000 minor units: a refund of exactly
+  `grandTotal` (the full original amount owed) is accepted and the order
+  reaches `'refunded'`. PASS — proves the fix does not under-refund.
+- A second, freshly over-captured order (over-capture margin 5000): a
+  refund request of `grandTotal + 1` is rejected `422`, even though
+  `paidTotal` genuinely has that much room — and `sum(refunds) === 0n`
+  after the rejection (no partial side-effect). PASS — proves the excess
+  is never silently refundable.
+- The pre-existing D1 concurrency test's final assertion was corrected
+  from `orderRow.paidTotal` to `orderRow.grandTotal` to match the new cap
+  basis; it continues to PASS under real concurrent transactions.
+
+**FR-POS-072 FINAL: COMPLETE.** The cap basis is `grandTotal`, proven
+source-decidable (not self-ratified) via Case C's own existing
+reporting-layer documentation, concurrency-safe under the pre-existing
+advisory lock, and covered by an explicit over-capture regression test.
+
+**REFUND_CAP_RULE:** `sum(committed refunds) + requested refund <=
+order.grandTotal`.
+
+## 24. §5 — Two test-gap closures (no direct DB writes to fake the tested action)
+
+**§5A — Kitchen integration (post-fire void), new describe block "H" in
+`pos-financial-corrections.e2e-spec.ts`, test H1.** Part Two's §14 item 32
+recorded this as an honest gap: the `OrderLineVoidedPostFireHandler`
+existed and was manually traced against `projectTicketStatus`'s
+pre-existing `cancelled`-handling, but no e2e test built real Kitchen
+fixtures to prove the transition end-to-end. This correction adds a real
+Kitchen routing fixture (`Station` + `BranchKdsConfig.fallbackStationId`,
+created once in the suite's global `beforeAll`) so that a real `POST
+/orders/:businessDay/:id/fire` request routes through the REAL
+`OrderLineFiredHandler` and creates a real `Ticket`/`TicketLine` row — no
+direct DB insert of a `TicketLine` anywhere in this test (the pre-existing
+`test/kds-fixtures.ts` direct-insert helpers were deliberately NOT used,
+per the task's explicit instruction). H1 then:
+1. Creates an order with two lines (`lineVoid`, `lineKeep`), fires both via
+   the real route.
+2. Voids `lineVoid` through the real `POST .../void-postfire` route
+   (disposition `wasted`) and asserts the corresponding `TicketLine` row's
+   `status` becomes `'cancelled'` with `cancelledAt` set — the REAL
+   `OrderLineVoidedPostFireHandler` executing on a REAL domain event, not a
+   direct-write simulation.
+3. Asserts `lineKeep`'s `TicketLine` is completely unaffected
+   (`status: 'queued'`, unchanged) — the exact-matching-line invariant.
+4. Asserts the aggregate `Ticket.status` recomputes correctly (`'queued'`,
+   since one line remains queued).
+5. Replays an IDENTICAL `Idempotency-Key` request (voiding `lineKeep`,
+   disposition `returned_to_stock`) TWICE and asserts both return `200`
+   with byte-identical bodies, exactly ONE `PostFireVoidRecord` row exists
+   for that void, the `TicketLine` reaches `'cancelled'` exactly once (no
+   duplicate/bad transition on replay), and the `Ticket` aggregate now
+   reaches `'queued'`'s fallback state correctly once all lines are
+   cancelled.
+
+Result: **PASS.** §14 item 32's gap is closed with a genuine, non-fabricated
+integration proof.
+
+**§5B — Cash refund reconciliation, new describe block "I", test I1.** Part
+Two's §14 item 39 recorded that the cash-refund-reduces-expected-cash
+invariant was implemented (`computeExpectedCash` already subtracts
+`cashRefundsTotal`) but never proven end-to-end with a non-zero refund. This
+correction adds: a dedicated `CashClosePolicy` (`countMode: 'open'`, so
+`expectedCashMinorUnits` is structurally disclosed rather than withheld by
+blind-count mode), a dedicated `Drawer`/`Shift`/`CashSession`, and:
+1. Baseline close-context query proves `expectedCashMinorUnits` starts at
+   exactly the opening float (`20000n`), before any sale.
+2. A real cash order is completed via the real `settleFull` route helper
+   (extended this session with an optional `cashSessionIdOverride` param
+   so a test can target this dedicated session instead of the suite's
+   shared one); the close-context query proves
+   `expectedAfterSale - expectedBaseline === grandTotal` exactly.
+3. A non-zero (`3000n`) cash refund is issued with manager approval through
+   the real `/refunds` route; the close-context query proves
+   `expectedAfterSale - expectedAfterRefund === refundAmount` **exactly** —
+   the literal invariant the task asked to be proven, not merely
+   implemented.
+4. The original `OrderPayment` row is re-read and asserted `toEqual` its
+   pre-refund snapshot — CR-04/BR-POS-001 immutability proven for real, not
+   assumed.
+5. The daily-trading report's `salesSummary.refunds` is asserted `>=` the
+   refund amount for this session's business day — the reporting-layer
+   reconciliation Part Two's §10 implemented, now proven against a real
+   cash-session-close context in the same test.
+6. A second, smaller (`500n`) refund is issued twice with the SAME
+   `Idempotency-Key` and body id; the close-context query after both calls
+   proves the expected-cash value is IDENTICAL after the second (replayed)
+   call — no double subtraction — and exactly one `Refund` row exists for
+   that id.
+
+Result: **PASS.** §14 item 39's gap is closed with a genuine, non-fabricated
+integration proof; no direct DB write simulated any part of the tested
+action (fire, void, payment, and refund are all real HTTP requests through
+the actual application routes).
+
+Full suite after both closures: **44/44 passing**
+(`test/pos-financial-corrections.e2e-spec.ts`, up from 41/41 in Part Two —
+3 new/extended assertions blocks: H1, I1, and C11).
+
+## 25. §6 — Lint / evidence correction and full verification re-run
+
+**The single most important correction in this addendum:** Part Two's §15
+claimed "the one remaining eslint error repository-wide
+(`cash-session-close.service.ts:624`, `no-unsafe-member-access`) is
+confirmed PRE-EXISTING... and left untouched" and its §19 RETURN claimed
+"Zero new errors; one pre-existing, out-of-scope error unchanged." **Both
+claims were produced after running `eslint --fix` on every file this slice
+touched**, which silently repaired dozens of pre-existing PRETTIER
+violations across files this slice did NOT substantively rewrite (only
+touched incidentally), making the true repository-wide baseline invisible.
+Neither claim survives a `lint:check`-only (no `--fix`) comparison against
+the true pre-POS-FIN-1 baseline.
+
+**Canonical baseline, established this session** by creating a temporary
+detached git worktree at `1149be4` (`git worktree add --detach ...
+1149be4`), regenerating its own Prisma client from its own schema (a
+gitignored artifact; a stale/mismatched one produces thousands of false
+`@typescript-eslint/no-unsafe-*` errors — discovered and corrected in this
+same session), and running `npm run lint:check` (exactly, no `--fix`)
+inside it:
+
+```
+✖ 48 problems (48 errors, 0 warnings)
+```
+
+across exactly 6 files: `src/modules/sales/orders/
+cash-session-tender-totals.query.service.ts` (1),
+`src/modules/treasury/cash-session-close/cash-session-close.service.ts` (1),
+`src/modules/treasury/cash-sessions/cash-sessions.service.ts` (1),
+`src/modules/treasury/treasury.controller.ts` (2),
+`test/cash-movements-close-and-payment-concurrency.e2e-spec.ts` (16),
+`test/cash-session-close.e2e-spec.ts` (27). **This confirms the user's
+claimed canonical pre-POS baseline (48 errors / 0 warnings) exactly.**
+
+**Current branch, before this correction's own hand-fixes**, `npm run
+lint:check` (exactly, no `--fix`):
+
+```
+✖ 66 problems (66 errors, 0 warnings)
+```
+
+Per-file reconciliation against the 48-error baseline (exact counts, not
+estimated):
+
+| File | Baseline (48) | Current (66, before hand-fix) | POS-FIN-1 changed it? |
+|---|---|---|---|
+| `cash-session-tender-totals.query.service.ts` | 1 | 0 | Yes (Part Two edited it; a scoped `eslint --fix` at that time left it clean — now confirmed genuinely clean, not merely unexamined) |
+| `cash-session-close.service.ts` | 1 | 1 (unchanged) | No — pre-existing debt, byte-identical count |
+| `cash-sessions.service.ts` | 1 | 1 (unchanged) | No — pre-existing debt, byte-identical count |
+| `treasury.controller.ts` | 2 | 2 (unchanged) | No — pre-existing debt, byte-identical count |
+| `cash-movements-close-and-payment-concurrency.e2e-spec.ts` | 16 | 16 (unchanged) | No — pre-existing debt, byte-identical count |
+| `cash-session-close.e2e-spec.ts` | 27 | 27 (unchanged) | No — pre-existing debt, byte-identical count |
+| `post-fire-void-disposition.contract.ts` | — | 1 (new file, this correction §22) | Yes |
+| `post-fire-void-disposition.service.ts` | — | 3 (new code, this correction §22) | Yes |
+| `post-fire-void.service.ts` | — | 12 (edited, this correction §22) | Yes |
+| `pos-financial-corrections.e2e-spec.ts` | — | 3 (edited, this correction §23-24) | Yes |
+
+Arithmetic check: `47` (5 pre-existing files, unchanged) `+ 19` (4 new
+POS-FIN-1 findings) `= 66`; baseline `47 + 1` (the now-clean
+`cash-session-tender-totals.query.service.ts`) `= 48`. Exact, not
+approximated.
+
+Of the 19 new findings, 18 were pure `prettier/prettier` formatting
+diffs and 1 was a real (non-formatting) finding: `post-fire-void-
+disposition.service.ts:114`, `@typescript-eslint/no-unnecessary-type-
+assertion` (an `as unknown as Prisma.InputJsonValue` cast this session
+added was unnecessary — Prisma's own input type already accepts the plain
+array literal).
+
+**Per the task's explicit instruction ("Do NOT run eslint --fix"), no
+`eslint --fix` invocation of any kind — scoped or global — was run in this
+correction.** Instead, all 19 findings were corrected by hand (`Edit`
+tool, exact replacements taken verbatim from each finding's own `eslint`
+diagnostic text, e.g. "Replace `X` with `Y`" / "Delete `Z`"; the one
+non-formatting finding was fixed by removing the unnecessary cast).
+Re-running `npm run lint:check` afterward:
+
+```
+✖ 47 problems (47 errors, 0 warnings)
+```
+
+— exactly the 5 pre-existing baseline-debt files (`cash-session-close.
+service.ts` 1, `cash-sessions.service.ts` 1, `treasury.controller.ts` 2,
+`cash-movements-close-and-payment-concurrency.e2e-spec.ts` 16,
+`cash-session-close.e2e-spec.ts` 27 — every count byte-identical to
+baseline), confirmed by re-parsing the log file-by-file. **Zero POS-FIN-1
+files carry any lint finding after this correction — net lint state is
+now BETTER than the 48-error canonical baseline** (the
+`cash-session-tender-totals.query.service.ts` fix from Part Two remains
+in effect). The temporary baseline worktree was removed after this
+comparison (`git worktree remove`).
+
+**LINT_EXACT: 47 errors / 0 warnings, current branch, `npm run
+lint:check` only (no `--fix` ever invoked this session) — all 47 are
+pre-existing baseline debt in 5 files POS-FIN-1 has never touched.**
+
+**Remaining §6 verification commands, run this session, targeted only, NO
+FULL E2E:**
+
+| Check | Command | Result |
+|---|---|---|
+| `git diff --check` | `git diff --check` | Exit 0 — no conflict markers, no trailing-whitespace errors |
+| `prisma validate` | `npx prisma validate` | PASS — "The schema at prisma/schema.prisma is valid" |
+| typecheck | `npm run typecheck` (`tsc --noEmit`) | PASS — zero errors |
+| module boundaries | `npx jest src/modules/module-boundaries.spec.ts` | PASS — 46/46 |
+| authorization coverage | `npx jest src/modules/authorization-coverage.spec.ts` | PASS — 9/9 (0 UNDECLARED-for-a-required-target routes; the printed B1-3 totals log 17 `UNDECLARED` entries, all pre-existing and asserted-acceptable by the spec's own fixture list, unrelated to this slice) |
+| POS financial targeted suite | `npx jest --config ./test/jest-e2e.json pos-financial-corrections.e2e-spec.ts` | PASS — 44/44 |
+| new Kitchen targeted test | (included above, describe block H) | PASS |
+| new cash-refund reconciliation test | (included above, describe block I) | PASS |
+| reporting targeted | `npx jest --config ./test/jest-e2e.json reporting-sales.e2e-spec.ts reporting-cash-reconciliation.e2e-spec.ts` | PASS — 15/15 |
+| inventory targeted | `npx jest --config ./test/jest-e2e.json inventory.e2e-spec.ts inventory-rls.e2e-spec.ts` | PASS — 54/54 |
+| OpenAPI check | `npm run openapi:check` (regenerate + `git diff --exit-code -- docs/api`) | PASS — no diff; this correction's changes do not alter the public HTTP/DTO surface |
+| `npm audit` | `npm audit --omit=dev` | 8 pre-existing vulnerabilities (1 moderate, 7 high: `mysql2` ×2, `qs` ×2 advisories, matching Part Two's own count) — zero new dependency added, `package.json`/`package-lock.json` untouched, not remediated (out of scope) |
+
+**NO FULL E2E suite (`npm run test:e2e`, all suites) was run in this
+correction, per the task's explicit, repeated instruction.**
+
+## 26. §7 — Final requirement matrix (conservative, corrected)
+
+Whole-requirement dispositions only; no "N/A because not this task's
+primary target" phrasing used for any [M]/[S] requirement, per the task's
+explicit instruction.
+
+| Requirement | FINAL disposition | Basis |
+|---|---|---|
+| FR-POS-045 | **COMPLETE** | Unchanged from Part Two §17 — line+order, %+fixed, all four combinations proven; no limb of this requirement is unimplemented |
+| FR-POS-046 | **COMPLETE** | Unchanged — mandatory tenant-scoped `ReasonCode`, enforced and proven |
+| FR-POS-047 | **PARTIAL** | Unchanged — mechanism + narrow (tenant,branch) config COMPLETE and proven; per-role scoping NOT implemented (an unimplemented limb of the same requirement, honestly recorded, not re-litigated this session) |
+| FR-POS-048 | **PARTIAL** | Unchanged — synchronous manager-PIN channel COMPLETE and proven; card-swipe/remote-mobile channels NOT implemented (SRS's own "or" wording — one implemented limb, not the whole requirement) |
+| FR-POS-049 | **COMPLETE** | Unchanged — all seven named facts persisted and proven |
+| FR-POS-050 [S] | **COMPLETE** | Unchanged — comp fully proven, zero special-casing |
+| FR-POS-051 | **PARTIAL** | Corrected from Part Two's "N/A — explicitly out of scope" phrasing, per this correction's own ban on that phrasing for an [M]/[S] requirement: single-discount structural narrowing is a real, working limb (COMPLETE for that limb), but the promotions/stacking/exclusivity engine the requirement also names is NOT implemented — whole requirement is PARTIAL, not N/A |
+| FR-POS-070 | **PARTIAL** | §21 above — pre-fire void (pre-existing) COMPLETE; post-fire void (this slice) COMPLETE and proven; refund (this slice) COMPLETE and proven; order cancellation NOT IMPLEMENTED. One implemented limb (post-fire void) is COMPLETE; the overall requirement is PARTIAL |
+| FR-POS-071 | **COMPLETE** | §22 above — all three dispositions now leave a real, Inventory-owned, append-only, RLS-forced record, proven for real in Postgres; corrected from Part Two's earlier COMPLETE, which was true for 2 of 3 dispositions but not the third |
+| FR-POS-072 | **COMPLETE** | §23 above — cap basis re-opened, resolved source-decidably to `grandTotal` (not self-ratified — Case C has a direct existing-code answer), concurrency-safe, over-capture regression proven |
+| FR-POS-073 | **COMPLETE** | Unchanged from Part Two — reason + threshold approval both proven; untouched by this correction |
+| FR-POS-074 | **PARTIAL** | Unchanged — original-tender default + permission gate COMPLETE and proven; fraud-detection-report flag NOT implemented (no infrastructure exists, none invented, per the task's DO-NOT list) |
+| FR-POS-075 | **PARTIAL** | §21 above — implemented operations (pre-fire void, post-fire void, refund) fully audited and proven; cancellation audit coverage absent because cancellation itself does not exist. Corrected from Part Two's flat COMPLETE |
+
+FR-SEC-030..035, FR-AUD-001/006, BR-POS-001/002, CR-04 dispositions are
+UNCHANGED from Part Two §17 (this correction touched none of their
+underlying mechanisms except CR-04's append-only discipline, which is now
+additionally extended to the new
+`post_fire_void_disposition_records` table — same grant/RLS pattern, so
+CR-04 remains COMPLETE-for-this-slice's-writes, now covering one more
+table).
+
+## 27. §8 — Commits (this correction, separate from docs)
+
+Three commits, in this order (code+migration, then tests, then docs),
+matching the task's own suggested messages:
+
+1. `fix(sales): close financial correction acceptance gaps` —
+   `prisma/schema.prisma`, the new migration
+   `20260904131312_pos_fin1_inventory_disposition_record/`,
+   `audit.constants.ts` (2 new verbs), `post-fire-void-disposition.
+   contract.ts`, `post-fire-void-disposition.service.ts`,
+   `post-fire-void.service.ts`, `refunds.service.ts`.
+2. `test(sales): prove post-fire and cash refund integration` —
+   `test/pos-financial-corrections.e2e-spec.ts` (Kitchen fixture wiring,
+   describe blocks H/I, C11, the E3/E5/E6 disposition-record assertions,
+   the D1 cap-basis assertion correction).
+3. `docs: correct POS financial acceptance evidence` — this file (§20-27)
+   and `docs/reports/claude/INDEX.md`.
+
+No push, no deploy, no merge, no rebase — per the task's DO-NOT list,
+unchanged from Part Two.
+
+## 28. RETURN (acceptance correction)
+
+**STATUS:** ACCEPTANCE CORRECTION COMPLETE for all 8 requested sections;
+no ambiguous financial semantic was self-ratified (FR-POS-072's Case C
+had a direct, existing-code answer, so it was resolved, not stopped —
+recorded in full in §23 rather than asserted without evidence).
+
+**ACTUAL_HEAD:** `776c9e40b75876ced768c3dc20c9b6c863e84dd1` at the start of
+this correction; see this report's own git log entry immediately following
+for the post-correction HEAD, once §27's 3 commits land.
+
+**COMMITS:** 5 pre-existing (§20) + 3 new this correction (§27) = 8 total
+on this branch.
+
+**MIGRATION_COUNT:** 42 (41 pre-existing + 1 new —
+`20260904131312_pos_fin1_inventory_disposition_record`).
+
+**FR_POS_070_FINAL:** PARTIAL (§21, §26).
+
+**FR_POS_071_FINAL:** COMPLETE (§22, §26).
+
+**FR_POS_072_FINAL:** COMPLETE (§23, §26).
+
+**FR_POS_075_FINAL:** PARTIAL (§21, §26).
+
+**REFUND_CAP_RULE:** `sum(committed refunds) + requested refund <=
+order.grandTotal` (§23).
+
+**RETURNED_TO_STOCK_INVENTORY_RECORD:** Yes — a real, Inventory-owned,
+append-only `post_fire_void_disposition_records` row with
+`movementIds: []` and `totalValue: 0`, database-CHECK-enforced (§22).
+
+**KITCHEN_E2E:** PASS — real fire → real Ticket/TicketLine → real
+post-fire void route → real event/handler → exact-line cancellation +
+unaffected-line invariant + aggregate recompute + idempotent-replay-safe,
+no direct DB write of the tested action (§24 §5A).
+
+**CASH_REFUND_E2E:** PASS — real cash sale → real non-zero cash refund →
+exact expected-cash decrease, immutable original payment, correct
+daily-trading reconciliation, no double subtraction on replay, no direct
+DB write of the tested action (§24 §5B).
+
+**AUTH_COVERAGE:** PASS — `authorization-coverage.spec.ts` 9/9,
+`module-boundaries.spec.ts` 46/46 (§25).
+
+**LINT_EXACT:** 47 errors / 0 warnings, `npm run lint:check` only (no
+`--fix` ever run this session); all 47 are pre-existing baseline debt in 5
+files POS-FIN-1 never touched; the true canonical pre-POS baseline is 48
+(confirmed via a temporary detached worktree at `1149be4`); Part Two's
+"1 repository-wide error" claim is corrected here as inaccurate — it was
+an artifact of `eslint --fix` having already been run (§25).
+
+**NPM_AUDIT:** 8 pre-existing vulnerabilities (1 moderate, 7 high),
+unchanged from Part Two, zero new dependencies (§25).
+
+**GIT_STATUS:** Clean at the start of this correction; this correction's
+own 3 commits (§27) are what remain, no push/deploy/merge/rebase.
+
+**READY_FOR_FULL_E2E:** Yes, for a separately-authorized full-E2E pass —
+targeted/static evidence in this correction is exhaustive for the 8
+requested sections; the full suite was deliberately not run here, per the
+task's own repeated "NO FULL E2E" instruction.
