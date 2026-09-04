@@ -246,6 +246,13 @@ export const AUDIT_ACTION = {
   COMP_APPLIED: 'COMP_APPLIED',
   ORDER_LINE_VOIDED_POSTFIRE: 'ORDER_LINE_VOIDED_POSTFIRE',
   REFUND_ISSUED: 'REFUND_ISSUED',
+  // POS-FIN-1 acceptance correction (2026-09-04) — FR-POS-071's Inventory-
+  // owned disposition record, written for ALL THREE classifications
+  // (previously only WASTE_RECORDED, and only for wasted/given_to_staff).
+  // A distinct verb, not a reuse of WASTE_RECORDED: "returned_to_stock" is
+  // not waste, and conflating them would misdescribe two-thirds of what
+  // this event now covers.
+  POST_FIRE_VOID_DISPOSITION_RECORDED: 'POST_FIRE_VOID_DISPOSITION_RECORDED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -311,6 +318,8 @@ export const AUDIT_ENTITY = {
   STOCK_MOVEMENT: 'stock_movement',
   COUNT_SESSION: 'count_session',
   WASTE_RECORD: 'waste_record',
+  // POS-FIN-1 acceptance correction (2026-09-04).
+  POST_FIRE_VOID_DISPOSITION_RECORD: 'post_fire_void_disposition_record',
 
   // Production Spec entities.
   RECIPE: 'recipe',
