@@ -17,9 +17,7 @@ import type {
  * `CashMovementTotalsQueryService` precedent.
  */
 @Injectable()
-export class CashSessionTenderTotalsQueryService
-  implements CashSessionTenderTotalsQuery
-{
+export class CashSessionTenderTotalsQueryService implements CashSessionTenderTotalsQuery {
   async totalsForSession(
     tx: Prisma.TransactionClient,
     tenantId: string,
@@ -39,12 +37,21 @@ export class CashSessionTenderTotalsQueryService
     const manualExternalCard = forTender('manual_external_card');
     const paymentCount = grouped.reduce((sum, g) => sum + g._count._all, 0);
 
+    // POS-FIN-1 — cash refunds paid out of THIS session's drawer. Refund's
+    // own CHECK constraint guarantees `cashSessionId` is set iff
+    // `tender = 'cash'`, so this WHERE needs no explicit tender filter.
+    const cashRefunds = await tx.refund.aggregate({
+      where: { tenantId, cashSessionId },
+      _sum: { amountMinor: true },
+    });
+
     return {
       cashSessionId,
       cashSalesTotal: cash?._sum.amount ?? 0n,
       cashRoundingAdjustments: cash?._sum.roundingAdjustment ?? 0n,
       manualExternalCardTotal: manualExternalCard?._sum.amount ?? 0n,
       paymentCount,
+      cashRefundsTotal: cashRefunds._sum.amountMinor ?? 0n,
     };
   }
 }
