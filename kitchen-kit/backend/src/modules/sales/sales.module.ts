@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { CatalogueModule } from '../catalogue/catalogue.module';
 import { AuditModule } from '../governance/audit/audit.module';
+import { GovernanceModule } from '../governance/governance.module';
 import { IdentityModule } from '../identity/identity.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { LocalisationModule } from '../localisation/localisation.module';
@@ -24,6 +25,9 @@ import { SalesFireService } from './orders/sales-fire.service';
 import { SalesPaymentService } from './orders/sales-payment.service';
 import { TicketBumpedHandler } from './orders/ticket-bumped.handler';
 import { TicketRecalledHandler } from './orders/ticket-recalled.handler';
+import { DiscountsService } from './orders/discounts.service';
+import { PostFireVoidService } from './orders/post-fire-void.service';
+import { RefundsService } from './orders/refunds.service';
 import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
 import { OrderTargetResolver } from './orders/scope-target.resolver';
 import { SALES_ORDER_TARGET_RESOLVER } from './contract';
@@ -109,8 +113,13 @@ import { SALES_ORDER_TARGET_RESOLVER } from './contract';
     // edge bidirectional (see the module docblock) — `forwardRef` required.
     forwardRef(() => TreasuryModule),
     // P1F-2 — the FIRST sales->inventory edge, consumed only through
-    // `inventory/contract`'s `SALE_DEPLETION_COMMAND`.
+    // `inventory/contract`'s `SALE_DEPLETION_COMMAND`. POS-FIN-1 adds the
+    // SECOND: `POST_FIRE_VOID_DISPOSITION_COMMAND`.
     InventoryModule,
+    // POS-FIN-1 — the FIRST sales->governance edge, consumed only through
+    // `governance/contract`'s `APPROVAL_COMMANDS` (D-13: Sales evaluates
+    // discount/refund thresholds itself and calls the generic runtime).
+    GovernanceModule,
   ],
   controllers: [OrdersController],
   providers: [
@@ -121,6 +130,9 @@ import { SALES_ORDER_TARGET_RESOLVER } from './contract';
     SalesFireService,
     SalesPaymentService,
     ReceiptService,
+    DiscountsService,
+    PostFireVoidService,
+    RefundsService,
     // KDS operator lifecycle (KDS-R11/KDS-R12) — PRIVATE subscribers, never
     // exported, discovered purely via `@DomainEventHandler` metadata
     // (`DomainEventHandlerRegistry`'s `DiscoveryService` scan), exactly the

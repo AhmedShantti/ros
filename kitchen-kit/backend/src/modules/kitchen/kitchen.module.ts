@@ -4,6 +4,7 @@ import { OrganisationModule } from '../organisation/organisation.module';
 import { KdsStationGuard } from './auth/kds-station.guard';
 import { KitchenController } from './kitchen.controller';
 import { OrderLineFiredHandler } from './tickets/order-line-fired.handler';
+import { OrderLineVoidedPostFireHandler } from './tickets/order-line-voided-postfire.handler';
 import { KdsOperationsService } from './tickets/kds-operations.service';
 import { KdsOfflineTicketOperationsService } from './tickets/kds-offline-ticket-operations.service';
 import { TicketPersistenceService } from './tickets/ticket-persistence.service';
@@ -70,6 +71,9 @@ import {
     TicketProjectionService,
     TicketReaderService,
     OrderLineFiredHandler,
+    // POS-FIN-1 — PRIVATE, same discovery mechanism as OrderLineFiredHandler
+    // above (see this module's own docblock).
+    OrderLineVoidedPostFireHandler,
     KdsOperationsService,
     KdsStationGuard,
     KdsOfflineTicketOperationsService,

@@ -3,6 +3,7 @@ import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { ProductionModule } from '../production/production.module';
 import { SALE_DEPLETION_COMMAND } from './contract/sale-depletion.contract';
+import { POST_FIRE_VOID_DISPOSITION_COMMAND } from './contract/post-fire-void-disposition.contract';
 import { CountsService } from './counts/counts.service';
 import { InventoryController } from './inventory.controller';
 import { MovementsService } from './movements/movements.service';
@@ -12,6 +13,7 @@ import { ReconciliationService } from './reconciliation/reconciliation.service';
 import { SaleDepletionService } from './sale-depletion/sale-depletion.service';
 import { StockItemsService } from './stock-items/stock-items.service';
 import { WasteService } from './waste/waste.service';
+import { PostFireVoidDispositionService } from './waste/post-fire-void-disposition.service';
 import {
   CountLineTargetResolver,
   CountSessionTargetResolver,
@@ -76,6 +78,13 @@ import { PlatformModule } from '../platform/platform.module';
     // P1F-2 — the SALE_DEPLETION_COMMAND public contract (Order Completion).
     SaleDepletionService,
     { provide: SALE_DEPLETION_COMMAND, useExisting: SaleDepletionService },
+    // POS-FIN-1 — the POST_FIRE_VOID_DISPOSITION_COMMAND public contract
+    // (FR-POS-071 wasted/given-to-staff disposition).
+    PostFireVoidDispositionService,
+    {
+      provide: POST_FIRE_VOID_DISPOSITION_COMMAND,
+      useExisting: PostFireVoidDispositionService,
+    },
   ],
   exports: [
     StockItemsService,
@@ -86,6 +95,7 @@ import { PlatformModule } from '../platform/platform.module';
     ReconciliationService,
     InventoryDailyReconciliationJob,
     SALE_DEPLETION_COMMAND,
+    POST_FIRE_VOID_DISPOSITION_COMMAND,
   ],
 })
 export class InventoryModule {}

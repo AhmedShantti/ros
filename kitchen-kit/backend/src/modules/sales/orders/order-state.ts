@@ -84,9 +84,19 @@ const TRANSITIONS: Readonly<Record<OrderState, readonly OrderState[]>> =
     held: ['open', 'cancelled'],
     parked: ['open', 'cancelled'],
     partially_paid: ['completed'],
-    completed: [],
+    // POS-FIN-1 — a Refund (BR-POS-001: correction of a COMPLETED order is
+    // made by CREATING a Refund, never by editing the original) moves a
+    // completed order to PARTIALLY_REFUNDED (the aggregate refunded amount
+    // is still below paid_total) or straight to REFUNDED (the first refund
+    // already exhausts paid_total). PARTIALLY_REFUNDED -> PARTIALLY_REFUNDED
+    // is deliberately NOT a transition, mirroring PARTIALLY_PAID's own
+    // precedent above: a second/third partial refund on an
+    // already-partially-refunded order changes no STATE, only the (separate,
+    // append-only) Refund row count — see `assertVersion`'s own optimistic
+    // concurrency, which still governs every refund write regardless.
+    completed: ['partially_refunded', 'refunded'],
     cancelled: [],
-    partially_refunded: [],
+    partially_refunded: ['refunded'],
     refunded: [],
   });
 
@@ -247,4 +257,88 @@ export function assertVersion(current: number, expected: number): number {
     );
   }
   return current + 1;
+}
+
+/**
+ * POS-FIN-1 — FR-POS-070/071 post-fire void.
+ *
+ * The complement of `assertCashierMayMutateLine`: THIS is the privileged
+ * path that function's own doc comment says is "not available in this
+ * release" for an ordinary cashier. It requires the line to have already
+ * been SENT TO PRODUCTION (fired/preparing/ready/served) — a line that has
+ * not been fired uses the ordinary pre-fire void instead, never this path —
+ * and the order itself must still be pre-finalisation: BR-POS-001 makes a
+ * COMPLETED order's correction a Refund, never a void, post-fire or
+ * otherwise.
+ */
+export function assertMayVoidPostFire(
+  orderState: OrderState,
+  lineState: OrderLineState,
+): void {
+  assertOrderMutable(orderState);
+  if (!isSentToProduction(lineState)) {
+    throw new OrderStateError(
+      `This line has not been sent to production (${lineState}); use the ` +
+        'pre-fire void instead — the post-fire path is reserved for a line ' +
+        'already fired/preparing/ready/served.',
+    );
+  }
+}
+
+/**
+ * POS-FIN-1 — FR-POS-045/046/047 discount/comp application.
+ *
+ * A discount/comp may be applied to any pre-finalisation order. Whether it
+ * may still be applied once a Payment has been captured (`partially_paid`)
+ * is FR-POS-047's fourth configured dimension
+ * (`discountAfterPaymentStartedAllowed`) — a POLICY question the caller
+ * evaluates against its own resolved config, not a hardcoded state-machine
+ * fact, so this function does not special-case `partially_paid` itself.
+ */
+export function assertMayApplyDiscount(orderState: OrderState): void {
+  assertOrderMutable(orderState);
+}
+
+/**
+ * POS-FIN-1 — FR-POS-072/073 refund.
+ *
+ * CR-04/BR-POS-001: a refund is a compensating record against an order that
+ * has ALREADY been financially posted — `completed`, or already
+ * `partially_refunded` by an earlier refund. Every other state (still
+ * mutable, or `cancelled`, which never collected payment to refund) is
+ * refused.
+ */
+export function assertMayRefund(orderState: OrderState): void {
+  if (orderState !== 'completed' && orderState !== 'partially_refunded') {
+    throw new OrderStateError(
+      `A refund can only be issued against a completed or partially ` +
+        `refunded order; this order is ${orderState}.`,
+    );
+  }
+}
+
+/**
+ * The order-state SIDE EFFECT of a newly-committed refund: `completed` (or
+ * an already `partially_refunded` order) becomes fully `refunded` once the
+ * cumulative refunded amount reaches the refundable cap, otherwise it
+ * becomes/stays `partially_refunded`. Pure arithmetic — the caller supplies
+ * the already-verified cap comparison; this only names the resulting state
+ * and, for a genuine transition (`completed` -> anything), asserts it is
+ * legal via the same `TRANSITIONS` table every other mutation uses.
+ * `partially_refunded` -> `partially_refunded` is deliberately not asserted,
+ * mirroring `partially_paid`'s own precedent.
+ */
+export function resolveRefundTargetState(
+  orderState: OrderState,
+  cumulativeRefundedMinor: bigint,
+  refundableCapMinor: bigint,
+): OrderState {
+  const target: OrderState =
+    cumulativeRefundedMinor >= refundableCapMinor
+      ? 'refunded'
+      : 'partially_refunded';
+  if (orderState !== target) {
+    assertTransition(orderState, target);
+  }
+  return target;
 }

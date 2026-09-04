@@ -234,6 +234,18 @@ export const AUDIT_ACTION = {
   // by `AuditQueryService` for EVERY call to either route, success or not.
   AUDIT_LOG_QUERIED: 'AUDIT_LOG_QUERIED',
   AUDIT_LOG_EXPORTED: 'AUDIT_LOG_EXPORTED',
+
+  // POS-FIN-1 — discounts/comps, post-fire void disposition, refunds
+  // (FR-AUD-006 "discounts, comps, voids, refunds"). Same
+  // <ENTITY>_<PAST_TENSE> convention. DISCOUNT_APPLIED covers both
+  // percentage and fixed (the value type is metadata, not a different
+  // action, mirroring CASH_MOVEMENT_RECORDED's own convention); COMP_APPLIED
+  // is its own verb because FR-POS-050 requires a comp be economically
+  // distinct from a discount, not merely a 100% one.
+  DISCOUNT_APPLIED: 'DISCOUNT_APPLIED',
+  COMP_APPLIED: 'COMP_APPLIED',
+  ORDER_LINE_VOIDED_POSTFIRE: 'ORDER_LINE_VOIDED_POSTFIRE',
+  REFUND_ISSUED: 'REFUND_ISSUED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -311,4 +323,9 @@ export const AUDIT_ENTITY = {
 
   // AUD-1 — the audit log itself, as the object of an access (FR-AUD-007).
   AUDIT_LOG: 'audit_log',
+
+  // POS-FIN-1 entities.
+  DISCOUNT: 'discount',
+  POST_FIRE_VOID_RECORD: 'post_fire_void_record',
+  REFUND: 'refund',
 } as const;
