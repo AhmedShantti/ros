@@ -82,6 +82,8 @@ const REVIEWED_UNPROTECTED_ROUTES: Readonly<Record<string, string>> = {
   'GET /auth/me': 'The caller’s own identity. No target but the caller.',
   'GET /auth/permissions':
     'The caller’s OWN effective scope (FR-SEC-045). Reading one’s own authority cannot be gated on holding authority.',
+  'GET /org/access':
+    'MTMB-1 frontend branch/brand discovery — the RESOLVED counterpart of GET /auth/permissions for the SAME caller-own-scope read: it returns only what the caller’s own live grants already cover, so it cannot be gated on holding a permission over that scope without becoming circular.',
   'POST /auth/password/change':
     'The caller changes their OWN password (FR-SEC-005 lifecycle, ADR 0005).',
   'POST /auth/password/forgot':

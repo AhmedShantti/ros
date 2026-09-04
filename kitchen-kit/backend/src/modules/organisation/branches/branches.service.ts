@@ -12,6 +12,7 @@ import {
   AUDIT_ENTITY,
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
+import type { ScopedGrant } from '../../identity/context/tenant-context';
 import {
   SCOPE_REVIEW_QUERY,
   type ScopeReviewQuery,
@@ -178,6 +179,76 @@ export class BranchesService {
         tx.branch.findMany({ orderBy: { createdAt: 'asc' } }),
       )
       .then((branches) => branches.map(toBranchSummary));
+  }
+
+  /**
+   * MTMB-1 — the branches actually visible to a caller's LIVE scoped
+   * authority, for frontend branch discovery (SRS §5.6 / FR-SEC-002..004).
+   *
+   * Deliberately NOT `list()`: that lists every branch in the tenant and is
+   * itself a TENANT-target read (gated by `ORGANISATION_PERMISSIONS.
+   * BRANCH_READ` held at TENANT scope), so a branch-scoped actor holding that
+   * permission only at Branch 1 gets 403 from it — correctly, but leaving no
+   * route at all through which they can discover their OWN accessible
+   * branches. This is that route's query, expressed directly from the
+   * caller's resolved `grants` (never from a JWT claim, never from
+   * `EmployeeBranch` — those narrow, they do not grant per `identity/authz/
+   * scope-authorization.service.ts`).
+   *
+   * The lattice, mirrored from `identity/authz/scope.ts` `coversTarget`
+   * without importing it (that file is a private Identity path; Organisation
+   * is only permitted `identity/context/tenant-context`, which is where
+   * `ScopedGrant` itself lives — see `module-boundaries.spec.ts`):
+   *   - a TENANT-scoped grant sees every branch in the tenant (active or
+   *     not — visibility is an authorization question, not an operability
+   *     one; `status` is returned so the frontend can grey out an inactive
+   *     branch rather than have it silently vanish);
+   *   - a BRAND-scoped grant sees every branch under that brand;
+   *   - a BRANCH-scoped grant sees exactly that branch.
+   * The result is the UNION across every held grant — never an intersection,
+   * never a single "best" grant — because FR-SEC-003 lets one actor hold
+   * several independent scoped assignments at once.
+   *
+   * Zero grants (e.g. a membership with no scoped role assignments at all)
+   * returns an empty list — never "every branch", which would be exactly the
+   * unrestricted-by-omission failure R-8 forbids.
+   */
+  async listAccessible(
+    tenantId: string,
+    grants: readonly ScopedGrant[],
+  ): Promise<BranchSummary[]> {
+    if (grants.some((g) => g.scope.type === 'tenant')) {
+      return this.list(tenantId);
+    }
+    const brandIds = [
+      ...new Set(
+        grants
+          .filter((g) => g.scope.type === 'brand')
+          .map((g) => (g.scope as { brandId: string }).brandId),
+      ),
+    ];
+    const branchIds = [
+      ...new Set(
+        grants
+          .filter((g) => g.scope.type === 'branch')
+          .map((g) => (g.scope as { branchId: string }).branchId),
+      ),
+    ];
+    if (brandIds.length === 0 && branchIds.length === 0) {
+      return [];
+    }
+    const branches = await this.prisma.withAuthContext({ tenantId }, (tx) =>
+      tx.branch.findMany({
+        where: {
+          OR: [
+            ...(brandIds.length > 0 ? [{ brandId: { in: brandIds } }] : []),
+            ...(branchIds.length > 0 ? [{ id: { in: branchIds } }] : []),
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    return branches.map(toBranchSummary);
   }
 
   async findOne(tenantId: string, branchId: string): Promise<BranchSummary> {

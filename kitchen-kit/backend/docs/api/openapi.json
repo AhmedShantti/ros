@@ -25154,6 +25154,147 @@
         ]
       }
     },
+    "/org/access": {
+      "get": {
+        "operationId": "OrganisationController_getAccessibleScope",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branches": {
+                      "description": "Branches the caller's live scoped authority can see, both active and inactive (status is returned so the frontend can grey out an inactive branch rather than have it silently disappear). Resolved from LIVE scoped role assignments on every call — never from a JWT claim, a home branch, or `EmployeeBranch`, none of which grant visibility on their own.",
+                      "items": {
+                        "properties": {
+                          "address": {
+                            "description": "Opaque address JSON, as stored.",
+                            "type": "object"
+                          },
+                          "automaticAvailability": {
+                            "type": "boolean"
+                          },
+                          "baseCurrency": {
+                            "description": "ISO 4217 currency code.",
+                            "example": "AED",
+                            "type": "string"
+                          },
+                          "brandId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": "string"
+                          },
+                          "countryCode": {
+                            "example": "AE",
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": [
+                              "active",
+                              "inactive"
+                            ],
+                            "type": "string"
+                          },
+                          "timezone": {
+                            "example": "Asia/Dubai",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "brands": {
+                      "description": "Brands the caller's live scoped authority can see. A tenant-scoped grant sees every brand; a brand-scoped grant sees that brand; a branch-scoped grant sees that branch's own brand. Never every brand in the tenant merely because the tenant has one.",
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "defaultSettings": {
+                            "description": "Opaque default-settings JSON, as stored.",
+                            "type": "object"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "theme": {
+                            "description": "Opaque brand theme JSON, as stored.",
+                            "type": "object"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Brands and branches visible under the current, live scoped authority."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The caller's live, authorized brands and branches (frontend discovery).",
+        "tags": [
+          "organisation"
+        ]
+      }
+    },
     "/org/branches": {
       "get": {
         "operationId": "OrganisationController_listBranches",
