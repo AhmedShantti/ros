@@ -49,25 +49,25 @@ model User {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  credentials              Credential[]
-  sessions                 Session[]
-  memberships              Membership[]
-  ownedTenants             Tenant[]                  @relation("TenantOwner")
-  passwordResetTokens      PasswordResetToken[]
-  countSessionsStarted     CountSession[]            @relation("CountStartedBy")
-  countSessionsPosted      CountSession[]            @relation("CountPostedBy")
-  wasteRecorded            WasteRecord[]
+  credentials                   Credential[]
+  sessions                      Session[]
+  memberships                   Membership[]
+  ownedTenants                  Tenant[]                        @relation("TenantOwner")
+  passwordResetTokens           PasswordResetToken[]
+  countSessionsStarted          CountSession[]                  @relation("CountStartedBy")
+  countSessionsPosted           CountSession[]                  @relation("CountPostedBy")
+  wasteRecorded                 WasteRecord[]
   postFireVoidDispositionsActed PostFireVoidDispositionRecord[]
-  movementsPerformed       StockMovement[]
-  cashMovementsPerformed   CashMovement[]
+  movementsPerformed            StockMovement[]
+  cashMovementsPerformed        CashMovement[]
   /// P1G-1 back-relation only (virtual; no DDL impact on this model).
-  cashClosePoliciesCreated CashClosePolicy[]
+  cashClosePoliciesCreated      CashClosePolicy[]
   /// P1G-1 migration 34 back-relations only (virtual; no DDL impact).
-  closeAttemptsDeclared    CashSessionCloseAttempt[] @relation("CloseAttemptDeclaredByUser")
-  cashSessionsClosedBy     CashSession[]             @relation("CashSessionClosedByUser")
+  closeAttemptsDeclared         CashSessionCloseAttempt[]       @relation("CloseAttemptDeclaredByUser")
+  cashSessionsClosedBy          CashSession[]                   @relation("CashSessionClosedByUser")
   /// Migration 35 back-relations only (virtual; no DDL impact).
-  dayCloseActivationsMade  DayCloseActivation[]
-  dayClosesClosed          DayClose[]
+  dayCloseActivationsMade       DayCloseActivation[]
+  dayClosesClosed               DayClose[]
 
   // Production Spec back-relations (virtual; no DDL impact).
   publishedRecipeVersions RecipeVersion[] @relation("RecipeVersionPublisher")
@@ -209,49 +209,49 @@ model Tenant {
 
   // Catalogue back-relations (Phase 16). Prisma requires both sides of a
   // relation; these add no column and no behaviour to `tenants`.
-  locations                 Location[]
-  stockItems                StockItem[]
-  stockItemCategories       StockItemCategory[]
-  stockBatches              StockBatch[]
-  stockMovements            StockMovement[]
-  stockLevels               StockLevel[]
-  countSessions             CountSession[]
-  wasteRecords              WasteRecord[]
+  locations                      Location[]
+  stockItems                     StockItem[]
+  stockItemCategories            StockItemCategory[]
+  stockBatches                   StockBatch[]
+  stockMovements                 StockMovement[]
+  stockLevels                    StockLevel[]
+  countSessions                  CountSession[]
+  wasteRecords                   WasteRecord[]
   postFireVoidDispositionRecords PostFireVoidDispositionRecord[]
-  reasonCodes               ReasonCode[]
-  reorderConfigs            StockItemReorderConfig[]
-  stockLevelBatchAllocs     StockLevelBatchAllocation[]
-  menus                     Menu[]
-  menuItems                 MenuItem[]
-  taxClasses                TaxClass[]
-  shifts                    Shift[]
-  drawers                   Drawer[]
-  cashSessions              CashSession[]
-  cashMovements             CashMovement[]
+  reasonCodes                    ReasonCode[]
+  reorderConfigs                 StockItemReorderConfig[]
+  stockLevelBatchAllocs          StockLevelBatchAllocation[]
+  menus                          Menu[]
+  menuItems                      MenuItem[]
+  taxClasses                     TaxClass[]
+  shifts                         Shift[]
+  drawers                        Drawer[]
+  cashSessions                   CashSession[]
+  cashMovements                  CashMovement[]
   /// P1G-1 back-relation only (virtual; no DDL impact on `tenants`).
-  cashClosePolicies         CashClosePolicy[]
+  cashClosePolicies              CashClosePolicy[]
   /// P1G-1 migration 34 back-relations only (virtual; no DDL impact on `tenants`).
-  cashSessionCloseAttempts  CashSessionCloseAttempt[]
-  cashCountDenominations    CashCountDenomination[]
+  cashSessionCloseAttempts       CashSessionCloseAttempt[]
+  cashCountDenominations         CashCountDenomination[]
   /// Migration 35 back-relations only (virtual; no DDL impact on `tenants`).
-  dayCloseActivations       DayCloseActivation[]
-  dayCloses                 DayClose[]
-  dayCloseTaxClassTotals    DayCloseTaxClassTotal[]
-  dayCloseOrderTypeTotals   DayCloseOrderTypeTotal[]
-  dayCloseSessions          DayCloseSession[]
-  modifierGroups            ModifierGroup[]
-  priceLists                PriceList[]
+  dayCloseActivations            DayCloseActivation[]
+  dayCloses                      DayClose[]
+  dayCloseTaxClassTotals         DayCloseTaxClassTotal[]
+  dayCloseOrderTypeTotals        DayCloseOrderTypeTotal[]
+  dayCloseSessions               DayCloseSession[]
+  modifierGroups                 ModifierGroup[]
+  priceLists                     PriceList[]
   /// P1E-3 back-relations. Prisma requires both sides of a relation; these add
   /// no column and no behaviour to `tenants`.
-  modifiers                 Modifier[]
-  stationRoutingRules       StationRoutingRule[]
-  branchKdsConfigs          BranchKdsConfig[]
-  orderLineStationOverrides OrderLineStationOverride[]
+  modifiers                      Modifier[]
+  stationRoutingRules            StationRoutingRule[]
+  branchKdsConfigs               BranchKdsConfig[]
+  orderLineStationOverrides      OrderLineStationOverride[]
   /// P1E-5 back-relations.
-  tickets                   Ticket[]
-  ticketFireBatches         TicketFireBatch[]
-  ticketLines               TicketLine[]
-  ticketLineModifiers       TicketLineModifier[]
+  tickets                        Ticket[]
+  ticketFireBatches              TicketFireBatch[]
+  ticketLines                    TicketLine[]
+  ticketLineModifiers            TicketLineModifier[]
 
   // Production Spec back-relations (virtual; no DDL impact).
   recipes                    Recipe[]
@@ -1831,22 +1831,22 @@ model Employee {
   // termination date, a porter with no contact email on file).
   /// Locale -> localised display name, e.g. `{"en": "...", "ar": "..."}`.
   /// `displayName` above remains the single required default-locale name.
-  namesLocalized     Json      @default("{}") @map("names_localized")
+  namesLocalized   Json                    @default("{}") @map("names_localized")
   /// National / residency identifier (FR-HRM-001). Free text: format varies
   /// by jurisdiction and no Country Pack validation rule exists for it.
-  nationalId         String?   @map("national_id") @db.VarChar(64)
+  nationalId       String?                 @map("national_id") @db.VarChar(64)
   /// `{ phone?, email?, address? }` — no fixed contact schema is SRS-given.
-  contactDetails     Json?     @map("contact_details")
+  contactDetails   Json?                   @map("contact_details")
   /// `{ name?, phone?, relation? }`.
-  emergencyContact   Json?     @map("emergency_contact")
-  dateOfBirth        DateTime? @map("date_of_birth") @db.Date
-  hireDate           DateTime? @map("hire_date") @db.Date
-  terminationDate    DateTime? @map("termination_date") @db.Date
-  position           String?   @db.VarChar(120)
-  department         String?   @db.VarChar(120)
+  emergencyContact Json?                   @map("emergency_contact")
+  dateOfBirth      DateTime?               @map("date_of_birth") @db.Date
+  hireDate         DateTime?               @map("hire_date") @db.Date
+  terminationDate  DateTime?               @map("termination_date") @db.Date
+  position         String?                 @db.VarChar(120)
+  department       String?                 @db.VarChar(120)
   /// FR-HRM-002. NULL on a pre-existing row until set; required by the
   /// Workforce create command for every NEW employee.
-  employmentType     EmployeeEmploymentType? @map("employment_type")
+  employmentType   EmployeeEmploymentType? @map("employment_type")
 
   tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user       User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -2410,11 +2410,11 @@ model DiscountApprovalPolicyVersion {
 
   /// Dimension 1, in basis points (1bp = 0.01 percentage point; 2000 = 20%).
   /// NULL = every percentage discount requires approval.
-  maxPercentWithoutApprovalBp BigInt? @map("max_percent_without_approval_bp")
+  maxPercentWithoutApprovalBp        BigInt? @map("max_percent_without_approval_bp")
   /// Dimension 2, minor units. NULL = every fixed discount requires approval.
-  maxAmountWithoutApprovalMinor BigInt? @map("max_amount_without_approval_minor")
+  maxAmountWithoutApprovalMinor      BigInt? @map("max_amount_without_approval_minor")
   /// Dimension 3. NULL = no per-shift cap enforced.
-  maxDiscountsPerShiftPerEmployee Int? @map("max_discounts_per_shift_per_employee")
+  maxDiscountsPerShiftPerEmployee    Int?    @map("max_discounts_per_shift_per_employee")
   /// Dimension 4.
   discountAfterPaymentStartedAllowed Boolean @default(false) @map("discount_after_payment_started_allowed")
 
@@ -2441,15 +2441,15 @@ model Discount {
   /// NULL = order-level. Set = line-level.
   orderLineId String?  @map("order_line_id") @db.Uuid
 
-  kind      DiscountKind
+  kind              DiscountKind
   /// NULL for a comp (FR-POS-050: a comp is not a %/fixed discount value).
-  valueType DiscountValueType? @map("value_type")
+  valueType         DiscountValueType? @map("value_type")
   /// Basis points (1/100 of a percent), exact integer. NULL unless valueType = percentage.
-  percentageValueBp BigInt? @map("percentage_value_bp")
+  percentageValueBp BigInt?            @map("percentage_value_bp")
   /// Minor units. NULL unless valueType = fixed.
-  fixedValueMinor   BigInt? @map("fixed_value_minor")
+  fixedValueMinor   BigInt?            @map("fixed_value_minor")
   /// The actual computed effect, minor units, always populated (FR-POS-049 "amount").
-  amountMinor BigInt @map("amount_minor")
+  amountMinor       BigInt             @map("amount_minor")
 
   reasonCodeId        String @map("reason_code_id") @db.Uuid
   /// FR-POS-049 "applying employee" — literal wording; the Workforce
@@ -2457,11 +2457,11 @@ model Discount {
   appliedByEmployeeId String @map("applied_by_employee_id") @db.Uuid
   appliedByUserId     String @map("applied_by_user_id") @db.Uuid
 
-  approvalRequired  Boolean @map("approval_required")
+  approvalRequired     Boolean @map("approval_required")
   /// FR-POS-049 "approving employee" — literal wording.
   approvedByEmployeeId String? @map("approved_by_employee_id") @db.Uuid
-  approvedByUserId      String? @map("approved_by_user_id") @db.Uuid
-  approvalRequestId     String? @map("approval_request_id") @db.Uuid
+  approvedByUserId     String? @map("approved_by_user_id") @db.Uuid
+  approvalRequestId    String? @map("approval_request_id") @db.Uuid
 
   /// FR-POS-049 "order context" — the order's version immediately after this
   /// discount's recompute, so the entry is self-sufficient evidence.
@@ -2504,7 +2504,7 @@ model PostFireVoidRecord {
   /// system depletes stock at Order Completion, not at Fire, so a voided
   /// line already never reaches that future depletion and "returned to
   /// stock" is structurally a no-op).
-  inventoryMovementIds Json @default("[]") @map("inventory_movement_ids") @db.JsonB
+  inventoryMovementIds   Json   @default("[]") @map("inventory_movement_ids") @db.JsonB
 
   actorUserId String   @map("actor_user_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -2524,11 +2524,11 @@ model PostFireVoidRecord {
 /// are NEVER mutated by a refund; this is the ONLY row a refund creates,
 /// and it can itself never be updated or deleted (DB grants below).
 model Refund {
-  id          String   @id @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid
-  branchId    String   @map("branch_id") @db.Uuid
-  orderId     String   @map("order_id") @db.Uuid
-  businessDay DateTime @map("business_day") @db.Date
+  id                String   @id @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  branchId          String   @map("branch_id") @db.Uuid
+  orderId           String   @map("order_id") @db.Uuid
+  businessDay       DateTime @map("business_day") @db.Date
   /// The refund's OWN occurrence day — may differ from the order's
   /// `businessDay` (a refund can be issued on a later day than the sale).
   /// Reporting scopes "today's refunds" by THIS column, never the order's.
@@ -2690,16 +2690,16 @@ enum CompensationBasis {
 /// not permission-based field redaction, exactly like every other permission
 /// in this repository.
 model EmployeeCompensation {
-  id                String            @id @db.Uuid
-  tenantId          String            @map("tenant_id") @db.Uuid
-  employeeId        String            @map("employee_id") @db.Uuid
-  basis             CompensationBasis
+  id               String            @id @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  employeeId       String            @map("employee_id") @db.Uuid
+  basis            CompensationBasis
   /// Exact integer minor units. NEVER a float (BR money discipline).
-  amountMinorUnits  BigInt            @map("amount_minor_units")
-  currency          String            @db.Char(3)
-  effectiveFrom     DateTime          @default(now()) @map("effective_from") @db.Timestamptz(6)
-  createdBy         String            @map("created_by") @db.Uuid
-  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  amountMinorUnits BigInt            @map("amount_minor_units")
+  currency         String            @db.Char(3)
+  effectiveFrom    DateTime          @default(now()) @map("effective_from") @db.Timestamptz(6)
+  createdBy        String            @map("created_by") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee Employee @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
@@ -2784,34 +2784,34 @@ enum AttendanceStatus {
 /// `scheduledShiftId` is NULLABLE: unscheduled work is a valid real case
 /// (`unscheduled` flag below), not an error.
 model AttendanceRecord {
-  id               String            @id @db.Uuid
-  tenantId         String            @map("tenant_id") @db.Uuid
-  branchId         String            @map("branch_id") @db.Uuid
-  employeeId       String            @map("employee_id") @db.Uuid
-  scheduledShiftId String?           @map("scheduled_shift_id") @db.Uuid
-  status           AttendanceStatus  @default(open)
-  clockInAt        DateTime          @map("clock_in_at") @db.Timestamptz(6)
-  clockOutAt       DateTime?         @map("clock_out_at") @db.Timestamptz(6)
+  id               String           @id @db.Uuid
+  tenantId         String           @map("tenant_id") @db.Uuid
+  branchId         String           @map("branch_id") @db.Uuid
+  employeeId       String           @map("employee_id") @db.Uuid
+  scheduledShiftId String?          @map("scheduled_shift_id") @db.Uuid
+  status           AttendanceStatus @default(open)
+  clockInAt        DateTime         @map("clock_in_at") @db.Timestamptz(6)
+  clockOutAt       DateTime?        @map("clock_out_at") @db.Timestamptz(6)
 
   // FR-HRM-022 — five INDEPENDENT flags. Never compressed into one boolean.
   /// Set at clock-in; never revisited by a correction.
-  lateArrival      Boolean @default(false) @map("late_arrival")
+  lateArrival     Boolean @default(false) @map("late_arrival")
   /// Set at clock-out (or recomputed by a correction that changes clock-out).
-  earlyDeparture   Boolean @default(false) @map("early_departure")
+  earlyDeparture  Boolean @default(false) @map("early_departure")
   /// Set by a correction that supplies a clock-out where none existed.
-  missingClockOut  Boolean @default(false) @map("missing_clock_out")
+  missingClockOut Boolean @default(false) @map("missing_clock_out")
   /// Set at clock-in from the supplied GPS vs. the branch's configured
   /// geofence, when both are present. Never revisited.
-  outsideGeofence  Boolean @default(false) @map("outside_geofence")
+  outsideGeofence Boolean @default(false) @map("outside_geofence")
   /// Set at clock-in; never revisited by a correction.
-  unscheduled      Boolean @default(false) @map("unscheduled")
+  unscheduled     Boolean @default(false) @map("unscheduled")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch         Branch          @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
-  employee       Employee        @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
-  scheduledShift ScheduledShift? @relation(fields: [tenantId, scheduledShiftId], references: [tenantId, id], onDelete: Restrict)
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch         Branch                 @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  employee       Employee               @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  scheduledShift ScheduledShift?        @relation(fields: [tenantId, scheduledShiftId], references: [tenantId, id], onDelete: Restrict)
   clockEvents    ClockEvent[]
   corrections    AttendanceCorrection[]
 
@@ -2887,17 +2887,17 @@ enum AttendanceCorrectionField {
 /// field held immediately before THIS correction (so a chain of corrections
 /// remains fully reconstructable), `correctedValue` is what it becomes.
 model AttendanceCorrection {
-  id                 String                     @id @db.Uuid
-  tenantId           String                     @map("tenant_id") @db.Uuid
-  branchId           String                     @map("branch_id") @db.Uuid
-  employeeId         String                     @map("employee_id") @db.Uuid
-  attendanceRecordId String                     @map("attendance_record_id") @db.Uuid
+  id                 String                    @id @db.Uuid
+  tenantId           String                    @map("tenant_id") @db.Uuid
+  branchId           String                    @map("branch_id") @db.Uuid
+  employeeId         String                    @map("employee_id") @db.Uuid
+  attendanceRecordId String                    @map("attendance_record_id") @db.Uuid
   field              AttendanceCorrectionField
-  originalValue      DateTime?                  @map("original_value") @db.Timestamptz(6)
-  correctedValue     DateTime                   @map("corrected_value") @db.Timestamptz(6)
+  originalValue      DateTime?                 @map("original_value") @db.Timestamptz(6)
+  correctedValue     DateTime                  @map("corrected_value") @db.Timestamptz(6)
   reason             String
-  actorId            String                     @map("actor_id") @db.Uuid
-  createdAt          DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  actorId            String                    @map("actor_id") @db.Uuid
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch           Branch           @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
@@ -2922,21 +2922,21 @@ model AttendanceCorrection {
 /// INACTIVE — documented as a governance gap in the HR-1 report, not silently
 /// defaulted and not silently blocking every clock-in tenant-wide.
 model AttendanceSettings {
-  id                     String    @id @db.Uuid
-  tenantId               String    @map("tenant_id") @db.Uuid
-  branchId               String    @map("branch_id") @db.Uuid
-  effectiveFrom          DateTime  @default(now()) @map("effective_from") @db.Timestamptz(6)
+  id                   String   @id @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  branchId             String   @map("branch_id") @db.Uuid
+  effectiveFrom        DateTime @default(now()) @map("effective_from") @db.Timestamptz(6)
   /// FR-HRM-022 late-arrival grace period. NULL = not configured.
-  graceMinutes           Int?      @map("grace_minutes")
+  graceMinutes         Int?     @map("grace_minutes")
   /// FR-HRM-023 early-clock-in window. NULL = not configured.
-  earlyClockInMinutes    Int?      @map("early_clock_in_minutes")
+  earlyClockInMinutes  Int?     @map("early_clock_in_minutes")
   /// Server-side geofence MODEL only (no mobile GPS acquisition exists in
   /// this repository — see the HR-1 report). All three NULL, or all three set.
-  geofenceCenterLat      Decimal?  @map("geofence_center_lat") @db.Decimal(9, 6)
-  geofenceCenterLng      Decimal?  @map("geofence_center_lng") @db.Decimal(9, 6)
-  geofenceRadiusMeters   Int?      @map("geofence_radius_meters")
-  createdBy              String    @map("created_by") @db.Uuid
-  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  geofenceCenterLat    Decimal? @map("geofence_center_lat") @db.Decimal(9, 6)
+  geofenceCenterLng    Decimal? @map("geofence_center_lng") @db.Decimal(9, 6)
+  geofenceRadiusMeters Int?     @map("geofence_radius_meters")
+  createdBy            String   @map("created_by") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch Branch @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
@@ -3574,21 +3574,21 @@ model Location {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant                Tenant                      @relation(fields: [tenantId], references: [id])
-  branch                Branch?                     @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Cascade)
+  tenant                         Tenant                          @relation(fields: [tenantId], references: [id])
+  branch                         Branch?                         @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Cascade)
   // Inventory back-relations (Prisma requires both sides). No column added.
-  stockBatches          StockBatch[]
-  stockMovements        StockMovement[]
-  stockLevels           StockLevel[]
-  stockLevelBatchAllocs StockLevelBatchAllocation[]
-  countSessions         CountSession[]
-  wasteRecords          WasteRecord[]
+  stockBatches                   StockBatch[]
+  stockMovements                 StockMovement[]
+  stockLevels                    StockLevel[]
+  stockLevelBatchAllocs          StockLevelBatchAllocation[]
+  countSessions                  CountSession[]
+  wasteRecords                   WasteRecord[]
   postFireVoidDispositionRecords PostFireVoidDispositionRecord[]
-  reorderConfigs        StockItemReorderConfig[]
-  warehouse             Warehouse?                  @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Cascade)
-  centralKitchen        CentralKitchen?             @relation(fields: [tenantId, centralKitchenId], references: [tenantId, id], onDelete: Cascade)
+  reorderConfigs                 StockItemReorderConfig[]
+  warehouse                      Warehouse?                      @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Cascade)
+  centralKitchen                 CentralKitchen?                 @relation(fields: [tenantId, centralKitchenId], references: [tenantId, id], onDelete: Cascade)
   // P1F-2 back-relation only (virtual; no DDL impact).
-  saleDepletionEffects  SaleDepletionEffect[]
+  saleDepletionEffects           SaleDepletionEffect[]
 
   /// Composite-FK target for Inventory: (tenant_id, location_id).
   @@unique([tenantId, id])
@@ -4072,9 +4072,9 @@ model ReasonCode {
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
-  wasteRecords WasteRecord[]
+  wasteRecords                   WasteRecord[]
   postFireVoidDispositionRecords PostFireVoidDispositionRecord[]
-  movements    StockMovement[]
+  movements                      StockMovement[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, category, code], map: "uq_reason_code")
@@ -4158,27 +4158,27 @@ enum PostFireDispositionKind {
 }
 
 model PostFireVoidDispositionRecord {
-  id          String                  @id @db.Uuid
-  tenantId    String                  @map("tenant_id") @db.Uuid
-  locationId  String                  @map("location_id") @db.Uuid
+  id           String                  @id @db.Uuid
+  tenantId     String                  @map("tenant_id") @db.Uuid
+  locationId   String                  @map("location_id") @db.Uuid
   /// Opaque reference to `sales.order_lines.id` — no FK (cross-module,
   /// mirrors `governance.approval_requests.entity_id`'s own "No FK" posture
   /// for the identical reason: Inventory must not gain a private dependency
   /// on Sales' partitioned table shape).
-  orderLineId String                  @map("order_line_id") @db.Uuid
-  disposition PostFireDispositionKind
-  reasonCodeId String                 @map("reason_code_id") @db.Uuid
+  orderLineId  String                  @map("order_line_id") @db.Uuid
+  disposition  PostFireDispositionKind
+  reasonCodeId String                  @map("reason_code_id") @db.Uuid
   /// The components the disposition considered — `{stockItemId,
   /// quantityInBaseUnit}[]`, exact decimal strings. Populated even for
   /// `returned_to_stock`, where no movement follows from it.
-  components  Json                    @db.JsonB
+  components   Json                    @db.JsonB
   /// `inventory.stock_movements.id[]` this disposition created. Always `[]`
   /// for `returned_to_stock`.
-  movementIds Json                    @default("[]") @map("movement_ids") @db.JsonB
+  movementIds  Json                    @default("[]") @map("movement_ids") @db.JsonB
   /// Always `0` for `returned_to_stock`.
-  totalValue  BigInt                  @default(0) @map("total_value")
-  actorId     String                  @map("actor_id") @db.Uuid
-  createdAt   DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  totalValue   BigInt                  @default(0) @map("total_value")
+  actorId      String                  @map("actor_id") @db.Uuid
+  createdAt    DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant     Tenant     @relation(fields: [tenantId], references: [id])
   location   Location   @relation(fields: [tenantId, locationId], references: [tenantId, id])

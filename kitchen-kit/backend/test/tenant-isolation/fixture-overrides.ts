@@ -278,6 +278,65 @@ const overrides: RowOverride[] = [
       gross_amount_minor: 0,
     }),
   },
+  // MW1I integration additions — these 5 tables were introduced by the
+  // POS-FIN-1 and HR-1 lanes, both of which post-date the CI-1 run that
+  // generated this registry, so they were never previously discovered.
+  {
+    key: 'sales.discounts',
+    reason:
+      "ck_discount_value_shape requires, for kind='discount', value_type " +
+      "in {'percentage','fixed'} with the matching amount column set " +
+      "(the other NULL); value_type is nullable so the generic pass " +
+      "leaves it NULL while kind generically resolves to the enum's " +
+      "first value ('discount').",
+    columns: () => ({
+      kind: 'discount',
+      value_type: 'percentage',
+      percentage_value_bp: 500,
+      fixed_value_minor: null,
+    }),
+  },
+  {
+    key: 'sales.refunds',
+    reason:
+      "ck_refund_cash_session_required_for_cash requires cash_session_id " +
+      "NOT NULL when tender='cash'; cash_session_id is nullable (and has " +
+      "no FK, by design — see the migration) so the generic pass leaves " +
+      "it NULL while tender generically resolves to the enum's first " +
+      "value ('cash').",
+    columns: async (ctx) => {
+      const cashSession = await ctx.resolve('treasury', 'cash_sessions');
+      return { tender: 'cash', cash_session_id: cashSession.id };
+    },
+  },
+  {
+    key: 'workforce.employee_compensations',
+    reason:
+      "ck_ec_currency_iso requires `currency` to match ^[A-Z]{3}$; the " +
+      'generic CHAR(3) filler does not produce that shape.',
+    columns: () => ({ currency: 'EGP' }),
+  },
+  {
+    key: 'workforce.scheduled_shifts',
+    reason:
+      'ck_scheduled_shift_starts_before_ends requires starts_at < ends_at; ' +
+      'the generic pass fills both timestamp columns with the same ' +
+      'synthetic instant.',
+    columns: () => {
+      const startsAt = new Date();
+      const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
+      return { starts_at: startsAt, ends_at: endsAt };
+    },
+  },
+  {
+    key: 'workforce.clock_events',
+    reason:
+      "ck_clock_event_terminal_required_for_pos_pin requires terminal_id " +
+      "NOT NULL when method='pos_pin'; terminal_id is nullable and method " +
+      "generically resolves to the enum's first value ('pos_pin'). " +
+      "'mobile' is the simplest method that carries no such requirement.",
+    columns: () => ({ method: 'mobile' }),
+  },
 ];
 
 export const FIXTURE_OVERRIDES: Map<string, RowOverride> = new Map(
