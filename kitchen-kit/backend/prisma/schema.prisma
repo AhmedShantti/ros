@@ -275,6 +275,15 @@ model Tenant {
   scheduledJobSchedules      ScheduledJobSchedule[]
   scheduledJobOccurrences    ScheduledJobOccurrence[]
   scheduledJobFindings       ScheduledJobFinding[]
+  /// HR-1 — Workforce Core. Back-relations only — no column and no behaviour
+  /// change on `identity.tenants`.
+  employeeCompensations      EmployeeCompensation[]
+  schedules                  Schedule[]
+  scheduledShifts            ScheduledShift[]
+  attendanceRecords          AttendanceRecord[]
+  clockEvents                ClockEvent[]
+  attendanceCorrections      AttendanceCorrection[]
+  attendanceSettings         AttendanceSettings[]
 
   @@map("tenants")
   @@schema("identity")
@@ -783,6 +792,14 @@ model Branch {
   // Migration 35 back-relations only (virtual; no DDL impact on this model).
   dayCloseActivations DayCloseActivation[]
   dayCloses           DayClose[]
+
+  // HR-1 back-relations only (virtual; no DDL impact on this model).
+  schedules             Schedule[]
+  scheduledShifts       ScheduledShift[]
+  attendanceRecords     AttendanceRecord[]
+  clockEvents           ClockEvent[]
+  attendanceCorrections AttendanceCorrection[]
+  attendanceSettings    AttendanceSettings[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_branch_code")
@@ -1799,6 +1816,36 @@ model Employee {
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  // ── HR-1 — FR-HRM-001/002/006 full employee record ───────────────────────
+  // §7.3 #25 assigns Employee to the Workforce context; the row stays
+  // physically in `identity` (D-2's original placement, load-bearing for
+  // PinService's single-transaction PIN verification path) and the WRITE
+  // SURFACE for these business-fact columns lives in
+  // `modules/workforce/employees/`, mirroring P1D-A's own accepted precedent
+  // that physical schema placement is not conceptual ownership.
+  //
+  // All additive and nullable: no fact is fabricated for a pre-existing row,
+  // and most are legitimately absent for a given employee (a trainee with no
+  // termination date, a porter with no contact email on file).
+  /// Locale -> localised display name, e.g. `{"en": "...", "ar": "..."}`.
+  /// `displayName` above remains the single required default-locale name.
+  namesLocalized     Json      @default("{}") @map("names_localized")
+  /// National / residency identifier (FR-HRM-001). Free text: format varies
+  /// by jurisdiction and no Country Pack validation rule exists for it.
+  nationalId         String?   @map("national_id") @db.VarChar(64)
+  /// `{ phone?, email?, address? }` — no fixed contact schema is SRS-given.
+  contactDetails     Json?     @map("contact_details")
+  /// `{ name?, phone?, relation? }`.
+  emergencyContact   Json?     @map("emergency_contact")
+  dateOfBirth        DateTime? @map("date_of_birth") @db.Date
+  hireDate           DateTime? @map("hire_date") @db.Date
+  terminationDate    DateTime? @map("termination_date") @db.Date
+  position           String?   @db.VarChar(120)
+  department         String?   @db.VarChar(120)
+  /// FR-HRM-002. NULL on a pre-existing row until set; required by the
+  /// Workforce create command for every NEW employee.
+  employmentType     EmployeeEmploymentType? @map("employment_type")
+
   tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user       User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   homeBranch Branch           @relation("EmployeeHomeBranch", fields: [tenantId, homeBranchId], references: [tenantId, id], onDelete: Restrict)
@@ -1816,6 +1863,12 @@ model Employee {
   // Migration 35 back-relations only (virtual; no DDL impact on this model).
   dayCloseActivationsMade DayCloseActivation[]
   dayClosesClosed         DayClose[]
+  // HR-1 back-relations only (virtual; no DDL impact on this model).
+  compensationVersions    EmployeeCompensation[]
+  scheduledShifts         ScheduledShift[]
+  attendanceRecords       AttendanceRecord[]
+  clockEvents             ClockEvent[]
+  attendanceCorrections   AttendanceCorrection[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_employee_code")
@@ -1828,6 +1881,17 @@ enum EmployeeStatus {
   active
   suspended
   terminated
+
+  @@schema("identity")
+}
+
+/// FR-HRM-002 — exactly these five. No sixth type is invented.
+enum EmployeeEmploymentType {
+  full_time
+  part_time
+  casual
+  contractor
+  trainee
 
   @@schema("identity")
 }
@@ -2361,6 +2425,289 @@ model Shift {
   @@index([tenantId, branchId, status])
   @@index([tenantId, employeeId, status])
   @@map("shifts")
+  @@schema("workforce")
+}
+
+// ---------------------------------------------------------------------------
+// HR-1 — Workforce Core: Employee compensation, Schedule substrate, Attendance.
+//
+// Authority: SRS Chapter 14 (FR-HRM-001..036), §7.3 aggregates #25 Employee /
+// #26 Schedule / #27 AttendanceRecord. P1D-A's Workforce defer is reopened
+// narrowly further, for exactly this substrate — Operational Shift (above)
+// remains untouched and distinct from CashSession.
+// ---------------------------------------------------------------------------
+
+/// FR-HRM-003 — compensation basis. Effective-dated, IMMUTABLE versions (the
+/// `cash_close_policies` shape): a changed rate is a new row, never an edit,
+/// so "what did we pay this person on date X" is always answerable.
+enum CompensationBasis {
+  hourly
+  monthly_salary
+  per_shift
+
+  @@schema("workforce")
+}
+
+/// FR-HRM-003. Visibility is an APPLICATION permission check
+/// (`hr.compensation.view`), not an RLS row filter — RLS is tenant isolation,
+/// not permission-based field redaction, exactly like every other permission
+/// in this repository.
+model EmployeeCompensation {
+  id                String            @id @db.Uuid
+  tenantId          String            @map("tenant_id") @db.Uuid
+  employeeId        String            @map("employee_id") @db.Uuid
+  basis             CompensationBasis
+  /// Exact integer minor units. NEVER a float (BR money discipline).
+  amountMinorUnits  BigInt            @map("amount_minor_units")
+  currency          String            @db.Char(3)
+  effectiveFrom     DateTime          @default(now()) @map("effective_from") @db.Timestamptz(6)
+  createdBy         String            @map("created_by") @db.Uuid
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, employeeId, effectiveFrom])
+  @@index([tenantId, employeeId, effectiveFrom(sort: Desc)])
+  @@map("employee_compensations")
+  @@schema("workforce")
+}
+
+/// §7.3 #26 — Schedule aggregate root. A branch's roster plan for one week.
+/// A lightweight, immutable container: `ScheduledShift` carries every
+/// mutable/queryable fact. FR-HRM-015 publish/acknowledgement and FR-HRM-016
+/// swap requests remain deferred and have no representation here.
+model Schedule {
+  id            String   @id @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  branchId      String   @map("branch_id") @db.Uuid
+  /// The Monday (or any caller-chosen anchor day) the week starts. Stored as
+  /// given; the SRS gives no canonical week-start-day rule to enforce.
+  weekStartDate DateTime @map("week_start_date") @db.Date
+  createdBy     String   @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch           @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  shifts ScheduledShift[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, branchId, weekStartDate], map: "uq_schedule_branch_week")
+  @@map("schedules")
+  @@schema("workforce")
+}
+
+/// §7.3 #26's contained entity. §7.3's own key invariant — "No overlapping
+/// shifts for one employee" — is enforced by a real Postgres EXCLUDE
+/// constraint (see the migration), not merely re-checked in application code.
+model ScheduledShift {
+  id         String   @id @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  /// Denormalised from `schedule.branchId` for direct branch-scoped queries
+  /// and B1-3 resource-derived authorization targets.
+  branchId   String   @map("branch_id") @db.Uuid
+  scheduleId String   @map("schedule_id") @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  /// Station/role for the shift, free text — no SRS-given position registry.
+  position   String?  @db.VarChar(120)
+  startsAt   DateTime @map("starts_at") @db.Timestamptz(6)
+  endsAt     DateTime @map("ends_at") @db.Timestamptz(6)
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch            Branch             @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  schedule          Schedule           @relation(fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict)
+  employee          Employee           @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  attendanceRecords AttendanceRecord[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, branchId, startsAt])
+  @@index([tenantId, employeeId, startsAt])
+  @@map("scheduled_shifts")
+  @@schema("workforce")
+}
+
+/// Mirrors `ShiftStatus`. `open` while no clock-out has been recorded yet.
+enum AttendanceStatus {
+  open
+  closed
+
+  @@schema("workforce")
+}
+
+/// §7.3 #27 — AttendanceRecord aggregate root: the worked-period projection.
+/// MUTABLE (like `CashSession`, unlike its own `ClockEvent`/
+/// `AttendanceCorrection` children, which are immutable evidence) — clock-out
+/// and manual correction both update this row; every mutation is additionally
+/// evidenced by an immutable child row (a `ClockEvent` or an
+/// `AttendanceCorrection`), so nothing here is a silent, un-evidenced edit.
+///
+/// `scheduledShiftId` is NULLABLE: unscheduled work is a valid real case
+/// (`unscheduled` flag below), not an error.
+model AttendanceRecord {
+  id               String            @id @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  branchId         String            @map("branch_id") @db.Uuid
+  employeeId       String            @map("employee_id") @db.Uuid
+  scheduledShiftId String?           @map("scheduled_shift_id") @db.Uuid
+  status           AttendanceStatus  @default(open)
+  clockInAt        DateTime          @map("clock_in_at") @db.Timestamptz(6)
+  clockOutAt       DateTime?         @map("clock_out_at") @db.Timestamptz(6)
+
+  // FR-HRM-022 — five INDEPENDENT flags. Never compressed into one boolean.
+  /// Set at clock-in; never revisited by a correction.
+  lateArrival      Boolean @default(false) @map("late_arrival")
+  /// Set at clock-out (or recomputed by a correction that changes clock-out).
+  earlyDeparture   Boolean @default(false) @map("early_departure")
+  /// Set by a correction that supplies a clock-out where none existed.
+  missingClockOut  Boolean @default(false) @map("missing_clock_out")
+  /// Set at clock-in from the supplied GPS vs. the branch's configured
+  /// geofence, when both are present. Never revisited.
+  outsideGeofence  Boolean @default(false) @map("outside_geofence")
+  /// Set at clock-in; never revisited by a correction.
+  unscheduled      Boolean @default(false) @map("unscheduled")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch         Branch          @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  employee       Employee        @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  scheduledShift ScheduledShift? @relation(fields: [tenantId, scheduledShiftId], references: [tenantId, id], onDelete: Restrict)
+  clockEvents    ClockEvent[]
+  corrections    AttendanceCorrection[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, employeeId, status])
+  @@map("attendance_records")
+  @@schema("workforce")
+}
+
+enum ClockEventType {
+  clock_in
+  clock_out
+
+  @@schema("workforce")
+}
+
+/// FR-HRM-020/021. All three literal SRS channels are MODELLED; only
+/// `pos_pin` is actually reachable by any route in this repository (no mobile
+/// auth channel and no biometric device integration exist here — see the
+/// HR-1 report for the documented gap).
+enum ClockMethod {
+  pos_pin
+  mobile
+  biometric
+
+  @@schema("workforce")
+}
+
+/// FR-HRM-021 — IMMUTABLE, append-only operational evidence. Never updated,
+/// never deleted, regardless of any later manual correction
+/// (`AttendanceCorrection` is the amendment; this row is never touched).
+model ClockEvent {
+  id                 String         @id @db.Uuid
+  tenantId           String         @map("tenant_id") @db.Uuid
+  branchId           String         @map("branch_id") @db.Uuid
+  employeeId         String         @map("employee_id") @db.Uuid
+  attendanceRecordId String         @map("attendance_record_id") @db.Uuid
+  eventType          ClockEventType @map("event_type")
+  method             ClockMethod
+  /// Required (at the service layer) when `method = pos_pin`.
+  terminalId         String?        @map("terminal_id") @db.Uuid
+  /// Forward-compatible device identifier for `mobile`/`biometric` methods.
+  /// Never populated by any route in this repository today.
+  deviceId           String?        @map("device_id") @db.VarChar(120)
+  gpsLat             Decimal?       @map("gps_lat") @db.Decimal(9, 6)
+  gpsLng             Decimal?       @map("gps_lng") @db.Decimal(9, 6)
+  /// Server-derived (DB `DEFAULT`, not app-supplied — `ros_app` holds no
+  /// INSERT privilege on this column). Immutable evidence of when the event
+  /// was actually recorded, never a client-asserted instant.
+  occurredAt         DateTime       @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch           Branch           @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  employee         Employee         @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  attendanceRecord AttendanceRecord @relation(fields: [tenantId, attendanceRecordId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, attendanceRecordId, occurredAt])
+  @@map("clock_events")
+  @@schema("workforce")
+}
+
+enum AttendanceCorrectionField {
+  clock_in_at
+  clock_out_at
+
+  @@schema("workforce")
+}
+
+/// FR-HRM-025 — IMMUTABLE, append-only correction evidence. One row per
+/// corrected field per correction command; `originalValue` is whatever the
+/// field held immediately before THIS correction (so a chain of corrections
+/// remains fully reconstructable), `correctedValue` is what it becomes.
+model AttendanceCorrection {
+  id                 String                     @id @db.Uuid
+  tenantId           String                     @map("tenant_id") @db.Uuid
+  branchId           String                     @map("branch_id") @db.Uuid
+  employeeId         String                     @map("employee_id") @db.Uuid
+  attendanceRecordId String                     @map("attendance_record_id") @db.Uuid
+  field              AttendanceCorrectionField
+  originalValue      DateTime?                  @map("original_value") @db.Timestamptz(6)
+  correctedValue     DateTime                   @map("corrected_value") @db.Timestamptz(6)
+  reason             String
+  actorId            String                     @map("actor_id") @db.Uuid
+  createdAt          DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch           Branch           @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  employee         Employee         @relation(fields: [tenantId, employeeId], references: [tenantId, id], onDelete: Restrict)
+  attendanceRecord AttendanceRecord @relation(fields: [tenantId, attendanceRecordId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, attendanceRecordId, createdAt])
+  @@map("attendance_corrections")
+  @@schema("workforce")
+}
+
+/// FR-HRM-022/023 configurable thresholds. IMMUTABLE versioned rows (the
+/// `cash_close_policies` shape) — a changed policy is a new row.
+///
+/// `graceMinutes` and `earlyClockInMinutes` are NULLABLE with NO DEFAULT: the
+/// SRS states these are "configurable" but gives no numeric default for
+/// either (contrast FR-HRM-012's schedule rules, which the SRS DOES give
+/// literal defaults for). Inventing a number here would be exactly the
+/// fabricated business value the governing brief forbids. A branch with no
+/// row, or whose latest row leaves a field NULL, has that SPECIFIC check
+/// INACTIVE — documented as a governance gap in the HR-1 report, not silently
+/// defaulted and not silently blocking every clock-in tenant-wide.
+model AttendanceSettings {
+  id                     String    @id @db.Uuid
+  tenantId               String    @map("tenant_id") @db.Uuid
+  branchId               String    @map("branch_id") @db.Uuid
+  effectiveFrom          DateTime  @default(now()) @map("effective_from") @db.Timestamptz(6)
+  /// FR-HRM-022 late-arrival grace period. NULL = not configured.
+  graceMinutes           Int?      @map("grace_minutes")
+  /// FR-HRM-023 early-clock-in window. NULL = not configured.
+  earlyClockInMinutes    Int?      @map("early_clock_in_minutes")
+  /// Server-side geofence MODEL only (no mobile GPS acquisition exists in
+  /// this repository — see the HR-1 report). All three NULL, or all three set.
+  geofenceCenterLat      Decimal?  @map("geofence_center_lat") @db.Decimal(9, 6)
+  geofenceCenterLng      Decimal?  @map("geofence_center_lng") @db.Decimal(9, 6)
+  geofenceRadiusMeters   Int?      @map("geofence_radius_meters")
+  createdBy              String    @map("created_by") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, branchId, effectiveFrom], map: "uq_attendance_settings_branch_effective_from")
+  @@index([tenantId, branchId, effectiveFrom(sort: Desc)])
+  @@map("attendance_settings")
   @@schema("workforce")
 }
 
