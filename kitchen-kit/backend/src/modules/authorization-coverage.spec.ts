@@ -116,6 +116,17 @@ const REVIEWED_UNPROTECTED_ROUTES: Readonly<Record<string, string>> = {
     'issuance, POST /sync/recovery/grants). Operation-level domain ' +
     'authorization inside the batch is the same SYNC_AUTHORIZATION_PORT ' +
     'every production handler already enforces.',
+  'POST /workforce/attendance/clock-in':
+    'FR-HRM-020/023. The caller clocks THEMSELVES in via a PIN-verified POS ' +
+    "session (FR-SEC-021); authority is that session's own employee " +
+    'identity, never an RBAC grant — every active employee must be able to ' +
+    "clock in regardless of what else they hold. §15.2's Workforce " +
+    'catalogue has no "clock in" verb to invent one from. Branch safety ' +
+    "comes from the terminal binding and the employee's permitted-branch " +
+    'set, exactly like POST /cash-sessions.',
+  'POST /workforce/attendance/clock-out':
+    'Same authority as clock-in, above — the caller closes their OWN open ' +
+    'attendance record.',
 };
 
 // ───────────────────────────────────────────────────────── route discovery ──

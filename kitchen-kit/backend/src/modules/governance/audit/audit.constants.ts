@@ -253,6 +253,27 @@ export const AUDIT_ACTION = {
   // not waste, and conflating them would misdescribe two-thirds of what
   // this event now covers.
   POST_FIRE_VOID_DISPOSITION_RECORDED: 'POST_FIRE_VOID_DISPOSITION_RECORDED',
+
+  // HR-1 — Workforce Core (FR-HRM-001..025). Same <ENTITY>_<PAST_TENSE>
+  // convention as every other verb in this file.
+  EMPLOYEE_UPDATED: 'EMPLOYEE_UPDATED',
+  EMPLOYEE_DEACTIVATED: 'EMPLOYEE_DEACTIVATED',
+  // FR-HRM-003 — a new effective-dated version, never an edit (mirrors
+  // CASH_CLOSE_POLICY_VERSION_CREATED's own one-verb-per-new-row convention).
+  EMPLOYEE_COMPENSATION_SET: 'EMPLOYEE_COMPENSATION_SET',
+  SCHEDULE_CREATED: 'SCHEDULE_CREATED',
+  SCHEDULED_SHIFT_CREATED: 'SCHEDULED_SHIFT_CREATED',
+  // One verb per direction (not one verb for both, unlike
+  // CASH_MOVEMENT_RECORDED's convention): a clock-in and a clock-out are
+  // materially different accountable events — one opens paid time, the other
+  // closes it — and FR-HRM-023's early-clock-in rejection only ever attaches
+  // to the former.
+  CLOCK_IN_RECORDED: 'CLOCK_IN_RECORDED',
+  CLOCK_OUT_RECORDED: 'CLOCK_OUT_RECORDED',
+  // FR-HRM-025 — one verb per corrected field (an AttendanceCorrection row is
+  // already one-field-at-a-time; the audit entry mirrors it 1:1).
+  ATTENDANCE_CORRECTED: 'ATTENDANCE_CORRECTED',
+  ATTENDANCE_SETTINGS_VERSION_CREATED: 'ATTENDANCE_SETTINGS_VERSION_CREATED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -337,4 +358,13 @@ export const AUDIT_ENTITY = {
   DISCOUNT: 'discount',
   POST_FIRE_VOID_RECORD: 'post_fire_void_record',
   REFUND: 'refund',
+
+  // HR-1 — Workforce Core entities.
+  EMPLOYEE_COMPENSATION: 'employee_compensation',
+  SCHEDULE: 'schedule',
+  SCHEDULED_SHIFT: 'scheduled_shift',
+  ATTENDANCE_RECORD: 'attendance_record',
+  CLOCK_EVENT: 'clock_event',
+  ATTENDANCE_CORRECTION: 'attendance_correction',
+  ATTENDANCE_SETTINGS: 'attendance_settings',
 } as const;

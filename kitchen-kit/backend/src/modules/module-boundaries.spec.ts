@@ -66,7 +66,12 @@ const IMPORT_RE =
  *       Each is closed by moving its port under `modules/<module>/contract/`,
  *       exactly as Workforce now does — by the slice that owns it.
  *
- * `workforce` appears in neither list, and must not.
+ * `workforce` appeared in neither list when this file was first written (its
+ * only surface was one contract command, `SHIFT_OPENER`, consumed by
+ * Treasury). HR-1 gives Workforce its first HTTP controllers, so it now
+ * carries the SAME category-(a) cross-cutting plumbing entries every other
+ * HTTP module in this repository already carries — see `workforce->identity`
+ * / `workforce->governance` below, identical to `treasury`'s own.
  */
 const KNOWN_DEVIATIONS: Readonly<Record<string, readonly string[]>> = {
   'catalogue->governance': ['audit/audit.module', 'audit/audit.service'],
@@ -140,6 +145,24 @@ const KNOWN_DEVIATIONS: Readonly<Record<string, readonly string[]>> = {
   'sales->production': ['costing/recipe-cost', 'costing/recipe-cost.service'],
   'treasury->governance': ['audit/audit.module', 'audit/audit.service'],
   'treasury->identity': [
+    'auth/auth.types',
+    'auth/decorators/current-principal.decorator',
+    'auth/decorators/pos-session.decorator',
+    'auth/guards/jwt-auth.guard',
+    'authz/decorators/require-permission.decorator',
+    'authz/guards/permission.guard',
+    'authz/permissions.constants',
+    'context/current-tenant-context.decorator',
+    'context/tenant-context',
+    'context/tenant-context.guard',
+  ],
+  // HR-1 — Workforce Core. Same "cross-cutting HTTP/auth plumbing" category
+  // (a) as every other HTTP module above, now that Workforce has its first
+  // controllers (Employee/Schedule/Attendance). Identical list to
+  // `treasury->identity`: the same guards, decorators, and POS-session
+  // primitives every terminal-facing route in this repository already uses.
+  'workforce->governance': ['audit/audit.module', 'audit/audit.service'],
+  'workforce->identity': [
     'auth/auth.types',
     'auth/decorators/current-principal.decorator',
     'auth/decorators/pos-session.decorator',
