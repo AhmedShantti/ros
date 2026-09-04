@@ -95,6 +95,7 @@ describe('POS-FIN-1 (e2e)', () => {
   let branchA: string;
   let branchOther: string; // a second branch under tenantA — the "wrong branch" for manager approval
   let terminalA: string;
+  let stationFallbackId: string; // branchA's ONE fallback KDS station — real Fire routing (H section)
   let terminalB: string;
   let employeeCashier: string; // pos.discount.apply, pos.comp.apply, pos.order.void_line_postfire, pos.refund.issue
   let employeeCashierCode: string;
@@ -255,6 +256,23 @@ describe('POS-FIN-1 (e2e)', () => {
     terminalA = await mkTerminal(tenantA, branchA, 'PF-POS-1');
     terminalB = await mkTerminal(tenantB, branchB, 'PF-POS-B');
 
+    // ── real Kitchen routing for branchA (H section) — ONE fallback
+    // station, so a real Fire always resolves to exactly one destination
+    // and produces a genuine kitchen.tickets/ticket_lines row via
+    // OrderLineFiredHandler, never a direct-insert fixture. ────────────────
+    stationFallbackId = (
+      await admin.station.create({
+        data: { id: newId(), branchId: branchA, name: `PF-Station-${stamp}` },
+      })
+    ).id;
+    await admin.branchKdsConfig.create({
+      data: {
+        branchId: branchA,
+        tenantId: tenantA,
+        fallbackStationId: stationFallbackId,
+      },
+    });
+
     for (const def of SALES_PERMISSION_DEFS) await permissions.upsert(def);
     for (const def of TREASURY_PERMISSION_DEFS) await permissions.upsert(def);
     for (const def of INVENTORY_PERMISSION_DEFS) await permissions.upsert(def);
@@ -273,6 +291,7 @@ describe('POS-FIN-1 (e2e)', () => {
       SALES_PERMISSIONS.REFUND_ISSUE,
       SALES_PERMISSIONS.REFUND_DIFFERENT_TENDER,
       TREASURY_PERMISSIONS.CASH_SESSION_OPEN,
+      TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
     ]);
     const managerRole = await roles.createTenantRole(tenantA, {
       name: `pf_manager_${stamp}`,
@@ -664,6 +683,7 @@ describe('POS-FIN-1 (e2e)', () => {
     order: { id: string; businessDay: Date },
     token: string,
     tenderMinor?: bigint,
+    cashSessionIdOverride?: string,
   ) => {
     const fresh = await admin.order.findFirstOrThrow({
       where: { id: order.id },
@@ -673,7 +693,7 @@ describe('POS-FIN-1 (e2e)', () => {
       tender: 'cash',
       amountMinor: amount.toString(),
       tenderedAmountMinor: amount.toString(),
-      cashSessionId: cashSessionA,
+      cashSessionId: cashSessionIdOverride ?? cashSessionA,
     });
     expect(res.status).toBe(201);
     return res.body as {
@@ -1541,6 +1561,80 @@ describe('POS-FIN-1 (e2e)', () => {
       });
       expect(allowed.status).toBe(201);
     });
+
+    it('C11. FR-POS-072 acceptance correction: the refund cap is grandTotal, NOT the (potentially higher) paidTotal from a P1F-2 over-capture', async () => {
+      // A single settling payment that overshoots grandTotal is explicitly
+      // permitted by P1F-2 (SalesPaymentService places no upper bound on a
+      // Payment's amountMinor) — `daily-trading-sales.query.service.ts`'s
+      // own `completedExcessCapturedTotal` documents the excess as having
+      // NO accepted refund/revenue/tax disposition. This proves the excess
+      // is NOT silently treated as refundable.
+      const order = await mkOpenOrder();
+      const item = await mkSellable(`C11-${newId()}`, 10_000n);
+      await mkLine(order, item.itemId, item.variantId);
+      const fresh = await admin.order.findFirstOrThrow({
+        where: { id: order.id },
+      });
+      const grandTotal = fresh.grandTotal;
+      const overCaptureAmount = grandTotal + 2000n; // deliberate overshoot
+      const settled = await settleFull(order, cashierToken, overCaptureAmount);
+      expect(BigInt(settled.order.paidTotal)).toBe(overCaptureAmount);
+      expect(BigInt(settled.order.paidTotal)).toBeGreaterThan(grandTotal);
+      const paymentRow = await admin.orderPayment.findFirstOrThrow({
+        where: { orderId: order.id },
+      });
+
+      // A refund for exactly grandTotal succeeds (the full ORIGINAL amount
+      // owed is refundable) ...
+      const atCap = await postFresh(cashierToken, order, '/refunds', {
+        originalPaymentId: paymentRow.id,
+        tender: 'cash',
+        amountMinor: grandTotal.toString(),
+        reasonCodeId: reasonDiscount,
+        cashSessionId: cashSessionA,
+        managerEmployeeCode: employeeManagerCode,
+        managerPin: PIN_MANAGER,
+        approvalRequestId: newId(),
+        approvalDecisionId: newId(),
+      });
+      expect(atCap.status).toBe(201);
+      expect((atCap.body as { order: { state: string } }).order.state).toBe(
+        'refunded',
+      );
+
+      // ... but the over-captured excess is NEVER refundable through this
+      // route: even a request for just 1 minor unit beyond grandTotal, on a
+      // FRESH order where paidTotal genuinely has that much room, is
+      // rejected (422), never silently allowed up to paidTotal.
+      const order2 = await mkOpenOrder();
+      const item2 = await mkSellable(`C11b-${newId()}`, 10_000n);
+      await mkLine(order2, item2.itemId, item2.variantId);
+      const fresh2 = await admin.order.findFirstOrThrow({
+        where: { id: order2.id },
+      });
+      const grandTotal2 = fresh2.grandTotal;
+      await settleFull(order2, cashierToken, grandTotal2 + 5000n);
+      const paymentRow2 = await admin.orderPayment.findFirstOrThrow({
+        where: { orderId: order2.id },
+      });
+      const overCap = await postFresh(cashierToken, order2, '/refunds', {
+        originalPaymentId: paymentRow2.id,
+        tender: 'cash',
+        amountMinor: (grandTotal2 + 1n).toString(),
+        reasonCodeId: reasonDiscount,
+        cashSessionId: cashSessionA,
+        managerEmployeeCode: employeeManagerCode,
+        managerPin: PIN_MANAGER,
+        approvalRequestId: newId(),
+        approvalDecisionId: newId(),
+      });
+      expect(overCap.status).toBe(422);
+      const sum = await admin.refund.aggregate({
+        where: { orderId: order2.id },
+        _sum: { amountMinor: true },
+      });
+      expect(sum._sum.amountMinor ?? 0n).toBe(0n);
+    });
   });
 
   // =================================================== D. REFUND CONCURRENCY
@@ -1616,8 +1710,9 @@ describe('POS-FIN-1 (e2e)', () => {
       const orderRow = await admin.order.findFirstOrThrow({
         where: { id: order.id },
       });
+      // FR-POS-072 acceptance correction: the cap is grandTotal (see C11).
       expect(sum._sum.amountMinor ?? 0n).toBeLessThanOrEqual(
-        orderRow.paidTotal,
+        orderRow.grandTotal,
       );
       expect(sum._sum.amountMinor).toBe(6000n);
     });
@@ -1733,6 +1828,20 @@ describe('POS-FIN-1 (e2e)', () => {
         where: { referenceType: 'post_fire_void', referenceId: line.line.id },
       });
       expect(movements).toBe(0);
+
+      // FR-POS-071 acceptance correction (2026-09-04): "returned_to_stock"
+      // still gets an INVENTORY-OWNED disposition record — zero net stock
+      // movement is the correct physical effect, but the classification
+      // event itself must still be durably, append-only evidenced.
+      const dispositionRecord =
+        await admin.postFireVoidDispositionRecord.findFirstOrThrow({
+          where: { orderLineId: line.line.id },
+        });
+      expect(dispositionRecord.disposition).toBe('returned_to_stock');
+      expect(dispositionRecord.movementIds).toEqual([]);
+      expect(dispositionRecord.totalValue).toBe(0n);
+      expect(dispositionRecord.reasonCodeId).toBe(reasonDiscount);
+      expect(dispositionRecord.actorId).toBe(userCashier);
     });
 
     it('E4. wasted disposition on an item with NO recipe: legitimately empty inventoryMovementIds (no consumption to record)', async () => {
@@ -1880,6 +1989,21 @@ describe('POS-FIN-1 (e2e)', () => {
       expect(movement.stockItemId).toBe(stockItem.id);
       expect(Number(movement.quantity)).toBeLessThan(0); // outbound
       expect(Math.abs(Number(movement.quantity))).toBeCloseTo(2, 6);
+
+      // FR-POS-071 acceptance correction: the Inventory-OWNED disposition
+      // record exists too, referencing the SAME movement id, with a
+      // truthful non-zero totalValue.
+      const dispositionRecord =
+        await admin.postFireVoidDispositionRecord.findFirstOrThrow({
+          where: { orderLineId: line.line.id },
+        });
+      expect(dispositionRecord.disposition).toBe('wasted');
+      expect(dispositionRecord.movementIds).toEqual([movement.id]);
+      expect(dispositionRecord.totalValue).toBeGreaterThan(0n);
+      expect(
+        (dispositionRecord.components as { stockItemId: string }[])[0]
+          .stockItemId,
+      ).toBe(stockItem.id);
     });
 
     it('E6. given_to_staff disposition also produces a waste-type movement, distinguishable via the PostFireVoidRecord', async () => {
@@ -1907,6 +2031,16 @@ describe('POS-FIN-1 (e2e)', () => {
       expect(body.postFireVoidRecord.disposition).toBe('given_to_staff');
       // No recipe on this item -> legitimately empty, mirrors E4's reasoning.
       expect(body.postFireVoidRecord.inventoryMovementIds).toEqual([]);
+
+      // Still gets its own Inventory-owned disposition record (FR-POS-071
+      // acceptance correction) even with zero components resolved.
+      const dispositionRecord =
+        await admin.postFireVoidDispositionRecord.findFirstOrThrow({
+          where: { orderLineId: line.line.id },
+        });
+      expect(dispositionRecord.disposition).toBe('given_to_staff');
+      expect(dispositionRecord.movementIds).toEqual([]);
+      expect(dispositionRecord.totalValue).toBe(0n);
     });
 
     it('E7. financialAmountRemoved + audit ORDER_LINE_VOIDED_POSTFIRE recorded with before/after', async () => {
@@ -2072,6 +2206,334 @@ describe('POS-FIN-1 (e2e)', () => {
         cashSessionId: cashSessionA,
       });
       expect(res.status).toBe(404);
+    });
+  });
+
+  // ======================================== H. KITCHEN INTEGRATION (REAL)
+  // Acceptance correction (2026-09-04) §5A: closes the admitted test gap —
+  // a real order.line.fired -> OrderLineFiredHandler -> real
+  // kitchen.tickets/ticket_lines row, through the ACTUAL Sales Fire route
+  // (never a direct DB insert), then a real post-fire void through the
+  // ACTUAL Sales route, proving the real OrderLineVoidedPostFireHandler
+  // cancels the matching TicketLine, leaves an unaffected sibling line
+  // untouched, and the Ticket's own aggregate projection recomputes
+  // correctly — end to end, no fixture shortcuts.
+  describe('H. Kitchen integration (post-fire void)', () => {
+    let cashierToken: string;
+    beforeAll(async () => {
+      cashierToken = await pinLoginOk(
+        tenantA,
+        terminalA,
+        employeeCashierCode,
+        PIN_CASHIER,
+      );
+    });
+
+    /** Real Fire — the actual HTTP route, never a direct DB write. */
+    const fireOrder = async (order: { id: string; businessDay: Date }) => {
+      const res = await postFresh(cashierToken, order, '/fire', {});
+      expect(res.status).toBe(200);
+      return res.body as { version: number };
+    };
+
+    it('H1. a real Fire creates a real Ticket+TicketLine; post-fire void cancels EXACTLY the matching TicketLine, leaves the sibling line and the rest of the Ticket untouched, and the Ticket aggregate recomputes correctly', async () => {
+      const order = await mkOpenOrder();
+      const itemVoid = await mkSellable(`H1-void-${newId()}`, 10_000n);
+      const itemKeep = await mkSellable(`H1-keep-${newId()}`, 10_000n);
+      const lineVoid = await mkLine(order, itemVoid.itemId, itemVoid.variantId);
+      const lineKeep = await mkLine(order, itemKeep.itemId, itemKeep.variantId);
+
+      await fireOrder(order);
+
+      // Real Kitchen state, produced by the real OrderLineFiredHandler —
+      // both lines route to the SAME station (branchA's one fallback), so
+      // both land on the SAME real Ticket.
+      const ticket = await admin.ticket.findFirstOrThrow({
+        where: { orderId: order.id, stationId: stationFallbackId },
+      });
+      const ticketLineVoidBefore = await admin.ticketLine.findFirstOrThrow({
+        where: { ticketId: ticket.id, orderLineId: lineVoid.line.id },
+      });
+      const ticketLineKeepBefore = await admin.ticketLine.findFirstOrThrow({
+        where: { ticketId: ticket.id, orderLineId: lineKeep.line.id },
+      });
+      expect(ticketLineVoidBefore.status).toBe('queued');
+      expect(ticketLineKeepBefore.status).toBe('queued');
+      expect(ticket.status).toBe('queued');
+
+      // The real Sales post-fire-void route.
+      const res = await postFresh(
+        cashierToken,
+        order,
+        `/lines/${lineVoid.line.id}/void-postfire`,
+        { reasonCodeId: reasonDiscount, disposition: 'wasted' },
+      );
+      expect(res.status).toBe(200);
+
+      const ticketLineVoidAfter = await admin.ticketLine.findFirstOrThrow({
+        where: { id: ticketLineVoidBefore.id },
+      });
+      expect(ticketLineVoidAfter.status).toBe('cancelled');
+      expect(ticketLineVoidAfter.cancelledAt).not.toBeNull();
+
+      // The UNAFFECTED sibling line is genuinely untouched.
+      const ticketLineKeepAfter = await admin.ticketLine.findFirstOrThrow({
+        where: { id: ticketLineKeepBefore.id },
+      });
+      expect(ticketLineKeepAfter.status).toBe('queued');
+      expect(ticketLineKeepAfter.cancelledAt).toBeNull();
+
+      // The Ticket's own aggregate projection recomputed: one non-cancelled
+      // line remains, still `queued` (never started/bumped) -> the Ticket
+      // itself correctly stays `queued`, not `bumped`/`ready` from the
+      // cancelled line's removal, and not corrupted into some other state.
+      const ticketAfter = await admin.ticket.findFirstOrThrow({
+        where: { id: ticket.id },
+      });
+      expect(ticketAfter.status).toBe('queued');
+
+      // ── REPLAY: the identical Idempotency-Key request must not
+      // re-transition (or error on) the already-cancelled TicketLine. ─────
+      const idemKey = `pf-void-replay-${newId()}`;
+      const v = await currentVersion(order.id);
+      const first = await postNow(
+        cashierToken,
+        order,
+        `/lines/${lineKeep.line.id}/void-postfire`,
+        v,
+        { reasonCodeId: reasonDiscount, disposition: 'returned_to_stock' },
+        idemKey,
+      );
+      expect(first.status).toBe(200);
+      const replay = await postNow(
+        cashierToken,
+        order,
+        `/lines/${lineKeep.line.id}/void-postfire`,
+        v,
+        { reasonCodeId: reasonDiscount, disposition: 'returned_to_stock' },
+        idemKey,
+      );
+      expect(replay.status).toBe(200);
+      expect(replay.body).toEqual(first.body);
+
+      const ticketLineKeepFinal = await admin.ticketLine.findFirstOrThrow({
+        where: { id: ticketLineKeepBefore.id },
+      });
+      expect(ticketLineKeepFinal.status).toBe('cancelled');
+      // Exactly one PostFireVoidRecord for this line — the replay did not
+      // create a second one, and did not throw on the already-cancelled
+      // TicketLine (the handler's own `status NOT IN ('served','cancelled')`
+      // guard makes a re-delivery a harmless no-op).
+      const voidRecordCount = await admin.postFireVoidRecord.count({
+        where: { orderLineId: lineKeep.line.id },
+      });
+      expect(voidRecordCount).toBe(1);
+
+      const ticketFinal = await admin.ticket.findFirstOrThrow({
+        where: { id: ticket.id },
+      });
+      // Both lines now cancelled -> zero non-cancelled lines -> the
+      // projection's own documented fallback: an all-cancelled ticket is
+      // NOT `ready`/`bumped`, and falls through to `queued` (no line was
+      // ever started).
+      expect(ticketFinal.status).toBe('queued');
+    });
+  });
+
+  // ================================== I. CASH REFUND RECONCILIATION (REAL)
+  // Acceptance correction (2026-09-04) §5B: closes the second admitted test
+  // gap — a real CashSession's expected-cash figure, read through the
+  // ACTUAL close-context route, must decrease by EXACTLY a cash refund's
+  // amount; the original Payment stays immutable; the daily-trading report
+  // reflects the same refund; and an idempotent replay never subtracts it
+  // twice. A DEDICATED CashSession is used (never the shared `cashSessionA`
+  // every other section also posts to) so the arithmetic is exact, not
+  // merely bounded.
+  describe('I. Cash refund reconciliation', () => {
+    let cashierToken: string;
+    let dedicatedSessionId: string;
+
+    beforeAll(async () => {
+      cashierToken = await pinLoginOk(
+        tenantA,
+        terminalA,
+        employeeCashierCode,
+        PIN_CASHIER,
+      );
+
+      // An open-count-mode CashClosePolicy so close-context discloses
+      // `expectedCashMinorUnits` (blind mode structurally omits it).
+      await admin.cashClosePolicy.create({
+        data: {
+          id: newId(),
+          tenantId: tenantA,
+          branchId: branchA,
+          countMode: 'open',
+          varianceToleranceMinorUnits: 100n,
+          currency: 'EGP',
+          varianceApprovalExpirySeconds: 300,
+          createdBy: userManager,
+        },
+      });
+
+      const drawer = await admin.drawer.create({
+        data: {
+          id: newId(),
+          tenantId: tenantA,
+          branchId: branchA,
+          name: `PF-I-Drawer-${stamp}`,
+          terminalId: terminalA,
+        },
+      });
+      const shift = await admin.shift.create({
+        data: {
+          id: newId(),
+          tenantId: tenantA,
+          branchId: branchA,
+          employeeId: employeeCashier,
+          status: 'open',
+          openedAt: new Date(),
+        },
+      });
+      dedicatedSessionId = (
+        await admin.cashSession.create({
+          data: {
+            id: newId(),
+            tenantId: tenantA,
+            branchId: branchA,
+            drawerId: drawer.id,
+            shiftId: shift.id,
+            employeeId: employeeCashier,
+            openingFloat: 20_000n,
+            currency: 'EGP',
+            status: 'open',
+            openedAt: new Date(),
+          },
+        })
+      ).id;
+    });
+
+    const closeContext = async () => {
+      const res = await request(http)
+        .get(`/cash-sessions/${dedicatedSessionId}/close-context`)
+        .set('Authorization', `Bearer ${cashierToken}`);
+      expect(res.status).toBe(200);
+      return BigInt(
+        (res.body as { expectedCashMinorUnits: string }).expectedCashMinorUnits,
+      );
+    };
+
+    it('I1. a real cash sale then a real cash refund on a dedicated CashSession: expected cash decreases by EXACTLY the refund amount; the original Payment stays immutable; the daily-trading refund total matches; idempotent replay does not double-subtract', async () => {
+      const expectedBaseline = await closeContext();
+      expect(expectedBaseline).toBe(20_000n); // opening float only, so far
+
+      const order = await mkOpenOrder();
+      const item = await mkSellable(`I1-${newId()}`, 10_000n);
+      await mkLine(order, item.itemId, item.variantId);
+      const settled = await settleFull(
+        order,
+        cashierToken,
+        undefined,
+        dedicatedSessionId,
+      );
+      const grandTotal = BigInt(settled.order.grandTotal);
+      const paymentRow = await admin.orderPayment.findFirstOrThrow({
+        where: { orderId: order.id },
+      });
+      const paymentBefore = { ...paymentRow };
+
+      const expectedAfterSale = await closeContext();
+      // No cash rounding in this test's country pack (`cashRounding:
+      // {enabled:false}`), so the sale increases expected cash by exactly
+      // its grandTotal, with zero rounding-adjustment term.
+      expect(expectedAfterSale - expectedBaseline).toBe(grandTotal);
+
+      const refundAmount = 3_000n;
+      const refundRes = await postFresh(cashierToken, order, '/refunds', {
+        originalPaymentId: paymentRow.id,
+        tender: 'cash',
+        amountMinor: refundAmount.toString(),
+        reasonCodeId: reasonDiscount,
+        cashSessionId: dedicatedSessionId,
+        managerEmployeeCode: employeeManagerCode,
+        managerPin: PIN_MANAGER,
+        approvalRequestId: newId(),
+        approvalDecisionId: newId(),
+      });
+      expect(refundRes.status).toBe(201);
+
+      const expectedAfterRefund = await closeContext();
+      // THE core proof: expected cash decreases by EXACTLY the refund
+      // amount — no more, no less.
+      expect(expectedAfterSale - expectedAfterRefund).toBe(refundAmount);
+
+      // The original Payment row is byte-identical — genuinely untouched.
+      const paymentAfter = await admin.orderPayment.findFirstOrThrow({
+        where: { id: paymentRow.id },
+      });
+      expect(paymentAfter).toEqual(paymentBefore);
+
+      // The daily-trading report reflects this refund truthfully (§F
+      // precedent, re-verified here against THIS session's real activity).
+      const businessDayStr = order.businessDay.toISOString().slice(0, 10);
+      const dToken = await dashboardToken(http, dashboardEmail, tenantA);
+      const reportRes = await request(http)
+        .get(`/reports/branches/${branchA}/daily-trading/${businessDayStr}`)
+        .set('Authorization', `Bearer ${dToken}`);
+      expect(reportRes.status).toBe(200);
+      const reportBody = reportRes.body as {
+        salesSummary: { refunds: string };
+      };
+      expect(BigInt(reportBody.salesSummary.refunds)).toBeGreaterThanOrEqual(
+        refundAmount,
+      );
+
+      // ── IDEMPOTENT REPLAY — must not double-subtract. ───────────────────
+      const secondRefundId = newId();
+      const idemKey = `pf-cashrefund-idem-${newId()}`;
+      const secondAmount = 500n; // at, not above, the 500 no-approval threshold
+      const body = {
+        id: secondRefundId,
+        originalPaymentId: paymentRow.id,
+        tender: 'cash',
+        amountMinor: secondAmount.toString(),
+        reasonCodeId: reasonDiscount,
+        cashSessionId: dedicatedSessionId,
+      };
+      const v = await currentVersion(order.id);
+      const first = await postNow(
+        cashierToken,
+        order,
+        '/refunds',
+        v,
+        body,
+        idemKey,
+      );
+      expect(first.status).toBe(201);
+      const expectedAfterFirstReplayRefund = await closeContext();
+      expect(expectedAfterRefund - expectedAfterFirstReplayRefund).toBe(
+        secondAmount,
+      );
+
+      // The SAME Idempotency-Key + SAME permanent id, replayed.
+      const replay = await postNow(
+        cashierToken,
+        order,
+        '/refunds',
+        v,
+        body,
+        idemKey,
+      );
+      expect(replay.status).toBe(201);
+      expect(replay.body).toEqual(first.body);
+
+      const expectedAfterReplay = await closeContext();
+      // Unchanged by the replay — no second subtraction.
+      expect(expectedAfterReplay).toBe(expectedAfterFirstReplayRefund);
+      const refundRowCount = await admin.refund.count({
+        where: { id: secondRefundId },
+      });
+      expect(refundRowCount).toBe(1);
     });
   });
 });
