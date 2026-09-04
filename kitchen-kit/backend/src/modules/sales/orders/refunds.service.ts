@@ -13,15 +13,33 @@
  * total (subtotal/taxTotal/discountTotal/grandTotal/paidTotal/cogsTotal are
  * untouched by every write below).
  *
- * ── HARD CONCURRENCY INVARIANT ──────────────────────────────────────────
- * `sum(committed refunds) + requested refund <= order.paidTotal` (the
- * "original refundable amount" — the actual money collected, which can
- * exceed `grandTotal` under P1F-2's permitted over-tender case, so
- * `paidTotal` is the correct ceiling, not `grandTotal`) is enforced under a
- * `pg_advisory_xact_lock` scoped to the order, the IDENTICAL
- * `hashtext(lock key, orderId)` pattern `cash-session-close.service.ts` and
- * `sales-payment.service.ts` already use — no unlocked
- * read-current-total-then-insert race is possible.
+ * ── HARD CONCURRENCY INVARIANT — CAP BASIS (acceptance-corrected 2026-09-04)
+ * `sum(committed refunds) + requested refund <= order.grandTotal` — NOT
+ * `paidTotal`. FR-POS-072's "original amount" was re-adjudicated against
+ * the literal source rather than assumed: `grandTotal` and `paidTotal` are
+ * identical for the overwhelming majority of orders (BR-POS-002 requires
+ * `paidTotal >= grandTotal` to complete, and every ordinary payment path
+ * settles exactly at `grandTotal`). They diverge ONLY in the one
+ * P1F-2-permitted edge case where an accepted payment overshoots
+ * (`paidTotal > grandTotal`) — and the existing, already-accepted
+ * `daily-trading-sales.query.service.ts`/design-gate documentation for that
+ * exact figure (`completedExcessCapturedTotal`) states explicitly that the
+ * excess is "reconciliation-only... no revenue, tax, tip, discount,
+ * refund, cash-rounding, or variance disposition is inferred" — i.e. no
+ * accepted source authorizes treating that excess as refundable. Capping at
+ * `paidTotal` would silently self-ratify a disposition the project's own
+ * reporting layer explicitly declines to assign. `grandTotal` is therefore
+ * the safe, literal, non-self-ratifying ceiling: it is always `<=
+ * paidTotal` (never allows the order to be UNDER-refunded relative to what
+ * was actually owed) and never touches the undefined excess. This is
+ * recorded as a genuinely resolved reading, not an assumption — see the
+ * POS-FIN-1 report's acceptance-correction section for the full case
+ * analysis (A–E) this conclusion was tested against.
+ *
+ * Enforced under a `pg_advisory_xact_lock` scoped to the order, the
+ * IDENTICAL `hashtext(lock key, orderId)` pattern
+ * `cash-session-close.service.ts` and `sales-payment.service.ts` already
+ * use — no unlocked read-current-total-then-insert race is possible.
  *
  * ── APPROVAL THRESHOLD REUSE ─────────────────────────────────────────────
  * FR-POS-073 requires "above a configurable threshold, manager approval"
@@ -187,6 +205,7 @@ export class RefundsService {
             version: true,
             currency: true,
             paidTotal: true,
+            grandTotal: true,
           },
         });
         if (!order) throw new NotFoundException('Order not found.');
@@ -233,18 +252,25 @@ export class RefundsService {
           );
         }
 
-        // ── HARD CAP — inside the lock, fresh SUM, never a stale figure. ──
+        // ── HARD CAP — inside the lock, fresh SUM, never a stale figure.
+        // Cap basis is `grandTotal`, NOT `paidTotal` — see this file's own
+        // docblock "CAP BASIS" section for the full re-adjudication. A
+        // completed order's `paidTotal` can legitimately exceed
+        // `grandTotal` (P1F-2's permitted over-tender case); that excess
+        // has no accepted disposition anywhere in this repository, so it is
+        // never treated as refundable here. ──────────────────────────────
         const committed = await tx.refund.aggregate({
           where: { tenantId, orderId: order.id, businessDay },
           _sum: { amountMinor: true },
         });
         const cumulativeBefore = committed._sum.amountMinor ?? 0n;
         const cumulativeAfter = cumulativeBefore + amountMinor;
-        if (cumulativeAfter > order.paidTotal) {
+        const refundableCap = order.grandTotal;
+        if (cumulativeAfter > refundableCap) {
           throw new UnprocessableEntityException(
             `This refund would bring the aggregate refunded amount to ` +
               `${cumulativeAfter}, exceeding the original refundable ` +
-              `amount of ${order.paidTotal} (FR-POS-072).`,
+              `amount of ${refundableCap} (FR-POS-072).`,
           );
         }
 
@@ -326,7 +352,7 @@ export class RefundsService {
         const targetState = resolveRefundTargetState(
           order.state,
           cumulativeAfter,
-          order.paidTotal,
+          refundableCap,
         );
         const updateResult = await tx.order.updateMany({
           where: { id: order.id, businessDay, version: input.expectedVersion },
@@ -372,6 +398,8 @@ export class RefundsService {
             differentTender: input.tender !== originalPayment.tender,
             amountMinor: amountMinor.toString(),
             cumulativeRefundedAfter: cumulativeAfter.toString(),
+            refundableCap: refundableCap.toString(),
+            grandTotal: order.grandTotal.toString(),
             paidTotal: order.paidTotal.toString(),
             appliedByEmployeeId: input.employeeId,
             approvalRequired,

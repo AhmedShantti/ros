@@ -141,56 +141,62 @@ export class PostFireVoidService {
 
         const financialAmountRemoved = line.lineTotal;
 
-        let inventoryMovementIds: string[] = [];
-        if (input.disposition !== 'returned_to_stock') {
-          const modifierQuantityById = new Map(
-            line.modifiers.map((m) => [m.id, m.quantity]),
-          );
-          const planLine: PlanConsumptionLineInput = {
-            orderLineId: line.id,
-            recipeVersionId: line.recipeVersionId,
-            pinnedVersionIds: line.recipeVersionPins.map(
-              (p) => p.recipeVersionId,
-            ),
-            quantity: line.quantity.toFixed(3),
-            modifierEffects: line.modifierEffectPins.map((e) => ({
-              operation: e.operation,
-              componentType: e.componentType,
-              stockItemId: e.stockItemId,
-              subRecipeVersionId: e.subRecipeVersionId,
-              quantity: e.quantity ? e.quantity.toFixed(6) : null,
-              unitId: e.unitId,
-              modifierSelectionQuantity:
-                modifierQuantityById.get(e.orderLineModifierId) ?? 1,
-            })),
-            conversions: line.componentConversions.map((c) => ({
-              stockItemId: c.stockItemId,
-              fromUnitId: c.fromUnitId,
-              baseUnitId: c.baseUnitId,
-              factor: c.factor.toFixed(10),
-            })),
-          };
-          const planResult = await this.consumption.planConsumption(tx, {
-            lines: [planLine],
-          });
-          const components = planResult.perLine[0]?.components ?? [];
+        // ── Resolve the components considered — for ALL THREE
+        // dispositions, `returned_to_stock` included (acceptance
+        // correction, 2026-09-04): the Inventory command below now writes
+        // an Inventory-owned disposition record unconditionally, and that
+        // record's own `components` field is what makes "returned_to_stock"
+        // genuinely evidenced rather than merely inferred from an absent
+        // movement. ────────────────────────────────────────────────────────
+        const modifierQuantityById = new Map(
+          line.modifiers.map((m) => [m.id, m.quantity]),
+        );
+        const planLine: PlanConsumptionLineInput = {
+          orderLineId: line.id,
+          recipeVersionId: line.recipeVersionId,
+          pinnedVersionIds: line.recipeVersionPins.map(
+            (p) => p.recipeVersionId,
+          ),
+          quantity: line.quantity.toFixed(3),
+          modifierEffects: line.modifierEffectPins.map((e) => ({
+            operation: e.operation,
+            componentType: e.componentType,
+            stockItemId: e.stockItemId,
+            subRecipeVersionId: e.subRecipeVersionId,
+            quantity: e.quantity ? e.quantity.toFixed(6) : null,
+            unitId: e.unitId,
+            modifierSelectionQuantity:
+              modifierQuantityById.get(e.orderLineModifierId) ?? 1,
+          })),
+          conversions: line.componentConversions.map((c) => ({
+            stockItemId: c.stockItemId,
+            fromUnitId: c.fromUnitId,
+            baseUnitId: c.baseUnitId,
+            factor: c.factor.toFixed(10),
+          })),
+        };
+        const planResult = await this.consumption.planConsumption(tx, {
+          lines: [planLine],
+        });
+        const components = planResult.perLine[0]?.components ?? [];
 
-          if (components.length > 0) {
-            const result = await this.disposition.recordDisposition(tx, {
-              tenantId,
-              actorId: actorUserId,
-              branchId: order.branchId,
-              orderLineId: line.id,
-              disposition: input.disposition,
-              reasonCodeId: reason.id,
-              components: components.map((c) => ({
-                stockItemId: c.stockItemId,
-                quantityInBaseUnit: c.quantityInBaseUnit,
-              })),
-            });
-            inventoryMovementIds = result.movements.map((m) => m.movementId);
-          }
-        }
+        const dispositionResult = await this.disposition.recordDisposition(tx, {
+          tenantId,
+          actorId: actorUserId,
+          branchId: order.branchId,
+          orderLineId: line.id,
+          disposition: input.disposition,
+          reasonCodeId: reason.id,
+          components: components.map((c) => ({
+            stockItemId: c.stockItemId,
+            quantityInBaseUnit: c.quantityInBaseUnit,
+          })),
+        });
+        const inventoryMovementIds = dispositionResult.movements.map(
+          (m) => m.movementId,
+        );
+        const inventoryDispositionRecordId =
+          dispositionResult.dispositionRecordId;
 
         const voided = await tx.orderLine.update({
           where: { id_businessDay: { id: lineId, businessDay } },
@@ -258,6 +264,7 @@ export class PostFireVoidService {
             disposition: input.disposition,
             financialAmountRemoved: financialAmountRemoved.toString(),
             inventoryMovementIds,
+            inventoryDispositionRecordId,
             orderVersion: nextVersion,
           },
         });
