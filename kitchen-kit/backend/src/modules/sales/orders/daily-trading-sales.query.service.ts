@@ -108,10 +108,23 @@ export class DailyTradingSalesQueryService implements DailyTradingSalesQuery {
     const allOrderIds: string[] = [];
     const completedOrderIds: string[] = [];
     const openStateSet: ReadonlySet<string> = new Set(OPEN_ORDER_STATES);
+    // POS-FIN-1 — design gate §6/§8 revisit: `partially_refunded`/`refunded`
+    // are newly-reachable states for an order that WAS completed. CR-04/
+    // BR-POS-001 never rewrite the posted totals a refund's original order
+    // carries, so that order's grossSales/discounts/taxTotal contribution
+    // must not silently disappear the moment a refund is issued against it
+    // — the refund's own negative effect is captured separately, in the
+    // `refunds` field (§ facts()'s own step 5), never by excluding the
+    // order here.
+    const settledStateSet: ReadonlySet<string> = new Set([
+      'completed',
+      'partially_refunded',
+      'refunded',
+    ]);
 
     for (const order of orders) {
       allOrderIds.push(order.id);
-      if (order.state === 'completed') {
+      if (settledStateSet.has(order.state)) {
         completedOrderCount += 1;
         completedOrderIds.push(order.id);
         grossSales += order.grandTotal;
@@ -249,10 +262,21 @@ export class DailyTradingSalesQueryService implements DailyTradingSalesQuery {
             };
           });
 
+    // ── (5) refunds ISSUED on this business day, for this branch ────────────
+    // POS-FIN-1 — scoped by the refund's OWN `refund_business_day`, never
+    // the original order's `business_day` (see the contract's own doc
+    // comment): a refund issued today against a sale from an earlier day
+    // reduces TODAY's net sales, not that earlier day's.
+    const refundAggregate = await tx.refund.aggregate({
+      where: { tenantId, branchId, refundBusinessDay: businessDay },
+      _sum: { amountMinor: true },
+    });
+    const refunds = refundAggregate._sum.amountMinor ?? 0n;
+
     return {
       grossSales,
       discounts,
-      refunds: 0n,
+      refunds,
       taxTotal,
       completedOrderCount,
       openOrderCount,

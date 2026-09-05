@@ -1,10 +1,14 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
+import { InventoryModule } from '../inventory/inventory.module';
+import { KitchenModule } from '../kitchen/kitchen.module';
 import { LocalisationModule } from '../localisation/localisation.module';
 import { OrganisationModule } from '../organisation/organisation.module';
 import { SalesModule } from '../sales/sales.module';
 import { TreasuryModule } from '../treasury/treasury.module';
+import { WorkforceModule } from '../workforce/workforce.module';
 import { DailyTradingReportService } from './daily-trading-report.service';
+import { OperationalOverviewService } from './operational-overview.service';
 import { ReportingController } from './reporting.controller';
 
 /**
@@ -35,6 +39,13 @@ import { ReportingController } from './reporting.controller';
  * BOTH of them from the top and neither imports Reporting back, so no new
  * circular module dependency is introduced and no `forwardRef()` is needed
  * here.
+ *
+ * RPT-DEMO-1 — `InventoryModule`, `WorkforceModule`, `KitchenModule` are
+ * added for exactly the same reason as the four above: their published
+ * `contract/` tokens only (`BRANCH_INVENTORY_SNAPSHOT_QUERY`,
+ * `ATTENDANCE_SUMMARY_QUERY`, `KDS_SUMMARY_QUERY`), consumed by
+ * `OperationalOverviewService`. None of the three imports Reporting, so no
+ * circular dependency is introduced and no `forwardRef()` is needed.
  */
 @Module({
   imports: [
@@ -43,8 +54,11 @@ import { ReportingController } from './reporting.controller';
     TreasuryModule,
     OrganisationModule,
     LocalisationModule,
+    InventoryModule,
+    WorkforceModule,
+    KitchenModule,
   ],
   controllers: [ReportingController],
-  providers: [DailyTradingReportService],
+  providers: [DailyTradingReportService, OperationalOverviewService],
 })
 export class ReportingModule {}

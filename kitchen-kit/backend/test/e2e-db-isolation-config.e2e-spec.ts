@@ -31,7 +31,7 @@ import { AppModule } from './../src/app.module';
  * suite's own per-suite scratch database, not the base connection string.
  */
 describe('E2E database isolation — ConfigService sees the per-suite database', () => {
-  it('resolves DATABASE_URL/APP_DATABASE_URL to a ros_test_e2e_* scratch database, not the base connection string', async () => {
+  it('resolves DATABASE_URL/APP_DATABASE_URL/PARTITION_ADMIN_DATABASE_URL to a ros_test_e2e_* scratch database, not the base connection string', async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -39,20 +39,33 @@ describe('E2E database isolation — ConfigService sees the per-suite database',
 
     const databaseUrl = config.getOrThrow<string>('DATABASE_URL');
     const appDatabaseUrl = config.getOrThrow<string>('APP_DATABASE_URL');
+    // FR-DR-002's partition-admin connection is snapshotted by the same
+    // ConfigModule.forRoot() call, at the same import-time instant, so it is
+    // exactly as exposed to the stale-env-var defect this test guards
+    // against — see PartitionAdminConnectionService.
+    const partitionAdminDatabaseUrl = config.getOrThrow<string>(
+      'PARTITION_ADMIN_DATABASE_URL',
+    );
 
     // The base .env values point at the persistent `ros` database — proving
     // ConfigService resolved to something else proves the per-suite
     // rewrite happened before AppModule's ConfigModule.forRoot() snapshot.
     expect(databaseUrl).not.toMatch(/\/ros(\?|$)/);
     expect(appDatabaseUrl).not.toMatch(/\/ros(\?|$)/);
+    expect(partitionAdminDatabaseUrl).not.toMatch(/\/ros(\?|$)/);
     expect(databaseUrl).toMatch(/\/ros_test_e2e_[a-z0-9_]+\?/);
     expect(appDatabaseUrl).toMatch(/\/ros_test_e2e_[a-z0-9_]+\?/);
+    expect(partitionAdminDatabaseUrl).toMatch(/\/ros_test_e2e_[a-z0-9_]+\?/);
 
-    // Both must point at the SAME scratch database (migrator vs. app-role
-    // credentials on one shared per-suite clone), never two different ones.
+    // All three must point at the SAME scratch database (migrator/app-role/
+    // partition-admin-role credentials on one shared per-suite clone), never
+    // different ones.
     const scratchName = (url: string) =>
       new URL(url).pathname.replace(/^\//, '');
     expect(scratchName(appDatabaseUrl)).toBe(scratchName(databaseUrl));
+    expect(scratchName(partitionAdminDatabaseUrl)).toBe(
+      scratchName(databaseUrl),
+    );
 
     await moduleFixture.close();
   });

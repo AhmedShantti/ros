@@ -1,4 +1,5 @@
 import { Prisma } from '../../../generated/prisma/client';
+import type { ActorResolutionCache } from '../auth/actor-resolution.cache';
 import {
   SyncOperationStatus,
   SyncReasonCode,
@@ -51,6 +52,15 @@ export interface SyncOperationContext {
   readonly occurredAt: Date;
   readonly schemaVersion: number;
   readonly payload: unknown;
+  /**
+   * D4-1B ACCEPTANCE CORRECTION — `NFR-PERF-032` resolved-actor memoization,
+   * BATCH-LOCAL only. A handler that authorizes through `SYNC_AUTHORIZATION_PORT`
+   * SHOULD forward this on the `SyncAuthorizationRequest` so repeated
+   * operations by the same actor in one batch skip redundant membership/role
+   * reads. See `actor-resolution.cache.ts` for exactly what is and is not
+   * cached. Never persisted, never global — see that file's docblock.
+   */
+  readonly actorCache: ActorResolutionCache;
 }
 
 /** What a handler may return. Omitting it means `accepted` with no detail. */
@@ -83,3 +93,27 @@ export interface SyncOperationHandler {
 
 /** DI token for the handler multi-provider set. */
 export const SYNC_OPERATION_HANDLERS = Symbol('SYNC_OPERATION_HANDLERS');
+
+/**
+ * D4-1B — throw this (never a bare `Error`) to reject an operation with a
+ * SPECIFIC, machine-readable reason instead of the kernel's generic
+ * `handler_error` bucket (`sync-batch.service.ts`'s `applyIsolated` reads
+ * `reasonCode`/`reasonDetail` off this type specially — see that call site).
+ *
+ * Still a THROW, per the base contract's rule: the kernel rolls the operation
+ * back to its savepoint and records a definitive `rejected` result. This type
+ * exists only to make that rejection's `reasonCode` precise — e.g.
+ * `authorization_denied`, `resource_not_found`, `illegal_transition` — rather
+ * than every handler-thrown rejection collapsing into one opaque bucket,
+ * which `sync-batch.service.ts`'s §14 CONFLICT CONTRACT obligations (bounded,
+ * machine-readable outcomes) require.
+ */
+export class SyncOperationRejectedError extends Error {
+  constructor(
+    readonly reasonCode: string,
+    reasonDetail: string,
+  ) {
+    super(reasonDetail);
+    this.name = 'SyncOperationRejectedError';
+  }
+}

@@ -10,3 +10,4 @@ export * from './terminal-facts.query';
 export * from './http';
 export * from './scope-review.query';
 export * from './authorization-target';
+export * from './pos-actor-authorization';

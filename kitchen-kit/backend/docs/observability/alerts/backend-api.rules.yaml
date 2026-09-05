@@ -115,3 +115,115 @@ groups:
             above are blind while this is firing.
           runbook_url: 'docs/observability/runbooks/metrics-exporter-unavailable.md'
           metric_query: 'up{job="ros-backend-metrics"}'
+
+      # ── SCHED-1: scheduled job execution ────────────────────────────────
+      # These three cover the scheduler substrate itself (migration 39,
+      # `platform.job_occurrences`). They are the operational half of the
+      # SRS's "SHALL raise an alert" clauses for scheduled verification jobs:
+      # they fire on the SUBSTRATE failing or falling behind. Whether a job
+      # DETECTED something is a separate signal, alerted below.
+      #
+      # DELIVERY REMAINS UNIMPLEMENTED. As with every rule in this file,
+      # defining a rule is not running an alert evaluator. Loading this into a
+      # Prometheus/Alertmanager and routing the page is deployment
+      # configuration outside this repository — which is exactly why the alert
+      # limb of BR-INV-003 / FR-INV-011 / FR-INV-051 is reported PARTIAL, not
+      # COMPLETE, in the SCHED-1 report.
+      - alert: ROSScheduledJobFailures
+        expr: >-
+          sum by (job_type) (
+            rate(scheduled_job_occurrences_total{phase="failed"}[15m])
+          ) > 0
+        for: 15m
+        labels:
+          severity: critical
+          slo: scheduled-job-success
+        annotations:
+          summary: 'ROS scheduled job {{ $labels.job_type }} is failing terminally'
+          description: >-
+            A scheduled job occurrence has exhausted its attempts or failed
+            permanently. The occurrence row in platform.job_occurrences carries
+            the bounded outcome_code; the structured log carries the exception
+            class and message.
+          runbook_url: 'docs/observability/runbooks/scheduled-job-failure.md'
+          metric_query: >-
+            sum by (job_type) (rate(scheduled_job_occurrences_total{phase="failed"}[15m]))
+
+      - alert: ROSScheduledJobLagBreach
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum(rate(scheduled_job_lag_seconds_bucket[1h])) by (le, job_type)
+          ) > 21600
+        for: 30m
+        labels:
+          severity: warning
+          slo: scheduled-job-timeliness
+        annotations:
+          summary: 'ROS scheduled job {{ $labels.job_type }} is running more than 6h late'
+          description: >-
+            Occurrences are being claimed long after their scheduled instant.
+            A DAILY verification job that runs six hours late has not failed,
+            but it is no longer answering the question it was scheduled to
+            answer. Common causes: no instance has SCHEDULER_ENABLED=true, the
+            tenant batch is too small for the fleet, or ticks are erroring.
+          runbook_url: 'docs/observability/runbooks/scheduled-job-lag.md'
+          metric_query: >-
+            histogram_quantile(0.95, sum(rate(scheduled_job_lag_seconds_bucket[1h])) by (le, job_type))
+
+      # ── BR-INV-003 / FR-INV-011 / FR-INV-051 ───────────────────────────
+      # The DETECTION signal. `scheduled_job_findings_total` is incremented ONLY
+      # after the transaction that persisted a `platform.job_findings` row has
+      # committed, so this cannot fire on an attempt that rolled back.
+      #
+      # The metric carries job type and severity, NOT the tenant and NOT the
+      # divergence count: a per-tenant label would be unbounded cardinality.
+      # The alert therefore says "a critical finding exists"; the durable
+      # `platform.job_findings` row says which tenant and what diverged, and is
+      # the authoritative record.
+      - alert: ROSInventoryLedgerProjectionDivergence
+        expr: >-
+          increase(
+            scheduled_job_findings_total{job_type="inventory.daily_reconciliation",severity="critical"}[1d]
+          ) > 0
+        for: 0m
+        labels:
+          severity: critical
+          slo: BR-INV-003
+        annotations:
+          summary: 'ROS inventory ledger and stock_levels projection disagree'
+          description: >-
+            The daily reconciliation job found at least one (item, location)
+            pair whose movement-ledger sum does not equal its stock_levels
+            projection. BR-INV-003 requires these to be equal. Nothing has been
+            auto-corrected — the divergence is evidence and must be diagnosed
+            before either side is touched.
+          runbook_url: 'docs/observability/runbooks/inventory-ledger-divergence.md'
+          metric_query: >-
+            increase(scheduled_job_findings_total{job_type="inventory.daily_reconciliation",severity="critical"}[1d])
+
+      # ── FR-AUD-005 ───────────────────────────────────────────────────
+      # AUD-1's DETECTION signal, same shape and same caveats as
+      # ROSInventoryLedgerProjectionDivergence above: incremented ONLY after
+      # the transaction that persisted a platform.job_findings row committed.
+      - alert: ROSAuditChainIntegrityBroken
+        expr: >-
+          increase(
+            scheduled_job_findings_total{job_type="governance.audit_chain_verification",severity="critical"}[1d]
+          ) > 0
+        for: 0m
+        labels:
+          severity: critical
+          slo: FR-AUD-005
+        annotations:
+          summary: 'ROS audit hash chain failed verification for at least one tenant'
+          description: >-
+            The scheduled job governance.audit_chain_verification recomputed
+            a tenant's governance.audit_entries hash chain and found content
+            tampering, a broken previous_hash linkage, a bad genesis, or a
+            sequence gap/duplicate. FR-AUD-005 requires this to raise a
+            platform-level security alert. This is the alert; nothing has
+            been repaired or re-signed.
+          runbook_url: 'docs/observability/runbooks/audit-chain-integrity-broken.md'
+          metric_query: >-
+            increase(scheduled_job_findings_total{job_type="governance.audit_chain_verification",severity="critical"}[1d])

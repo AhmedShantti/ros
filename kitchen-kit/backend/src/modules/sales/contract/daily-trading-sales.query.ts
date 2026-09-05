@@ -125,15 +125,34 @@ export interface DailySessionTenderTotals {
 }
 
 export interface DailyTradingSalesFacts {
-  // ── Sales Summary (§12) — completed-orders population only ──────────────
-  /** Σ completed `orders.grand_total` — tax-inclusive. */
+  // ── Sales Summary (§12) — the SETTLED-orders population: `completed`,
+  // `partially_refunded` and `refunded` (POS-FIN-1: the latter two are
+  // newly-reachable states for an order that WAS completed — CR-04/
+  // BR-POS-001 never rewrite that order's posted totals, so it must stay in
+  // this population for as long as it exists; a refund's own negative
+  // effect is captured separately, via `refunds` below, never by excluding
+  // the order here) ──────────────────────────────────────────────────────
+  /** Σ settled `orders.grand_total` — tax-inclusive, posted-total, never rewritten by a later refund. */
   readonly grossSales: bigint;
-  /** Σ completed `orders.discount_total` — structurally `0n` at this HEAD. */
+  /**
+   * Σ settled `orders.discount_total` — POS-FIN-1: real once a discount
+   * exists (line-level `lineDiscount` sums plus any order-level `Discount`
+   * row), `0n` on every order this slice's discount routes never touched
+   * (the pre-existing case).
+   */
   readonly discounts: bigint;
-  /** Literal `0n` — no refund mechanism exists at this HEAD. */
+  /**
+   * POS-FIN-1 — Σ `sales.refunds.amount_minor` for refunds whose OWN
+   * `refund_business_day` (not the original order's `business_day`) equals
+   * the requested day, for this branch. A refund is attributed to the day
+   * it was ISSUED, never retroactively adjusting the original sale's day —
+   * the same posture `orders`' own day-scoped population uses. `0n` when no
+   * refund was issued on this day (the pre-existing case, still exact).
+   */
   readonly refunds: bigint;
-  /** Σ completed `orders.tax_total`. */
+  /** Σ settled `orders.tax_total`. */
   readonly taxTotal: bigint;
+  /** Settled population count — `completed` + `partially_refunded` + `refunded` (see above). */
   readonly completedOrderCount: number;
   /** Count of orders in draft/open/held/parked/partially_paid for this branch-day. */
   readonly openOrderCount: number;

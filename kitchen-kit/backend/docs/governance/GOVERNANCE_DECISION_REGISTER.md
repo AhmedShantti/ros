@@ -8786,4 +8786,142 @@ the remainder of **Tier 1** (**D-16**, **D-17**) is ratified, and until the two
 open data-model questions are resolved — the decision→parent linkage (exposed by D-5) and
 the storage of `rejected` (left open by D-4 clause 5).
 
+---
+
+## AUD-R1 — Audit Log Query/Export Permissions & Surface (FR-AUD-007/008)
+
+> **RATIFIED 2026-09-03, by explicit user governance action (AUD-1, Full-SRS
+> 4-Day execution — "production audit completion" slice).** This opens a NEW
+> `AUD-R<n>` series, verified unused anywhere in this register before this
+> entry, following the same pattern as `RPT-R1…R3`, `KDS-R1…R12`, `DC-R1…R4`.
+> No existing numbered decision (`D-1…D-20`) is renumbered, reinterpreted, or
+> silently amended by this entry except where clause 3 below states an
+> EXPLICIT, NARROW amendment.
+
+### RATIFIED — binding
+
+1. **Two permission codes are introduced:** **`audit.view`**, described as
+   *"Search and view audit log entries for the tenant"*, and
+   **`report.export`**, described as *"Export audit log entries the caller is
+   otherwise authorized to view (AUD-R1 — audit-export route only)"*. Both are
+   drawn **VERBATIM** from `FR-AUD-008` [M]: *"...and SHALL be exportable by
+   users with audit.view plus report.export."* No other code is invented;
+   §15.2's `module.action` dot-notation is followed exactly as RPT-R1 §4 did.
+2. **The routes authorised by these codes are exactly:**
+   **`GET /governance/audit/entries`** (search/filter — gated by `audit.view`
+   alone) and **`GET /governance/audit/entries/export`** (gated by **BOTH**
+   `audit.view` **AND** `report.export`, `mode: 'all'`, never OR). **No other
+   route is authorised by these codes.** This two-route split is what makes
+   FR-AUD-008's own text literal: it names `audit.view` for the log being
+   *"searchable and filterable"* and adds `report.export` specifically for
+   the *"exportable"* clause — a single route gated by both would blur that
+   distinction the requirement itself draws.
+3. **AMENDMENT — RPT-R1 clause 6 REOPENED IN PART, NARROWLY.** RPT-R1
+   (RATIFIED 2026-08-31) lists `report.export` among codes *"NOT authorized
+   and MUST NOT be created"* — a prohibition recorded because, at that time,
+   no route existed anywhere in the repository that needed it, and RPT-R1's
+   own route (`GET /reports/branches/{branchId}/daily-trading/{businessDay}`)
+   certainly did not. `FR-AUD-008` [M] now names `report.export` explicitly,
+   for an entirely different, new route in a different module
+   (`governance/audit`, not `reporting`). **This amendment authorizes
+   `report.export` for EXACTLY the audit-export route named in clause 2 above
+   and NO other.** RPT-R1 clauses 1, 2, 4, 5, 7, 8, 9, 10 are **UNCHANGED**;
+   clause 6's prohibition **REMAINS IN FORCE** for every `report.view.*` code,
+   and for attaching `report.export` to the daily-trading route or to any
+   other reporting-module route. `reporting/reporting.permissions.ts` is
+   **NOT** modified by this entry — `report.export` is defined and seeded
+   from `governance/audit/audit.permissions.ts` instead, and that file's own
+   comment records this amendment so a future reader of either file sees the
+   full picture. RPT-R1's *"FOURTH and FIFTH explicit user-authorized
+   exceptions"* count (clause 5) is unaffected by this entry — it describes
+   RPT-R1's own two codes, not a running tally this entry extends.
+4. **D-20 is NOT reopened, reinterpreted, or contradicted.** D-20 (RATIFIED
+   2026-08-18) governs read access to `governance.approval_requests` /
+   `governance.approval_decisions` **ONLY**, and its own ratification log
+   explicitly left `FR-AUD-007`/`FR-AUD-008` for a later, separate decision:
+   *"D-20 remains OPEN and must address FR-AUD-007/FR-AUD-008 audit-read
+   permissions where applicable"* (D-19's ratification log, and repeated
+   verbatim in D-20's own ratification log). **This entry IS that later
+   decision** — but it decides read/export access to `governance.
+   audit_entries`, a **DIFFERENT table** with its **OWN** pre-existing
+   fail-closed RLS boundary (ADR 0007, migration `20260812175712`,
+   `FR-AUD-003`). It creates **no** `approval_requests`/`approval_decisions`
+   read endpoint, invents **no** permission code for either table, and does
+   not touch D-20's own scope in any way. D-20's *"no new Governance HTTP
+   read surface"* clause is unaffected: `governance/audit/` is a sibling
+   module to the Approval mechanism's own `governance.module.ts` (which still
+   has **zero** controllers, D-14 A-1 unchanged), not an extension of it.
+5. **D-19 (audit hash coverage) is unchanged.** The query/export routes read
+   `entry_hash`/`previous_hash` as **opaque persisted bytes** (hex-encoded on
+   the wire) and compute nothing. `AuditQueryService` never calls
+   `computeEntryHash`; it cannot alter what is hashed, how it is hashed, or
+   the digest of any existing or future entry. D-19's *"no additional
+   approval-specific hash coverage"* holding, and every one of its 18 clauses,
+   are untouched.
+6. **Scope: TENANT by default, narrowed to BRANCH when the caller supplies
+   `branchId`.** Both routes use `branchFromQueryOrTenant('branchId')`
+   (ADR 0009 D-03's `branchOrTenant` target kind) — omitting `branchId`
+   authorizes against the TENANT (requires a tenant-scope grant of the
+   required code(s)); supplying it authorizes against exactly that BRANCH
+   (requires a branch-scope grant covering it). This is the SAME mechanism
+   every other tenant-wide collection read in this repository already uses;
+   it is not a new authorization primitive. **No cross-tenant read is
+   authorized under any circumstance** — `audit_entries`' FORCE-RLS policy
+   (unchanged) is the actual boundary regardless of what a caller supplies,
+   exactly as D-9/ADR 0007 already establish. `branchId` filtering is
+   currently of LIMITED practical effect: `governance.audit_entries.
+   branch_id` is a pre-existing, previously-unpopulated column (no producer in
+   this repository writes it — a PRE-EXISTING gap this entry does not
+   introduce and does not attempt to backfill across every audited call site,
+   which is out of this slice's scope). This is recorded here so the gap is
+   not silently discovered later; the accompanying implementation report
+   states it again in FR-AUD-008's own classification.
+7. **No standard-role seeding is performed by this entry** (mirrors RPT-R1
+   §"Future standard-role intent" and KDS-R11 §4.3). Likely holders of BOTH
+   codes: **Auditor** (the SRS-mandated role `FR-SEC-010`/`FR-SEC-011`
+   presuppose but which remains otherwise unexpressible pending Appendix C,
+   per D-20 clause/GAP-9), **Owner**, **Operations Director**. **NOT resolved
+   by this entry, and deliberately left open:** every other role. `FR-SEC-010`
+   standard-role seeding is **NOT authorized** by this entry — no role row,
+   `role_permission` row, or role semantic is created or modified.
+8. **Binding constraints on implementation (mirroring RPT-R1/KDS-R11):** permission-based
+   authorization only — **no hardcoded role-name string** (D-3). Codes added
+   **code-driven, not migration-driven**: entries in the owning module's own
+   `governance/audit/audit.permissions.ts`, seeded through the existing
+   `PermissionsService.upsertMany`, **seeded only by the slice that creates
+   the route** (this one). **No migration, no schema change, no RLS change**
+   is authorized by THIS clause for the permission codes or the query/export
+   routes themselves — both read `governance.audit_entries`' existing columns
+   only. (This does not constrain AUD-1's SEPARATE, already-existing
+   `platform.job_occurrences`/`platform.job_findings` schema, which SCHED-1
+   already ratified and migrated, and which FR-AUD-005's scheduled
+   verification job — recorded alongside this entry in the AUD-1 report —
+   reuses without any further schema change.)
+9. **`FR-AUD-007`** (*"Audit log access SHALL itself be audited"*) **is
+   satisfied by this entry's implementation** emitting an `AUDIT_LOG_QUERIED` /
+   `AUDIT_LOG_EXPORTED` audit entry — through the EXISTING `AuditService.
+   record`, the EXISTING hash chain, the EXISTING per-tenant advisory lock —
+   for **every** call to either route, success or refusal-before-the-read
+   alike is NOT separately audited (a 401/403 never reaches the handler; an
+   export refused for exceeding the record-count bound is refused BEFORE the
+   access is recorded, since a request this repository never serves is not
+   "audit log access" in FR-AUD-008's sense). No new audit-writing mechanism
+   of any kind is introduced.
+10. **`FR-AUD-009`** (retention) and **`FR-AUD-010`** (impersonation) are
+    **NOT addressed by this entry** and remain exactly as classified before
+    it. Nothing in this entry should be read as closing, narrowing, or
+    otherwise deciding either requirement — see the AUD-1 implementation
+    report for their literal, unchanged classification.
+
+### Evidence (non-authoritative)
+
+`docs/reports/claude/full-srs-4day/2026-09-03_AUD-1_audit-production-completion.md`.
+This register entry is the authoritative outcome; where the report's own
+narrative differs from the clauses above, THESE CLAUSES GOVERN.
+
+**Status:** **RATIFIED — AUD-R1 clauses 1-10 above are binding. RPT-R1 is
+amended ONLY as clause 3 states; D-19 and D-20 are unchanged; no other
+numbered or lettered decision in this register is reopened, reinterpreted, or
+amended by this entry.**
+
 **The Design Gate has NOT been created. Implementation is NOT authorized.**

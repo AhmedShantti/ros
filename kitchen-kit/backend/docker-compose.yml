@@ -12,6 +12,10 @@ services:
       # Consumed by the init script to create the non-superuser app role.
       ROS_APP_USER: ${ROS_DB_APP_USER:-ros_app}
       ROS_APP_PASSWORD: ${ROS_DB_APP_PASSWORD:?set ROS_DB_APP_PASSWORD in backend/.env}
+      # FR-DR-002 — consumed by the init script to create the DDL-only
+      # partition-admin role (owns only the 3 partitioned parent tables).
+      ROS_PARTITION_ADMIN_USER: ${ROS_DB_PARTITION_ADMIN_USER:-ros_partition_admin}
+      ROS_PARTITION_ADMIN_PASSWORD: ${ROS_DB_PARTITION_ADMIN_PASSWORD:?set ROS_DB_PARTITION_ADMIN_PASSWORD in backend/.env}
     ports:
       - '5544:5432'
     volumes:

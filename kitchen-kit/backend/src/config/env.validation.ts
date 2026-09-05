@@ -34,6 +34,20 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   APP_DATABASE_URL!: string;
 
+  /**
+   * FR-DR-002 — the ONE connection authenticated as anything other than
+   * `ros_app` at runtime: `ros_partition_admin`, which owns exactly the three
+   * partitioned parent tables `PartitionLifecycleJob` maintains and holds no
+   * DML privilege of its own. See `PartitionAdminConnectionService` for the
+   * full reasoning on why a second connection exists at all. Required from
+   * the start, like `APP_DATABASE_URL`: an unconfigured deployment must fail
+   * fast at boot, not silently ship a scheduler that can never create a
+   * partition.
+   */
+  @IsString()
+  @IsNotEmpty()
+  PARTITION_ADMIN_DATABASE_URL!: string;
+
   // Long random secret (openssl rand -base64 64). Kept out of source control.
   @IsString()
   @MinLength(32)
@@ -160,10 +174,24 @@ function assertProductionHardened(env: EnvironmentVariables): void {
   if (PLACEHOLDER.test(env.DATABASE_URL)) offenders.push('DATABASE_URL');
   if (PLACEHOLDER.test(env.APP_DATABASE_URL))
     offenders.push('APP_DATABASE_URL');
+  if (PLACEHOLDER.test(env.PARTITION_ADMIN_DATABASE_URL))
+    offenders.push('PARTITION_ADMIN_DATABASE_URL');
   // Runtime must connect as the non-superuser app role, never the migrator.
   if (/ros_migrator/.test(env.APP_DATABASE_URL))
     offenders.push(
       'APP_DATABASE_URL (must use the ros_app role, not ros_migrator)',
+    );
+  // The DDL connection must be its own narrowly-scoped role too — never the
+  // full migrator/owner, and never silently reused as ros_app (which would
+  // defeat the entire point of separating them; see
+  // `PartitionAdminConnectionService`).
+  if (/ros_migrator/.test(env.PARTITION_ADMIN_DATABASE_URL))
+    offenders.push(
+      'PARTITION_ADMIN_DATABASE_URL (must use the ros_partition_admin role, not ros_migrator)',
+    );
+  if (env.PARTITION_ADMIN_DATABASE_URL === env.APP_DATABASE_URL)
+    offenders.push(
+      'PARTITION_ADMIN_DATABASE_URL (must be a distinct role from APP_DATABASE_URL)',
     );
   if (offenders.length > 0) {
     throw new Error(

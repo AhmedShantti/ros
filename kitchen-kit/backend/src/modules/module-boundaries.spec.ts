@@ -66,7 +66,12 @@ const IMPORT_RE =
  *       Each is closed by moving its port under `modules/<module>/contract/`,
  *       exactly as Workforce now does — by the slice that owns it.
  *
- * `workforce` appears in neither list, and must not.
+ * `workforce` appeared in neither list when this file was first written (its
+ * only surface was one contract command, `SHIFT_OPENER`, consumed by
+ * Treasury). HR-1 gives Workforce its first HTTP controllers, so it now
+ * carries the SAME category-(a) cross-cutting plumbing entries every other
+ * HTTP module in this repository already carries — see `workforce->identity`
+ * / `workforce->governance` below, identical to `treasury`'s own.
  */
 const KNOWN_DEVIATIONS: Readonly<Record<string, readonly string[]>> = {
   'catalogue->governance': ['audit/audit.module', 'audit/audit.service'],
@@ -140,6 +145,24 @@ const KNOWN_DEVIATIONS: Readonly<Record<string, readonly string[]>> = {
   'sales->production': ['costing/recipe-cost', 'costing/recipe-cost.service'],
   'treasury->governance': ['audit/audit.module', 'audit/audit.service'],
   'treasury->identity': [
+    'auth/auth.types',
+    'auth/decorators/current-principal.decorator',
+    'auth/decorators/pos-session.decorator',
+    'auth/guards/jwt-auth.guard',
+    'authz/decorators/require-permission.decorator',
+    'authz/guards/permission.guard',
+    'authz/permissions.constants',
+    'context/current-tenant-context.decorator',
+    'context/tenant-context',
+    'context/tenant-context.guard',
+  ],
+  // HR-1 — Workforce Core. Same "cross-cutting HTTP/auth plumbing" category
+  // (a) as every other HTTP module above, now that Workforce has its first
+  // controllers (Employee/Schedule/Attendance). Identical list to
+  // `treasury->identity`: the same guards, decorators, and POS-session
+  // primitives every terminal-facing route in this repository already uses.
+  'workforce->governance': ['audit/audit.module', 'audit/audit.service'],
+  'workforce->identity': [
     'auth/auth.types',
     'auth/decorators/current-principal.decorator',
     'auth/decorators/pos-session.decorator',
@@ -671,6 +694,49 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
     expect(KNOWN_DEVIATIONS['kitchen->identity']).toBeUndefined();
     expect(KNOWN_DEVIATIONS['kitchen->governance']).toBeUndefined();
     expect(violations.filter((v) => v.importer === 'kitchen')).toEqual([]);
+  });
+
+  /**
+   * D4-1B ACCEPTANCE CORRECTION — module boundary direction.
+   *
+   * Kitchen no longer imports ANYTHING from `modules/sync` (no
+   * `SyncOperationHandlerFor`, no `SyncOperationContext`, no
+   * `SYNC_AUTHORIZATION_PORT` — all removed from `kitchen/tickets/sync/`,
+   * which no longer exists). The integration handler lives on the OTHER
+   * side of the seam, in `modules/sync/integration/`, and reaches Kitchen
+   * ONLY through `kitchen/contract` (`KDS_OFFLINE_TICKET_OPERATIONS`,
+   * `KDS_PERMISSIONS`) — never a private `kitchen/tickets/...` path. Both
+   * directions therefore add ZERO `KNOWN_DEVIATIONS` entries — the strict
+   * form of "no new module-boundary deviation" this correction requires.
+   */
+  it('Kitchen never imports Sync, and Sync reaches Kitchen only through kitchen/contract — zero new KNOWN_DEVIATIONS either direction', () => {
+    expect(KNOWN_DEVIATIONS['kitchen->sync']).toBeUndefined();
+    expect(KNOWN_DEVIATIONS['sync->kitchen']).toBeUndefined();
+    expect(
+      violations.filter(
+        (v) => v.importer === 'kitchen' && v.imported === 'sync',
+      ),
+    ).toEqual([]);
+    expect(
+      violations.filter(
+        (v) => v.importer === 'sync' && v.imported === 'kitchen',
+      ),
+    ).toEqual([]);
+
+    const bumpLineHandler = readFileSync(
+      join(
+        MODULES_ROOT,
+        'sync/integration/kds-ticket-bump-line.sync-handler.ts',
+      ),
+      'utf8',
+    );
+    expect(bumpLineHandler).toContain("from '../../kitchen/contract'");
+    const importLines = bumpLineHandler
+      .split('\n')
+      .filter((line) => /^\s*import\b/.test(line));
+    expect(importLines.some((line) => line.includes('kitchen/tickets'))).toBe(
+      false,
+    );
   });
 
   it('Identity publishes the cross-cutting HTTP/auth surface through contract/http, and Kitchen consumes only that contract', () => {

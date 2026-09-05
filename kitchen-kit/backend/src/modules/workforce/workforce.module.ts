@@ -1,40 +1,73 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { AuditModule } from '../governance/audit/audit.module';
+import { IdentityModule } from '../identity/identity.module';
 import { SHIFT_OPENER } from './contract';
+import {
+  WORKFORCE_ATTENDANCE_RECORD_TARGET_RESOLVER,
+  WORKFORCE_EMPLOYEE_TARGET_RESOLVER,
+  WORKFORCE_SCHEDULE_TARGET_RESOLVER,
+} from './contract';
 import { ShiftsService } from './shifts/shifts.service';
+import { EmployeesController } from './employees/employees.controller';
+import { WorkforceEmployeesService } from './employees/employees.service';
+import { EmployeeTargetResolver } from './employees/employee-target.resolver';
+import { ScheduleController } from './schedule/schedule.controller';
+import { ScheduleService } from './schedule/schedule.service';
+import { ScheduleTargetResolver } from './schedule/schedule-target.resolver';
+import { AttendanceController } from './attendance/attendance.controller';
+import { AttendanceService } from './attendance/attendance.service';
+import { AttendanceCorrectionService } from './attendance/attendance-correction.service';
+import { AttendanceSettingsService } from './attendance/attendance-settings.service';
+import { AttendanceRecordTargetResolver } from './attendance/attendance-target.resolver';
 
 /**
- * Workforce bounded context — MINIMAL, by ratification.
+ * Workforce bounded context.
  *
- * Carried item P1D-A reopens D-2's Workforce defer for one thing: the
- * Operational Shift the POS/Treasury critical path needs. Schedule, the schedule
- * builder, ScheduledShift, AttendanceRecord, clock events, breaks, overtime,
- * leave, shift swaps, payroll, compensation and labour forecasting all remain
- * deferred and have no representation here.
+ * Carried item P1D-A authorises Operational Shift (below, `SHIFT_OPENER`) —
+ * UNCHANGED by HR-1. HR-1 (this task) reopens the REST of P1D-1's "still
+ * deferred" list narrowly further: the full Employee record (FR-HRM-001..
+ * 006), Schedule/ScheduledShift (FR-HRM-010/012), and Attendance/ClockEvent
+ * (FR-HRM-020..025). Leave, shift swaps, labour forecasting, performance
+ * metrics (FR-HRM-030..032) and payroll export (FR-HRM-035/036) remain
+ * deferred and have no representation here — see the HR-1 report.
  *
- * NO CONTROLLER. FR-POS-090 frames shift opening as a CASHIER action taken while
- * opening a drawer, and that is the command Treasury exposes. A separate public
- * "open a shift" route would invent an operation no source describes and would
- * let a shift exist with no cash session, which is a state nothing in this slice
- * can act on. The service is reached through `SHIFT_OPENER`.
- *
- * PUBLIC SURFACE: `contract/` only. SRS §5.4 makes `modules/<context>/contract/`
- * the sole directory another module may import, and §5.2.3 requires that rule to
- * be enforced mechanically rather than by convention —
- * `src/modules/module-boundaries.spec.ts` is that enforcement. `ShiftsService`
- * and the Shift row are private and are reached only through `SHIFT_OPENER`.
- *
- * `shift.opened` (SRS §5.5.4) is NOT published: the repository has no
- * transactional outbox, and faking a fire-and-forget event would be worse than
- * the honest gap. The contract command takes the caller's transaction so the
- * event can be recorded there later without redesign.
+ * `IdentityModule` is imported for the SAME cross-cutting HTTP/auth plumbing
+ * every other HTTP module in this repository already imports it for
+ * (`JwtAuthGuard`, `PermissionGuard`, `TenantContextGuard`, `AllowPosSession`,
+ * `CurrentPrincipal`) — see `module-boundaries.spec.ts`'s
+ * `KNOWN_DEVIATIONS['workforce->identity']`.
  */
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, AuditModule, IdentityModule],
+  controllers: [EmployeesController, ScheduleController, AttendanceController],
   providers: [
     ShiftsService,
     { provide: SHIFT_OPENER, useExisting: ShiftsService },
+
+    WorkforceEmployeesService,
+    EmployeeTargetResolver,
+    {
+      provide: WORKFORCE_EMPLOYEE_TARGET_RESOLVER,
+      useExisting: EmployeeTargetResolver,
+    },
+
+    ScheduleService,
+    ScheduleTargetResolver,
+    {
+      provide: WORKFORCE_SCHEDULE_TARGET_RESOLVER,
+      useExisting: ScheduleTargetResolver,
+    },
+
+    AttendanceService,
+    AttendanceCorrectionService,
+    AttendanceSettingsService,
+    AttendanceRecordTargetResolver,
+    {
+      provide: WORKFORCE_ATTENDANCE_RECORD_TARGET_RESOLVER,
+      useExisting: AttendanceRecordTargetResolver,
+    },
   ],
-  exports: [ShiftsService, SHIFT_OPENER],
+  exports: [ShiftsService, SHIFT_OPENER, WorkforceEmployeesService],
 })
 export class WorkforceModule {}

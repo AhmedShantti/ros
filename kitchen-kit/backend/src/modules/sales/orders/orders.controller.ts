@@ -8,6 +8,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Inject,
   NotFoundException,
   Param,
   Post,
@@ -50,20 +51,27 @@ import type { TenantContext } from '../../identity/context/tenant-context';
 import { TenantContextGuard } from '../../identity/context/tenant-context.guard';
 import {
   AddOrderLineDto,
+  ApplyCompDto,
+  ApplyDiscountDto,
   CapturePaymentDto,
   CreateOrderDto,
+  IssueRefundDto,
   ListOrdersQueryDto,
   OrderLinePathParamsDto,
   OrderPathParamsDto,
   VoidOrderLineDto,
+  VoidOrderLinePostFireDto,
 } from '../sales.dto';
 import { SALES_PERMISSIONS } from '../sales.permissions';
 import {
   orderETag,
   orderRemainingBalance,
+  toDiscountView,
   toOrderLineView,
   toOrderView,
   toPaymentView,
+  toPostFireVoidRecordView,
+  toRefundView,
 } from '../sales.views';
 import { OrderLinesService } from './order-lines.service';
 import { OrdersService } from './orders.service';
@@ -71,13 +79,22 @@ import { SalesFireService } from './sales-fire.service';
 import { SalesPaymentService } from './sales-payment.service';
 import { ReceiptService } from './receipt.service';
 import { receiptSchema } from './receipt.openapi';
+import { DiscountsService } from './discounts.service';
+import { PostFireVoidService } from './post-fire-void.service';
+import { RefundsService } from './refunds.service';
 import {
   AuthorizationTarget,
   branchFromQueryOrTenant,
   businessDayFromParam,
+  CurrentAuthorization,
   fromParam,
   resourceTarget,
   sessionTerminalBranchTarget,
+  TERMINAL_PIN_VERIFIER,
+} from '../../identity/contract';
+import type {
+  RequestAuthorization,
+  TerminalPinVerifier,
 } from '../../identity/contract';
 import { SALES_ORDER_TARGET_RESOLVER } from '../contract';
 
@@ -294,6 +311,77 @@ const paymentSchema = {
   },
 };
 
+// POS-FIN-1 — shapes verified against `toDiscountView`/`toRefundView`/
+// `toPostFireVoidRecordView` in `sales.views.ts`.
+const discountSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    orderId: uuidSchema(),
+    businessDay: businessDaySchema(),
+    orderLineId: nullable(uuidSchema()),
+    kind: { type: 'string', enum: ['discount', 'comp'] },
+    valueType: nullable({ type: 'string', enum: ['percentage', 'fixed'] }),
+    percentageValueBp: nullable({
+      type: 'string',
+      description:
+        'Basis points — 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string.',
+    }),
+    fixedValueMinor: nullable(moneyStringSchema()),
+    amountMinor: moneyStringSchema(),
+    reasonCodeId: uuidSchema(),
+    appliedByEmployeeId: uuidSchema(),
+    appliedByUserId: uuidSchema(),
+    approvalRequired: { type: 'boolean' },
+    approvedByEmployeeId: nullable(uuidSchema()),
+    approvedByUserId: nullable(uuidSchema()),
+    approvalRequestId: nullable(uuidSchema()),
+    orderVersionAfter: { type: 'integer' },
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const postFireVoidRecordSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    orderId: uuidSchema(),
+    businessDay: businessDaySchema(),
+    orderLineId: uuidSchema(),
+    disposition: {
+      type: 'string',
+      enum: ['returned_to_stock', 'wasted', 'given_to_staff'],
+    },
+    reasonCodeId: uuidSchema(),
+    financialAmountRemoved: moneyStringSchema(),
+    inventoryMovementIds: { type: 'array', items: { type: 'string' } },
+    actorUserId: uuidSchema(),
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+const refundSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema(),
+    orderId: uuidSchema(),
+    businessDay: businessDaySchema(),
+    refundBusinessDay: businessDaySchema(),
+    originalPaymentId: uuidSchema(),
+    tender: { type: 'string', enum: ['cash', 'manual_external_card'] },
+    amountMinor: moneyStringSchema(),
+    cashSessionId: nullable(uuidSchema()),
+    reasonCodeId: uuidSchema(),
+    appliedByEmployeeId: uuidSchema(),
+    appliedByUserId: uuidSchema(),
+    approvalRequired: { type: 'boolean' },
+    approvedByEmployeeId: nullable(uuidSchema()),
+    approvedByUserId: nullable(uuidSchema()),
+    approvalRequestId: nullable(uuidSchema()),
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
 const etagHeader = {
   ETag: {
     description:
@@ -320,6 +408,11 @@ export class OrdersController {
     private readonly fireService: SalesFireService,
     private readonly paymentService: SalesPaymentService,
     private readonly receiptService: ReceiptService,
+    private readonly discounts: DiscountsService,
+    private readonly postFireVoid: PostFireVoidService,
+    private readonly refunds: RefundsService,
+    @Inject(TERMINAL_PIN_VERIFIER)
+    private readonly pinVerifier: TerminalPinVerifier,
   ) {}
 
   /**
@@ -531,7 +624,7 @@ export class OrdersController {
   })
   @ApiUnprocessableEntityResponse({
     description:
-      'The order exists but is not completed — no receipt exists for a draft, open, held, parked, partially_paid, cancelled, partially_refunded or refunded order.',
+      'The order has never been completed — no receipt exists for a draft, open, held, parked, partially_paid or cancelled order. (completed, partially_refunded and refunded orders all have one — POS-FIN-1.)',
   })
   async receipt(
     @CurrentTenantContext() context: TenantContext,
@@ -906,6 +999,384 @@ export class OrdersController {
     return { line: toOrderLineView(line), order: toOrderView(order) };
   }
 
+  /**
+   * Apply a line-level discount — FR-POS-045/046/047/049.
+   *
+   * `pos.discount.apply` authorises applying a discount WITHIN the
+   * configured threshold (FR-POS-047); above it, this route requires the
+   * SAME four manager fields `finalizeClose` accepts
+   * (`managerEmployeeCode`/`managerPin`/`approvalRequestId`/
+   * `approvalDecisionId`) — verified against the SAME `Idempotency-Key`
+   * request, never a second call, so the order is never abandoned
+   * (FR-POS-048's synchronous PIN channel).
+   */
+  @Post(':businessDay/:id/lines/:lineId/discount')
+  @AuthorizationTarget(
+    resourceTarget(
+      SALES_ORDER_TARGET_RESOLVER,
+      {
+        orderId: fromParam('id'),
+        businessDay: businessDayFromParam('businessDay'),
+      },
+      "sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order's real owning branch.",
+      'Order not found.',
+    ),
+  )
+  @HttpCode(HttpStatus.OK)
+  @Idempotent()
+  @RequirePermission(SALES_PERMISSIONS.DISCOUNT_APPLY)
+  @ApiOperation({ summary: 'Apply a line-level discount.' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description: 'See addLine.',
+  })
+  @ApiHeader({ name: 'if-match', required: true, description: 'See addLine.' })
+  @ApiOkResponse({
+    description: 'The discounted line and the order it belongs to.',
+    schema: {
+      type: 'object',
+      properties: {
+        line: orderLineSchema,
+        order: orderSchema,
+        discount: discountSchema,
+      },
+    },
+    headers: etagHeader,
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Missing pos.discount.apply, or the discount is above threshold and no (valid) manager approval was supplied.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'Invalid reason code, the discount exceeds its eligible base, or the line already carries a discount/comp.',
+  })
+  async applyLineDiscount(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @CurrentAuthorization() authorization: RequestAuthorization,
+    @Param() params: OrderLinePathParamsDto,
+    @Body() dto: ApplyDiscountDto,
+    @Headers('if-match') ifMatch: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const manager = await this.resolveManager(
+      dto,
+      context.tenantId,
+      terminalId,
+    );
+    const { line, order, discount } = await this.discounts.applyLineDiscount(
+      context.tenantId,
+      context.userId,
+      params.id,
+      parseBusinessDay(params.businessDay),
+      params.lineId,
+      {
+        ...(dto.id ? { id: dto.id } : {}),
+        expectedVersion: parseIfMatch(ifMatch, params.id),
+        type: dto.type,
+        value: dto.value,
+        reasonCodeId: dto.reasonCodeId,
+        employeeId,
+        auth: authorization,
+        ...(manager ? { manager } : {}),
+      },
+    );
+    response.setHeader('ETag', orderETag(order));
+    return {
+      line: toOrderLineView(line),
+      order: toOrderView(order),
+      discount: toDiscountView(discount),
+    };
+  }
+
+  /** Apply an order-level discount — FR-POS-045/046/047/049. */
+  @Post(':businessDay/:id/discount')
+  @AuthorizationTarget(
+    resourceTarget(
+      SALES_ORDER_TARGET_RESOLVER,
+      {
+        orderId: fromParam('id'),
+        businessDay: businessDayFromParam('businessDay'),
+      },
+      "sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order's real owning branch.",
+      'Order not found.',
+    ),
+  )
+  @HttpCode(HttpStatus.OK)
+  @Idempotent()
+  @RequirePermission(SALES_PERMISSIONS.DISCOUNT_APPLY)
+  @ApiOperation({ summary: 'Apply an order-level discount.' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description: 'See addLine.',
+  })
+  @ApiHeader({ name: 'if-match', required: true, description: 'See addLine.' })
+  @ApiOkResponse({
+    description: 'The order with its new discount applied.',
+    schema: {
+      type: 'object',
+      properties: { order: orderSchema, discount: discountSchema },
+    },
+    headers: etagHeader,
+  })
+  async applyOrderDiscount(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @CurrentAuthorization() authorization: RequestAuthorization,
+    @Param() params: OrderPathParamsDto,
+    @Body() dto: ApplyDiscountDto,
+    @Headers('if-match') ifMatch: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const manager = await this.resolveManager(
+      dto,
+      context.tenantId,
+      terminalId,
+    );
+    const { order, discount } = await this.discounts.applyOrderDiscount(
+      context.tenantId,
+      context.userId,
+      params.id,
+      parseBusinessDay(params.businessDay),
+      {
+        ...(dto.id ? { id: dto.id } : {}),
+        expectedVersion: parseIfMatch(ifMatch, params.id),
+        type: dto.type,
+        value: dto.value,
+        reasonCodeId: dto.reasonCodeId,
+        employeeId,
+        auth: authorization,
+        ...(manager ? { manager } : {}),
+      },
+    );
+    response.setHeader('ETag', orderETag(order));
+    return { order: toOrderView(order), discount: toDiscountView(discount) };
+  }
+
+  /** Give a complimentary item — FR-POS-050, distinct from a discount. */
+  @Post(':businessDay/:id/lines/:lineId/comp')
+  @AuthorizationTarget(
+    resourceTarget(
+      SALES_ORDER_TARGET_RESOLVER,
+      {
+        orderId: fromParam('id'),
+        businessDay: businessDayFromParam('businessDay'),
+      },
+      "sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order's real owning branch.",
+      'Order not found.',
+    ),
+  )
+  @HttpCode(HttpStatus.OK)
+  @Idempotent()
+  @RequirePermission(SALES_PERMISSIONS.COMP_APPLY)
+  @ApiOperation({ summary: 'Give a complimentary item (comp).' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description: 'See addLine.',
+  })
+  @ApiHeader({ name: 'if-match', required: true, description: 'See addLine.' })
+  @ApiOkResponse({
+    description: 'The comped line and the order it belongs to.',
+    schema: {
+      type: 'object',
+      properties: {
+        line: orderLineSchema,
+        order: orderSchema,
+        discount: discountSchema,
+      },
+    },
+    headers: etagHeader,
+  })
+  async applyComp(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param() params: OrderLinePathParamsDto,
+    @Body() dto: ApplyCompDto,
+    @Headers('if-match') ifMatch: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { employeeId } = this.requirePosIdentity(principal);
+    const { line, order, discount } = await this.discounts.applyComp(
+      context.tenantId,
+      context.userId,
+      params.id,
+      parseBusinessDay(params.businessDay),
+      params.lineId,
+      {
+        ...(dto.id ? { id: dto.id } : {}),
+        expectedVersion: parseIfMatch(ifMatch, params.id),
+        reasonCodeId: dto.reasonCodeId,
+        employeeId,
+      },
+    );
+    response.setHeader('ETag', orderETag(order));
+    return {
+      line: toOrderLineView(line),
+      order: toOrderView(order),
+      discount: toDiscountView(discount),
+    };
+  }
+
+  /**
+   * Void a POST-fire line, with mandatory disposition classification —
+   * FR-POS-070/071. The pre-fire path (`DELETE .../lines/:lineId`) is
+   * untouched; this route refuses any line NOT already sent to production.
+   */
+  @Post(':businessDay/:id/lines/:lineId/void-postfire')
+  @AuthorizationTarget(
+    resourceTarget(
+      SALES_ORDER_TARGET_RESOLVER,
+      {
+        orderId: fromParam('id'),
+        businessDay: businessDayFromParam('businessDay'),
+      },
+      "sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order's real owning branch.",
+      'Order not found.',
+    ),
+  )
+  @HttpCode(HttpStatus.OK)
+  @Idempotent()
+  @RequirePermission(SALES_PERMISSIONS.ORDER_VOID_LINE_POSTFIRE)
+  @ApiOperation({
+    summary: 'Void a post-fire line, with mandatory disposition.',
+  })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description: 'See addLine.',
+  })
+  @ApiHeader({ name: 'if-match', required: true, description: 'See addLine.' })
+  @ApiOkResponse({
+    description: 'The voided line, the order, and the disposition record.',
+    schema: {
+      type: 'object',
+      properties: {
+        line: orderLineSchema,
+        order: orderSchema,
+        postFireVoidRecord: postFireVoidRecordSchema,
+      },
+    },
+    headers: etagHeader,
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The line has not been sent to production (use the pre-fire void instead), or an invalid reason code.',
+  })
+  async voidLinePostFire(
+    @CurrentTenantContext() context: TenantContext,
+    @Param() params: OrderLinePathParamsDto,
+    @Body() dto: VoidOrderLinePostFireDto,
+    @Headers('if-match') ifMatch: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { line, order, record } = await this.postFireVoid.voidPostFire(
+      context.tenantId,
+      context.userId,
+      params.id,
+      parseBusinessDay(params.businessDay),
+      params.lineId,
+      {
+        ...(dto.id ? { id: dto.id } : {}),
+        expectedVersion: parseIfMatch(ifMatch, params.id),
+        reasonCodeId: dto.reasonCodeId,
+        disposition: dto.disposition,
+      },
+    );
+    response.setHeader('ETag', orderETag(order));
+    return {
+      line: toOrderLineView(line),
+      order: toOrderView(order),
+      postFireVoidRecord: toPostFireVoidRecordView(record),
+    };
+  }
+
+  /**
+   * Issue a refund against a completed (or already partially refunded)
+   * order — FR-POS-072/073/074/075. `pos.refund.issue` is required always;
+   * `pos.refund.different_tender` is additionally required, and checked
+   * in-transaction, only when `tender` differs from the original payment's.
+   */
+  @Post(':businessDay/:id/refunds')
+  @AuthorizationTarget(
+    resourceTarget(
+      SALES_ORDER_TARGET_RESOLVER,
+      {
+        orderId: fromParam('id'),
+        businessDay: businessDayFromParam('businessDay'),
+      },
+      "sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order's real owning branch.",
+      'Order not found.',
+    ),
+  )
+  @HttpCode(HttpStatus.CREATED)
+  @Idempotent()
+  @RequirePermission(SALES_PERMISSIONS.REFUND_ISSUE)
+  @ApiOperation({ summary: 'Issue a refund against a completed order.' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description: 'See addLine.',
+  })
+  @ApiHeader({ name: 'if-match', required: true, description: 'See addLine.' })
+  @ApiCreatedResponse({
+    description: 'The new Refund and the order it was issued against.',
+    schema: {
+      type: 'object',
+      properties: { refund: refundSchema, order: orderSchema },
+    },
+    headers: etagHeader,
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The order is not completed/partially-refunded, the refund would exceed the original refundable amount, or an invalid reason code.',
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Missing pos.refund.issue, refunding to a different tender without pos.refund.different_tender, or a required manager approval was not supplied.',
+  })
+  async issueRefund(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @CurrentAuthorization() authorization: RequestAuthorization,
+    @Param() params: OrderPathParamsDto,
+    @Body() dto: IssueRefundDto,
+    @Headers('if-match') ifMatch: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const manager = await this.resolveManager(
+      dto,
+      context.tenantId,
+      terminalId,
+    );
+    const { refund, order } = await this.refunds.issueRefund(
+      context.tenantId,
+      context.userId,
+      params.id,
+      parseBusinessDay(params.businessDay),
+      {
+        ...(dto.id ? { id: dto.id } : {}),
+        expectedVersion: parseIfMatch(ifMatch, params.id),
+        originalPaymentId: dto.originalPaymentId,
+        tender: dto.tender,
+        amountMinor: dto.amountMinor,
+        reasonCodeId: dto.reasonCodeId,
+        employeeId,
+        ...(dto.cashSessionId ? { cashSessionId: dto.cashSessionId } : {}),
+        auth: authorization,
+        ...(manager ? { manager } : {}),
+      },
+    );
+    response.setHeader('ETag', orderETag(order));
+    return { refund: toRefundView(refund), order: toOrderView(order) };
+  }
+
   // ------------------------------------------------------------- internals
 
   /** Every Sales WRITE happens at a registered terminal (FR-SEC-028). */
@@ -943,6 +1414,65 @@ export class OrdersController {
     return {
       terminalId: principal.terminalId,
       employeeId: principal.employeeId,
+    };
+  }
+
+  /**
+   * POS-FIN-1 — resolve the optional manager-approval fields into a
+   * verified approver, exactly the `treasury.controller.ts` `finalizeClose`
+   * precedent: PIN verification happens BEFORE the business transaction
+   * opens (`TERMINAL_PIN_VERIFIER`'s own contract requires this — its
+   * lockout-counter persistence depends on not joining a caller transaction
+   * that might roll back). `undefined` when none of the four fields were
+   * supplied — a discount/refund below threshold needs none of them; the
+   * service itself refuses with 403 if approval turns out to be required.
+   */
+  private async resolveManager(
+    dto: {
+      readonly managerEmployeeCode?: string;
+      readonly managerPin?: string;
+      readonly approvalRequestId?: string;
+      readonly approvalDecisionId?: string;
+    },
+    tenantId: string,
+    terminalId: string,
+  ): Promise<
+    | {
+        approvalRequestId: string;
+        approvalDecisionId: string;
+        approver: Awaited<ReturnType<TerminalPinVerifier['verifyTerminalPin']>>;
+      }
+    | undefined
+  > {
+    if (
+      !dto.managerEmployeeCode &&
+      !dto.managerPin &&
+      !dto.approvalRequestId &&
+      !dto.approvalDecisionId
+    ) {
+      return undefined;
+    }
+    if (
+      !dto.managerEmployeeCode ||
+      !dto.managerPin ||
+      !dto.approvalRequestId ||
+      !dto.approvalDecisionId
+    ) {
+      throw new BadRequestException(
+        'managerEmployeeCode, managerPin, approvalRequestId and ' +
+          'approvalDecisionId must all be supplied together, or all omitted.',
+      );
+    }
+    const approver = await this.pinVerifier.verifyTerminalPin({
+      tenantId,
+      terminalId,
+      employeeCode: dto.managerEmployeeCode,
+      pin: dto.managerPin,
+    });
+    return {
+      approvalRequestId: dto.approvalRequestId,
+      approvalDecisionId: dto.approvalDecisionId,
+      approver,
     };
   }
 

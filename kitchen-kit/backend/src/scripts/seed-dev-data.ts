@@ -54,20 +54,37 @@ import {
   REPORTING_PERMISSIONS,
   REPORTING_PERMISSION_DEFS,
 } from '../modules/reporting/reporting.permissions';
+import {
+  AUDIT_PERMISSIONS,
+  AUDIT_PERMISSION_DEFS,
+} from '../modules/governance/audit/audit.permissions';
+import { WORKFORCE_PERMISSION_DEFS } from '../modules/workforce/workforce.permissions';
 
 /**
- * One-shot local-dev data seeder — NOT wired to any HTTP route, run manually:
+ * One-shot local-dev/demo data seeder — NOT wired to any HTTP route, run
+ * manually:
  *
  *   nest build && node dist/scripts/seed-dev-data.js
  *
- * Creates one tenant with a full working POS setup (brand, branch, terminal,
- * an owner login, a PIN-authenticated cashier, and one sellable menu item
- * with an active price) by calling the same service layer the controllers
- * call — not raw SQL — so every invariant (RLS, audit trail, password
- * policy, price-list completeness, PIN uniqueness) is enforced exactly as
- * it would be for a real signup. Safe to re-run: tenant/user emails are
- * timestamp-suffixed, so each run creates a fresh, independent tenant rather
- * than colliding with a previous run.
+ * MTMB-1: builds the exact two-tenant, multi-branch demo shape by calling
+ * the same service layer the controllers call — not raw SQL — so every
+ * invariant (RLS, scoped RBAC, audit trail, password policy, PIN
+ * uniqueness) is enforced exactly as it would be for a real signup:
+ *
+ *   Demo Restaurant Group (Tenant A) ── Brand ── Downtown (DOWNTOWN)
+ *                                             └─ Airport (AIRPORT)
+ *   Second Demo Tenant   (Tenant B) ── Brand ── Main     (MAIN)
+ *
+ * Actors seeded: a Tenant A owner (TENANT scope), a Downtown-only manager
+ * (BRANCH scope Downtown), a multi-branch manager (BRANCH scope Downtown +
+ * Airport), a Downtown POS employee (PIN login, home branch Downtown), and
+ * a Tenant B owner (TENANT scope on Tenant B, isolated from Tenant A). One
+ * POS terminal is registered per operational branch (Downtown, Airport,
+ * Main).
+ *
+ * Safe to re-run: every tenant/user is timestamp-suffixed, so each run
+ * creates fresh, independent tenants rather than colliding with a previous
+ * run.
  *
  * Writes `credentials.md` (repo root of this package) with every login this
  * run created. That file is local dev output, not application code — do not
@@ -111,45 +128,66 @@ async function main(): Promise<void> {
     ...TREASURY_PERMISSION_DEFS,
     ...KDS_PERMISSION_DEFS,
     ...REPORTING_PERMISSION_DEFS,
+    ...AUDIT_PERMISSION_DEFS,
+    ...WORKFORCE_PERMISSION_DEFS,
   ]);
 
-  // ---------------------------------------------------------------- tenant --
-  const tenant = await tenants.create({
-    slug: `dev-demo-${stamp}`,
-    legalName: 'ROS Dev Demo Restaurant',
+  // ================================================== TENANT A: Demo Group ==
+  const tenantA = await tenants.create({
+    slug: `demo-restaurant-group-${stamp}`,
+    legalName: 'Demo Restaurant Group',
     defaultCurrency: 'EGP',
     countryPackCode: 'EG', // real, activated fixture pack -> tax classes auto-provisioned
   });
 
-  // ----------------------------------------------------------------- users --
-  const owner = await users.createUser({
-    email: `owner.${stamp}@example.com`,
+  const ownerA = await users.createUser({
+    email: `owner.a.${stamp}@example.com`,
     password: DEV_PASSWORD,
-    displayName: 'Dev Owner',
+    displayName: 'Demo Group Owner',
   });
-  const cashierUser = await users.createUser({
-    email: `cashier.${stamp}@example.com`,
+  const managerDowntown = await users.createUser({
+    email: `manager.downtown.${stamp}@example.com`,
     password: DEV_PASSWORD,
-    displayName: 'Dev Cashier',
+    displayName: 'Downtown Manager',
+  });
+  const managerMultiBranch = await users.createUser({
+    email: `manager.multibranch.${stamp}@example.com`,
+    password: DEV_PASSWORD,
+    displayName: 'Multi-Branch Manager',
+  });
+  const posUser = await users.createUser({
+    email: `cashier.downtown.${stamp}@example.com`,
+    password: DEV_PASSWORD,
+    displayName: 'Downtown Cashier',
   });
 
-  const ownerMembership = await memberships.grant(
-    owner.id,
-    tenant.id,
+  const ownerAMembership = await memberships.grant(
+    ownerA.id,
+    tenantA.id,
     'active',
   );
-  const cashierMembership = await memberships.grant(
-    cashierUser.id,
-    tenant.id,
+  const managerDowntownMembership = await memberships.grant(
+    managerDowntown.id,
+    tenantA.id,
+    'active',
+  );
+  const managerMultiBranchMembership = await memberships.grant(
+    managerMultiBranch.id,
+    tenantA.id,
+    'active',
+  );
+  const posUserMembership = await memberships.grant(
+    posUser.id,
+    tenantA.id,
     'active',
   );
 
   // ----------------------------------------------------------------- roles --
-  const ownerRole = await roles.createTenantRole(tenant.id, {
+  const ownerRole = await roles.createTenantRole(tenantA.id, {
     name: 'Owner',
-    description: 'Full access — seeded dev role.',
+    description: 'Full access — seeded demo role.',
   });
-  await roles.addPermissions(tenant.id, ownerRole.id, [
+  await roles.addPermissions(tenantA.id, ownerRole.id, [
     ...Object.values(IDENTITY_PERMISSIONS),
     ...Object.values(SALES_PERMISSIONS),
     ...Object.values(CATALOGUE_PERMISSIONS),
@@ -159,172 +197,328 @@ async function main(): Promise<void> {
     ...Object.values(TREASURY_PERMISSIONS),
     ...Object.values(KDS_PERMISSIONS),
     ...Object.values(REPORTING_PERMISSIONS),
+    ...Object.values(AUDIT_PERMISSIONS),
   ]);
-  // B1-2: scope is MANDATORY and never defaulted. The dev seed grants
-  // TENANT scope explicitly, which is what these bootstrap roles mean.
-  await membershipRoles.create(tenant.id, owner.id, {
-    membershipId: ownerMembership.id,
+  // B1-2: scope is MANDATORY and never defaulted. The demo seed grants
+  // TENANT scope explicitly, which is what this bootstrap role means.
+  await membershipRoles.create(tenantA.id, ownerA.id, {
+    membershipId: ownerAMembership.id,
     roleId: ownerRole.id,
     scope: { type: 'tenant' },
   });
 
-  const cashierRole = await roles.createTenantRole(tenant.id, {
-    name: 'Cashier',
-    description: 'POS order capture — seeded dev role.',
+  // Branch Manager: the day-to-day operating role, granted at BRANCH scope
+  // to different actors so one role proves FR-SEC-003 (an actor may hold
+  // several independent scoped assignments) rather than needing two roles.
+  const managerRole = await roles.createTenantRole(tenantA.id, {
+    name: 'Branch Manager',
+    description: 'Branch-scoped operations — seeded demo role.',
   });
-  await roles.addPermissions(tenant.id, cashierRole.id, [
+  await roles.addPermissions(tenantA.id, managerRole.id, [
+    ORGANISATION_PERMISSIONS.BRANCH_READ,
+    ORGANISATION_PERMISSIONS.BRANCH_MANAGE,
+    SALES_PERMISSIONS.ORDER_CREATE,
+    SALES_PERMISSIONS.ORDER_FIRE,
+    SALES_PERMISSIONS.ORDER_VOID_LINE_PREFIRE,
+    CATALOGUE_PERMISSIONS.ITEM_READ,
+    CATALOGUE_PERMISSIONS.PRICE_READ,
+    CATALOGUE_PERMISSIONS.AVAILABILITY_READ,
+    INVENTORY_PERMISSIONS.VIEW,
+    INVENTORY_PERMISSIONS.ADJUST,
+    TREASURY_PERMISSIONS.CASH_SESSION_OPEN,
+    WORKFORCE_PERMISSIONS.EMPLOYEE_VIEW,
+    WORKFORCE_PERMISSIONS.EMPLOYEE_MANAGE,
+    REPORTING_PERMISSIONS.VIEW_SALES,
+    REPORTING_PERMISSIONS.VIEW_FINANCIAL,
+  ]);
+
+  const cashierRole = await roles.createTenantRole(tenantA.id, {
+    name: 'Cashier',
+    description: 'POS order capture — seeded demo role.',
+  });
+  await roles.addPermissions(tenantA.id, cashierRole.id, [
     SALES_PERMISSIONS.ORDER_CREATE,
     // P1E-6A: the 2026-08-24 Fire Authorization Ratification names Cashier
     // as a role that receives pos.order.fire as policy. This dev seed is a
     // local-only convenience role, not the shipped standard-role grant
     // FR-SEC-010 still requires — granting it here just lets the seeded
-    // dev Cashier actually exercise Fire locally.
+    // demo Cashier actually exercise Fire locally.
     SALES_PERMISSIONS.ORDER_FIRE,
     SALES_PERMISSIONS.ORDER_VOID_LINE_PREFIRE,
     CATALOGUE_PERMISSIONS.ITEM_READ,
     CATALOGUE_PERMISSIONS.PRICE_READ,
     CATALOGUE_PERMISSIONS.AVAILABILITY_READ,
   ]);
-  await membershipRoles.create(tenant.id, owner.id, {
-    membershipId: cashierMembership.id,
+  // Tenant-scope assignment: PIN sign-in's own branch restriction comes from
+  // Employee.homeBranchId / EmployeeBranch (below), a separate narrowing
+  // mechanism — not from the RBAC scope lattice.
+  await membershipRoles.create(tenantA.id, ownerA.id, {
+    membershipId: posUserMembership.id,
     roleId: cashierRole.id,
     scope: { type: 'tenant' },
   });
 
-  // ------------------------------------------------------ brand / branch --
-  const brand = await brands.create(tenant.id, owner.id, {
-    name: 'Dev Demo Brand',
+  // ------------------------------------------------------ brand / branches --
+  const brandA = await brands.create(tenantA.id, ownerA.id, {
+    name: 'Demo Restaurant Group',
   });
-  const branch = await branches.create(tenant.id, owner.id, {
-    brandId: brand.id,
-    code: 'MAIN',
-    name: 'Main Branch',
+  const branchDowntown = await branches.create(tenantA.id, ownerA.id, {
+    brandId: brandA.id,
+    code: 'DOWNTOWN',
+    name: 'Downtown',
+    timezone: 'Africa/Cairo',
+    baseCurrency: 'EGP',
+    countryCode: 'EG',
+  });
+  const branchAirport = await branches.create(tenantA.id, ownerA.id, {
+    brandId: brandA.id,
+    code: 'AIRPORT',
+    name: 'Airport',
     timezone: 'Africa/Cairo',
     baseCurrency: 'EGP',
     countryCode: 'EG',
   });
 
-  // -------------------------------------------------------------- terminal --
-  const terminal = await terminals.register(tenant.id, {
-    name: 'POS-1',
+  await membershipRoles.create(tenantA.id, ownerA.id, {
+    membershipId: managerDowntownMembership.id,
+    roleId: managerRole.id,
+    scope: { type: 'branch', branchId: branchDowntown.id },
+  });
+  await membershipRoles.create(tenantA.id, ownerA.id, {
+    membershipId: managerMultiBranchMembership.id,
+    roleId: managerRole.id,
+    scope: { type: 'branch', branchId: branchDowntown.id },
+  });
+  await membershipRoles.create(tenantA.id, ownerA.id, {
+    membershipId: managerMultiBranchMembership.id,
+    roleId: managerRole.id,
+    scope: { type: 'branch', branchId: branchAirport.id },
+  });
+
+  // -------------------------------------------------------------- terminals --
+  const terminalDowntown = await terminals.register(tenantA.id, {
+    name: 'POS-Downtown',
     terminalType: 'pos',
-    branchId: branch.id,
+    branchId: branchDowntown.id,
+  });
+  const terminalAirport = await terminals.register(tenantA.id, {
+    name: 'POS-Airport',
+    terminalType: 'pos',
+    branchId: branchAirport.id,
   });
 
   // -------------------------------------------------------------- employee --
-  const employee = await employees.create(tenant.id, owner.id, {
+  const employee = await employees.create(tenantA.id, ownerA.id, {
     code: 'EMP001',
-    displayName: 'Dev Cashier',
-    homeBranchId: branch.id,
-    userId: cashierUser.id,
+    displayName: 'Downtown Cashier',
+    homeBranchId: branchDowntown.id,
+    userId: posUser.id,
   });
-  await pins.setPin(tenant.id, owner.id, employee.id, DEV_PIN);
+  await pins.setPin(tenantA.id, ownerA.id, employee.id, DEV_PIN);
 
   // --------------------------------------------------------------- catalogue --
-  const taxClass = await prisma.withAuthContext({ tenantId: tenant.id }, (tx) =>
-    tx.taxClass.findFirst({
-      where: { tenantId: tenant.id, code: 'standard' },
-    }),
+  const taxClass = await prisma.withAuthContext(
+    { tenantId: tenantA.id },
+    (tx) =>
+      tx.taxClass.findFirst({
+        where: { tenantId: tenantA.id, code: 'standard' },
+      }),
   );
 
-  const menu = await menus.create(tenant.id, owner.id, {
+  const menu = await menus.create(tenantA.id, ownerA.id, {
     name: { en: 'Main Menu', ar: 'القائمة الرئيسية' },
     orderTypes: ['dine_in', 'takeaway'],
   });
-  await menus.assignBranch(tenant.id, owner.id, menu.id, branch.id);
+  await menus.assignBranch(tenantA.id, ownerA.id, menu.id, branchDowntown.id);
+  await menus.assignBranch(tenantA.id, ownerA.id, menu.id, branchAirport.id);
 
-  const category = await categories.create(tenant.id, owner.id, menu.id, {
+  const category = await categories.create(tenantA.id, ownerA.id, menu.id, {
     name: { en: 'Burgers', ar: 'برجر' },
   });
 
-  const item = await menuItems.create(tenant.id, owner.id, {
+  const item = await menuItems.create(tenantA.id, ownerA.id, {
     names: { en: 'Classic Burger', ar: 'برجر كلاسيك' },
     ...(taxClass ? { taxClassId: taxClass.id } : {}),
   });
-  await menuItems.place(tenant.id, owner.id, item.id, category.id);
-  const variant = await menuItems.addVariant(tenant.id, owner.id, item.id, {
+  await menuItems.place(tenantA.id, ownerA.id, item.id, category.id);
+  const variant = await menuItems.addVariant(tenantA.id, ownerA.id, item.id, {
     name: { en: 'Regular', ar: 'عادي' },
   });
 
-  const priceList = await priceLists.create(tenant.id, owner.id, {
+  const priceList = await priceLists.create(tenantA.id, ownerA.id, {
     name: 'Standard Pricing',
-    scopeType: 'branch',
-    scopeId: branch.id,
+    scopeType: 'brand',
+    scopeId: brandA.id,
   });
-  await priceLists.setPriceEntry(tenant.id, owner.id, priceList.id, {
+  await priceLists.setPriceEntry(tenantA.id, ownerA.id, priceList.id, {
     menuItemVariantId: variant.id,
     price: '25000', // 250.00 EGP, minor units
     currency: 'EGP',
   });
-  await priceLists.activate(tenant.id, owner.id, priceList.id);
+  await priceLists.activate(tenantA.id, ownerA.id, priceList.id);
+
+  // ============================================ TENANT B: Second Demo Tenant ==
+  const tenantB = await tenants.create({
+    slug: `second-demo-tenant-${stamp}`,
+    legalName: 'Second Demo Tenant',
+    defaultCurrency: 'EGP',
+    countryPackCode: 'EG',
+  });
+
+  const ownerB = await users.createUser({
+    email: `owner.b.${stamp}@example.com`,
+    password: DEV_PASSWORD,
+    displayName: 'Second Tenant Owner',
+  });
+  const ownerBMembership = await memberships.grant(
+    ownerB.id,
+    tenantB.id,
+    'active',
+  );
+
+  const ownerRoleB = await roles.createTenantRole(tenantB.id, {
+    name: 'Owner',
+    description: 'Full access — seeded demo role.',
+  });
+  await roles.addPermissions(tenantB.id, ownerRoleB.id, [
+    ...Object.values(IDENTITY_PERMISSIONS),
+    ...Object.values(SALES_PERMISSIONS),
+    ...Object.values(CATALOGUE_PERMISSIONS),
+    ...Object.values(INVENTORY_PERMISSIONS),
+    ...Object.values(ORGANISATION_PERMISSIONS),
+    ...Object.values(PRODUCTION_PERMISSIONS),
+    ...Object.values(TREASURY_PERMISSIONS),
+    ...Object.values(KDS_PERMISSIONS),
+    ...Object.values(REPORTING_PERMISSIONS),
+    ...Object.values(AUDIT_PERMISSIONS),
+    ...Object.values(WORKFORCE_PERMISSIONS),
+  ]);
+  await membershipRoles.create(tenantB.id, ownerB.id, {
+    membershipId: ownerBMembership.id,
+    roleId: ownerRoleB.id,
+    scope: { type: 'tenant' },
+  });
+
+  const brandB = await brands.create(tenantB.id, ownerB.id, {
+    name: 'Second Demo Tenant',
+  });
+  const branchMain = await branches.create(tenantB.id, ownerB.id, {
+    brandId: brandB.id,
+    code: 'MAIN',
+    name: 'Main',
+    timezone: 'Africa/Cairo',
+    baseCurrency: 'EGP',
+    countryCode: 'EG',
+  });
+  const terminalMain = await terminals.register(tenantB.id, {
+    name: 'POS-Main',
+    terminalType: 'pos',
+    branchId: branchMain.id,
+  });
 
   await app.close();
 
   // ------------------------------------------------------------- credentials.md --
-  const rows: Array<[string, string]> = [
-    ['Tenant ID', tenant.id],
-    ['Tenant slug', tenant.slug],
-    ['Brand ID', brand.id],
-    ['Branch ID', branch.id],
-    ['Terminal ID', terminal.id],
-    ['Terminal name', 'POS-1'],
-    ['Menu ID', menu.id],
-    ['Category ID', category.id],
-    ['Menu item ID', item.id],
-    ['Menu item variant ID', variant.id],
-    ['Price list ID', priceList.id],
-  ];
-
-  const md = `# ROS dev seed credentials
+  const md = `# ROS dev/demo seed credentials
 
 Generated ${new Date(stamp).toISOString()} by \`src/scripts/seed-dev-data.ts\`
-against the local dev database. **Local dev/test data only — do not commit
+against the local dev database. **Local dev/demo data only — do not commit
 this file, do not reuse these credentials anywhere but a local scratch DB.**
 
-## Logins
+MTMB-1 demo shape:
 
-| Role | Auth method | Email / Employee code | Password / PIN | Notes |
+\`\`\`
+Demo Restaurant Group (Tenant A)
+  Brand: Demo Restaurant Group
+    Branch: Downtown (DOWNTOWN)
+    Branch: Airport (AIRPORT)
+
+Second Demo Tenant (Tenant B)
+  Brand: Second Demo Tenant
+    Branch: Main (MAIN)
+\`\`\`
+
+## Logins — Tenant A (Demo Restaurant Group)
+
+| Role | Scope | Auth method | Email / Employee code | Password / PIN |
 |---|---|---|---|---|
-| Owner | \`POST /auth/login\` | \`${owner.email}\` | \`${DEV_PASSWORD}\` | Full permissions across every module. Use for admin/config endpoints. |
-| Cashier | \`POST /auth/login\` | \`${cashierUser.email}\` | \`${DEV_PASSWORD}\` | Same user as the PIN-login cashier below; password login gets a dashboard session (no POS-only restriction). |
-| Cashier (POS) | \`POST /auth/pin\` | employeeCode \`${employee.code}\` | PIN \`${DEV_PIN}\` | Requires \`tenantId\`/\`terminalId\` in the body (below). Session is POS-only (\`typ: 'pos'\`) — can call \`/orders\` routes, cannot call dashboard-only routes. |
+| Owner | TENANT (all of Tenant A) | \`POST /auth/login\` | \`${ownerA.email}\` | \`${DEV_PASSWORD}\` |
+| Downtown Manager | BRANCH — Downtown only | \`POST /auth/login\` | \`${managerDowntown.email}\` | \`${DEV_PASSWORD}\` |
+| Multi-Branch Manager | BRANCH — Downtown + Airport | \`POST /auth/login\` | \`${managerMultiBranch.email}\` | \`${DEV_PASSWORD}\` |
+| Downtown Cashier | TENANT role, home branch Downtown | \`POST /auth/login\` | \`${posUser.email}\` | \`${DEV_PASSWORD}\` |
+| Downtown Cashier (POS) | home branch Downtown | \`POST /auth/pin\` | employeeCode \`${employee.code}\` | PIN \`${DEV_PIN}\` |
 
-\`POST /auth/pin\` body:
+After a password login (\`/auth/login\`), select Tenant A with:
+\`\`\`json
+POST /auth/tenant
+{ "tenantId": "${tenantA.id}" }
+\`\`\`
+
+\`POST /auth/pin\` body (Downtown terminal):
 \`\`\`json
 {
-  "tenantId": "${tenant.id}",
-  "terminalId": "${terminal.id}",
+  "tenantId": "${tenantA.id}",
+  "terminalId": "${terminalDowntown.id}",
   "employeeCode": "${employee.code}",
   "pin": "${DEV_PIN}"
 }
 \`\`\`
 
-After a password login (\`/auth/login\`), select this tenant with:
+## Logins — Tenant B (Second Demo Tenant, isolated from Tenant A)
+
+| Role | Scope | Auth method | Email | Password |
+|---|---|---|---|---|
+| Owner | TENANT (all of Tenant B) | \`POST /auth/login\` | \`${ownerB.email}\` | \`${DEV_PASSWORD}\` |
+
 \`\`\`json
 POST /auth/tenant
-{ "tenantId": "${tenant.id}" }
+{ "tenantId": "${tenantB.id}" }
 \`\`\`
 
 ## Seeded IDs
 
 | Entity | ID |
 |---|---|
-${rows.map(([k, v]) => `| ${k} | \`${v}\` |`).join('\n')}
+| Tenant A ID | \`${tenantA.id}\` |
+| Tenant A slug | \`${tenantA.slug}\` |
+| Brand A ID | \`${brandA.id}\` |
+| Branch Downtown ID | \`${branchDowntown.id}\` |
+| Branch Airport ID | \`${branchAirport.id}\` |
+| Terminal POS-Downtown ID | \`${terminalDowntown.id}\` |
+| Terminal POS-Airport ID | \`${terminalAirport.id}\` |
+| Menu ID | \`${menu.id}\` |
+| Category ID | \`${category.id}\` |
+| Menu item ID | \`${item.id}\` |
+| Menu item variant ID | \`${variant.id}\` |
+| Price list ID | \`${priceList.id}\` |
+| Tenant B ID | \`${tenantB.id}\` |
+| Tenant B slug | \`${tenantB.slug}\` |
+| Brand B ID | \`${brandB.id}\` |
+| Branch Main ID | \`${branchMain.id}\` |
+| Terminal POS-Main ID | \`${terminalMain.id}\` |
 
 ## What else was seeded
 
-- Permission catalog upserted for every module (identity, sales, catalogue,
-  inventory, organisation, production, treasury).
-- \`Owner\` role — every permission code above, assigned to the Owner membership.
-- \`Cashier\` role — order create/void-prefire + catalogue read, assigned to
-  the Cashier membership.
-- One menu item + variant, with an \`active\` price list/entry
-  (\`GET /catalogue/price-lists\` returns it).
+- Permission catalog upserted for every module.
+- \`Owner\` role (TENANT scope) in both tenants — every permission code above.
+- \`Branch Manager\` role (Tenant A) — branch-scoped operations
+  (organisation/sales/catalogue/inventory/treasury/workforce/reporting reads
+  and day-to-day writes), assigned at BRANCH scope to the Downtown Manager
+  (Downtown only) and the Multi-Branch Manager (Downtown + Airport — two
+  independent scoped assignments on ONE role, per FR-SEC-003).
+- \`Cashier\` role (Tenant A, TENANT scope) — order create/fire/void-prefire +
+  catalogue read, assigned to the Downtown Cashier membership; the PIN
+  sign-in's own branch restriction comes from the employee's home branch,
+  not from this role scope.
+- One menu item + variant, with an \`active\` price list/entry, assigned to
+  both Tenant A branches (\`GET /catalogue/price-lists\` returns it).
+- \`GET /org/access\` (MTMB-1) returns each actor's own live accessible
+  brands/branches — try it with any of the tokens above.
 
 ## What was NOT seeded
 
-Inventory items/stock levels, recipes, warehouses, cash sessions, and any
-second branch/terminal — not created. Ask if you need any of these too.
+Inventory items/stock levels, recipes, warehouses, cash sessions, and KDS
+terminals/stations — not created. Ask if you need any of these too.
 
 ## Known limitation — Sales order creation (\`POST /orders\`) will 422
 
@@ -345,21 +539,22 @@ decision from seeding data.
 ## Quick smoke test (auth + reads — works today)
 
 \`\`\`bash
-# PIN login (cashier)
+# PIN login (Downtown cashier)
 curl -X POST http://localhost:3000/auth/pin \\
   -H "Content-Type: application/json" \\
-  -d '{"tenantId":"${tenant.id}","terminalId":"${terminal.id}","employeeCode":"${employee.code}","pin":"${DEV_PIN}"}'
+  -d '{"tenantId":"${tenantA.id}","terminalId":"${terminalDowntown.id}","employeeCode":"${employee.code}","pin":"${DEV_PIN}"}'
 
-# Owner password login + tenant selection
+# Owner A password login + tenant selection
 curl -X POST http://localhost:3000/auth/login \\
   -H "Content-Type: application/json" \\
-  -d '{"email":"${owner.email}","password":"${DEV_PASSWORD}"}'
+  -d '{"email":"${ownerA.email}","password":"${DEV_PASSWORD}"}'
 curl -X POST http://localhost:3000/auth/tenant \\
   -H "Authorization: Bearer <accessToken>" \\
   -H "Content-Type: application/json" \\
-  -d '{"tenantId":"${tenant.id}"}'
+  -d '{"tenantId":"${tenantA.id}"}'
 
 # Then, with the scoped token:
+curl http://localhost:3000/org/access -H "Authorization: Bearer <scopedAccessToken>"
 curl http://localhost:3000/org/branches -H "Authorization: Bearer <scopedAccessToken>"
 curl http://localhost:3000/catalogue/items -H "Authorization: Bearer <scopedAccessToken>"
 \`\`\`
@@ -369,10 +564,12 @@ curl http://localhost:3000/catalogue/items -H "Authorization: Bearer <scopedAcce
   writeFileSync(outPath, md, 'utf8');
 
   console.log(`Wrote ${outPath}`);
-  console.log(`Tenant: ${tenant.id} (${tenant.slug})`);
-  console.log(`Owner login: ${owner.email} / ${DEV_PASSWORD}`);
+  console.log(`Tenant A: ${tenantA.id} (${tenantA.slug})`);
+  console.log(`Tenant B: ${tenantB.id} (${tenantB.slug})`);
+  console.log(`Owner A login: ${ownerA.email} / ${DEV_PASSWORD}`);
+  console.log(`Owner B login: ${ownerB.email} / ${DEV_PASSWORD}`);
   console.log(
-    `Cashier PIN login: employeeCode=${employee.code} pin=${DEV_PIN} terminalId=${terminal.id}`,
+    `Downtown Cashier PIN login: employeeCode=${employee.code} pin=${DEV_PIN} terminalId=${terminalDowntown.id}`,
   );
 }
 

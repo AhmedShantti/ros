@@ -82,6 +82,8 @@ const REVIEWED_UNPROTECTED_ROUTES: Readonly<Record<string, string>> = {
   'GET /auth/me': 'The caller’s own identity. No target but the caller.',
   'GET /auth/permissions':
     'The caller’s OWN effective scope (FR-SEC-045). Reading one’s own authority cannot be gated on holding authority.',
+  'GET /org/access':
+    'MTMB-1 frontend branch/brand discovery — the RESOLVED counterpart of GET /auth/permissions for the SAME caller-own-scope read: it returns only what the caller’s own live grants already cover, so it cannot be gated on holding a permission over that scope without becoming circular.',
   'POST /auth/password/change':
     'The caller changes their OWN password (FR-SEC-005 lifecycle, ADR 0005).',
   'POST /auth/password/forgot':
@@ -101,6 +103,32 @@ const REVIEWED_UNPROTECTED_ROUTES: Readonly<Record<string, string>> = {
     'guards; branch is server-derived; operation-level domain authorization ' +
     'is delegated to SYNC_AUTHORIZATION_PORT when production handlers are ' +
     'added.',
+  'POST /sync/recovery/:grantId/batch':
+    'D4-1B lossless revoked-terminal recovery upload. Authenticated as an ' +
+    'ADMIN (JwtAuthGuard + TenantContextGuard only — never the revoked ' +
+    'terminal itself; PinService.authenticate refuses a non-active terminal ' +
+    'outright, so a terminal-authenticated route would be unreachable in ' +
+    'exactly the case it exists for — see SyncRecoveryService’s docblock). ' +
+    'No static @AuthorizationTarget is possible because the target branch ' +
+    'is only known once the :grantId row is loaded; ' +
+    'SyncRecoveryService.authorizeGrantForBatch instead calls the SAME ' +
+    'SCOPE_AUTHORIZATION.assertAuthorized primitive PermissionGuard uses, ' +
+    'programmatically, against the grant’s own recorded branch, requiring ' +
+    'live identity.terminal.manage (the SAME permission that gates grant ' +
+    'issuance, POST /sync/recovery/grants). Operation-level domain ' +
+    'authorization inside the batch is the same SYNC_AUTHORIZATION_PORT ' +
+    'every production handler already enforces.',
+  'POST /workforce/attendance/clock-in':
+    'FR-HRM-020/023. The caller clocks THEMSELVES in via a PIN-verified POS ' +
+    "session (FR-SEC-021); authority is that session's own employee " +
+    'identity, never an RBAC grant — every active employee must be able to ' +
+    "clock in regardless of what else they hold. §15.2's Workforce " +
+    'catalogue has no "clock in" verb to invent one from. Branch safety ' +
+    "comes from the terminal binding and the employee's permitted-branch " +
+    'set, exactly like POST /cash-sessions.',
+  'POST /workforce/attendance/clock-out':
+    'Same authority as clock-in, above — the caller closes their OWN open ' +
+    'attendance record.',
 };
 
 // ───────────────────────────────────────────────────────── route discovery ──

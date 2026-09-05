@@ -816,9 +816,28 @@ describe('Inventory (e2e)', () => {
       // is asserted directly below rather than dropped.
       const rows = await admin.$queryRawUnsafe<{ nspname: string }[]>(
         `SELECT nspname FROM pg_namespace WHERE nspname IN
-         ('procurement','crm','analytics','platform','ck')`,
+         ('procurement','crm','analytics','ck')`,
       );
       expect(rows).toHaveLength(0);
+
+      // `platform` was removed from the forbidden list by SCHED-1 (migration
+      // 39), which authorises the `jobs` half of the schema SRS §25.1 names
+      // ("outbox, jobs, notifications, feature_flags, migrations") — and
+      // NOTHING else in it. Same treatment as `workforce`/`treasury`/`fiscal`
+      // below: the guard is NARROWED, not dropped, so an unbuilt platform
+      // capability (an outbox, a notification table, feature flags) still
+      // cannot appear quietly. Inventory owns this assertion because Inventory
+      // is the first domain to register a scheduled job.
+      const platformTables = await admin.$queryRawUnsafe<
+        { tablename: string }[]
+      >(
+        `SELECT tablename FROM pg_tables WHERE schemaname = 'platform' ORDER BY 1`,
+      );
+      expect(platformTables.map((t) => t.tablename)).toEqual([
+        'job_findings',
+        'job_occurrences',
+        'job_schedules',
+      ]);
 
       // `workforce` and `treasury` were removed from this guard by carried item
       // P1D-A (2026-08-20), which authorises `workforce.shifts`,

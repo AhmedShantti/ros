@@ -216,6 +216,45 @@ export const AUDIT_ACTION = {
   // occurred; it is accepted, both values are recorded, and this is the entry
   // that says so.
   SYNC_REVALIDATION_EXCEPTION_RAISED: 'SYNC_REVALIDATION_EXCEPTION_RAISED',
+  // D4-1B — lossless revoked-terminal recovery (migration 38, GD-D1-07). Same
+  // <ENTITY>_<PAST_TENSE> convention. Three distinct verbs for three distinct
+  // accountable events: an admin authorizing the window, the window being
+  // bound to one specific batch, and that batch finishing — each is a
+  // separately meaningful fact for "who authorized recovery of what, and did
+  // it actually happen".
+  TERMINAL_RECOVERY_GRANTED: 'TERMINAL_RECOVERY_GRANTED',
+  TERMINAL_RECOVERY_BATCH_ACCEPTED: 'TERMINAL_RECOVERY_BATCH_ACCEPTED',
+  TERMINAL_RECOVERY_BATCH_PROCESSED: 'TERMINAL_RECOVERY_BATCH_PROCESSED',
+
+  // AUD-1 — FR-AUD-007 "Audit log access SHALL itself be audited." Two verbs
+  // (not one, unlike CASH_MOVEMENT_RECORDED's single-verb-many-types
+  // convention) because a search and an export are materially different
+  // accountable events for an audit trail specifically: a search is a read, an
+  // export is a durable copy leaving the system's own query surface. Written
+  // by `AuditQueryService` for EVERY call to either route, success or not.
+  AUDIT_LOG_QUERIED: 'AUDIT_LOG_QUERIED',
+  AUDIT_LOG_EXPORTED: 'AUDIT_LOG_EXPORTED',
+
+  // HR-1 — Workforce Core (FR-HRM-001..025). Same <ENTITY>_<PAST_TENSE>
+  // convention as every other verb in this file.
+  EMPLOYEE_UPDATED: 'EMPLOYEE_UPDATED',
+  EMPLOYEE_DEACTIVATED: 'EMPLOYEE_DEACTIVATED',
+  // FR-HRM-003 — a new effective-dated version, never an edit (mirrors
+  // CASH_CLOSE_POLICY_VERSION_CREATED's own one-verb-per-new-row convention).
+  EMPLOYEE_COMPENSATION_SET: 'EMPLOYEE_COMPENSATION_SET',
+  SCHEDULE_CREATED: 'SCHEDULE_CREATED',
+  SCHEDULED_SHIFT_CREATED: 'SCHEDULED_SHIFT_CREATED',
+  // One verb per direction (not one verb for both, unlike
+  // CASH_MOVEMENT_RECORDED's convention): a clock-in and a clock-out are
+  // materially different accountable events — one opens paid time, the other
+  // closes it — and FR-HRM-023's early-clock-in rejection only ever attaches
+  // to the former.
+  CLOCK_IN_RECORDED: 'CLOCK_IN_RECORDED',
+  CLOCK_OUT_RECORDED: 'CLOCK_OUT_RECORDED',
+  // FR-HRM-025 — one verb per corrected field (an AttendanceCorrection row is
+  // already one-field-at-a-time; the audit entry mirrors it 1:1).
+  ATTENDANCE_CORRECTED: 'ATTENDANCE_CORRECTED',
+  ATTENDANCE_SETTINGS_VERSION_CREATED: 'ATTENDANCE_SETTINGS_VERSION_CREATED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -246,6 +285,8 @@ export const AUDIT_ENTITY = {
   /// B1-2 — a single scoped role assignment (`identity.membership_roles.id`).
   ROLE_ASSIGNMENT: 'role_assignment',
   TERMINAL: 'terminal',
+  // D4-1B — migration 38.
+  SYNC_RECOVERY_GRANT: 'sync_recovery_grant',
 
   // Phase 15 — Organisation entities.
   BRAND: 'brand',
@@ -279,6 +320,8 @@ export const AUDIT_ENTITY = {
   STOCK_MOVEMENT: 'stock_movement',
   COUNT_SESSION: 'count_session',
   WASTE_RECORD: 'waste_record',
+  // POS-FIN-1 acceptance correction (2026-09-04).
+  POST_FIRE_VOID_DISPOSITION_RECORD: 'post_fire_void_disposition_record',
 
   // Production Spec entities.
   RECIPE: 'recipe',
@@ -288,4 +331,16 @@ export const AUDIT_ENTITY = {
   // KDS operator lifecycle entities.
   TICKET: 'ticket',
   TICKET_LINE: 'ticket_line',
+
+  // AUD-1 — the audit log itself, as the object of an access (FR-AUD-007).
+  AUDIT_LOG: 'audit_log',
+
+  // HR-1 — Workforce Core entities.
+  EMPLOYEE_COMPENSATION: 'employee_compensation',
+  SCHEDULE: 'schedule',
+  SCHEDULED_SHIFT: 'scheduled_shift',
+  ATTENDANCE_RECORD: 'attendance_record',
+  CLOCK_EVENT: 'clock_event',
+  ATTENDANCE_CORRECTION: 'attendance_correction',
+  ATTENDANCE_SETTINGS: 'attendance_settings',
 } as const;
