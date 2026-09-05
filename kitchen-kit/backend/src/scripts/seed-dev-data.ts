@@ -58,10 +58,6 @@ import {
   AUDIT_PERMISSIONS,
   AUDIT_PERMISSION_DEFS,
 } from '../modules/governance/audit/audit.permissions';
-import {
-  WORKFORCE_PERMISSIONS,
-  WORKFORCE_PERMISSION_DEFS,
-} from '../modules/workforce/workforce.permissions';
 
 /**
  * One-shot local-dev/demo data seeder — NOT wired to any HTTP route, run
@@ -132,7 +128,6 @@ async function main(): Promise<void> {
     ...KDS_PERMISSION_DEFS,
     ...REPORTING_PERMISSION_DEFS,
     ...AUDIT_PERMISSION_DEFS,
-    ...WORKFORCE_PERMISSION_DEFS,
   ]);
 
   // ================================================== TENANT A: Demo Group ==
@@ -201,7 +196,6 @@ async function main(): Promise<void> {
     ...Object.values(KDS_PERMISSIONS),
     ...Object.values(REPORTING_PERMISSIONS),
     ...Object.values(AUDIT_PERMISSIONS),
-    ...Object.values(WORKFORCE_PERMISSIONS),
   ]);
   // B1-2: scope is MANDATORY and never defaulted. The demo seed grants
   // TENANT scope explicitly, which is what this bootstrap role means.
