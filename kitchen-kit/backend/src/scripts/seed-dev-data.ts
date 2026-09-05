@@ -58,6 +58,7 @@ import {
   AUDIT_PERMISSIONS,
   AUDIT_PERMISSION_DEFS,
 } from '../modules/governance/audit/audit.permissions';
+import { WORKFORCE_PERMISSION_DEFS } from '../modules/workforce/workforce.permissions';
 
 /**
  * One-shot local-dev/demo data seeder — NOT wired to any HTTP route, run
@@ -128,6 +129,7 @@ async function main(): Promise<void> {
     ...KDS_PERMISSION_DEFS,
     ...REPORTING_PERMISSION_DEFS,
     ...AUDIT_PERMISSION_DEFS,
+    ...WORKFORCE_PERMISSION_DEFS,
   ]);
 
   // ================================================== TENANT A: Demo Group ==

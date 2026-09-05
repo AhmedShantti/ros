@@ -4,7 +4,6 @@ import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { SHIFT_OPENER } from './contract';
 import {
-  ATTENDANCE_SUMMARY_QUERY,
   WORKFORCE_ATTENDANCE_RECORD_TARGET_RESOLVER,
   WORKFORCE_EMPLOYEE_TARGET_RESOLVER,
   WORKFORCE_SCHEDULE_TARGET_RESOLVER,
@@ -21,7 +20,6 @@ import { AttendanceService } from './attendance/attendance.service';
 import { AttendanceCorrectionService } from './attendance/attendance-correction.service';
 import { AttendanceSettingsService } from './attendance/attendance-settings.service';
 import { AttendanceRecordTargetResolver } from './attendance/attendance-target.resolver';
-import { AttendanceSummaryQueryService } from './attendance/attendance-summary.query.service';
 
 /**
  * Workforce bounded context.
@@ -69,19 +67,7 @@ import { AttendanceSummaryQueryService } from './attendance/attendance-summary.q
       provide: WORKFORCE_ATTENDANCE_RECORD_TARGET_RESOLVER,
       useExisting: AttendanceRecordTargetResolver,
     },
-    // RPT-DEMO-1 — the branch-scoped attendance summary the Reporting
-    // overview needs. Read-only; no overtime/labour-rule logic implied.
-    AttendanceSummaryQueryService,
-    {
-      provide: ATTENDANCE_SUMMARY_QUERY,
-      useExisting: AttendanceSummaryQueryService,
-    },
   ],
-  exports: [
-    ShiftsService,
-    SHIFT_OPENER,
-    WorkforceEmployeesService,
-    ATTENDANCE_SUMMARY_QUERY,
-  ],
+  exports: [ShiftsService, SHIFT_OPENER, WorkforceEmployeesService],
 })
 export class WorkforceModule {}
