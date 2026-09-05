@@ -1,13 +1,27 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { BranchCurrencyQueryService } from './branches/branch-currency.query.service';
+import { BranchBrandQueryService } from './branches/branch-brand.query.service';
 import { BranchReportingScopeQueryService } from './branches/branch-reporting-scope.query.service';
 import { BranchesService } from './branches/branches.service';
+import { BranchLocationsQueryService } from './locations/branch-locations.query.service';
+import {
+  LocationTargetResolver,
+  StationTargetResolver,
+  TableTargetResolver,
+  WarehouseTargetResolver,
+} from './branches/scope-target.resolvers';
 import { BrandsService } from './brands/brands.service';
 import { CentralKitchensService } from './central-kitchens/central-kitchens.service';
 import {
+  ORG_LOCATION_TARGET_RESOLVER,
+  ORG_STATION_TARGET_RESOLVER,
+  ORG_TABLE_TARGET_RESOLVER,
+  ORG_WAREHOUSE_TARGET_RESOLVER,
+  BRANCH_BRAND_QUERY,
   BRANCH_CURRENCY_QUERY,
+  BRANCH_LOCATIONS_QUERY,
   BRANCH_REPORTING_SCOPE_QUERY,
   KDS_BRANCH_CONFIG_QUERY,
   ROUTING_CONFIG_QUERY,
@@ -36,7 +50,21 @@ import { WarehousesService } from './warehouses/warehouses.service';
  * mechanism, no new audit implementation, no change to authentication or RBAC.
  */
 @Module({
-  imports: [IdentityModule, AuditModule],
+  // B1-2: the Identity <-> Organisation contract edge is now BIDIRECTIONAL —
+  // Organisation consumes `identity/contract`'s SCOPE_REVIEW_QUERY for the M-4+
+  // second-active-branch gate, and Identity consumes this module's
+  // BRANCH_BRAND_QUERY for the brand->branch limb of the scope lattice. Both
+  // sides use `forwardRef()`, exactly as sales <-> treasury already do. No
+  // private path is imported in either direction.
+  //
+  // AUD-1: AuditModule now ALSO imports IdentityModule (for its own new
+  // `AuditQueryController`'s guard chain, the same reason every other
+  // controller-bearing module imports it), which closes a real cycle through
+  // this edge (AuditModule -> IdentityModule -> OrganisationModule ->
+  // AuditModule). `AuditModule` is wrapped in `forwardRef()` here for exactly
+  // the reason `IdentityModule` already is on this same line — no behaviour
+  // changes, only WHEN the reference is resolved.
+  imports: [forwardRef(() => IdentityModule), forwardRef(() => AuditModule)],
   controllers: [OrganisationController],
   providers: [
     LocationsService,
@@ -73,6 +101,38 @@ import { WarehousesService } from './warehouses/warehouses.service';
       provide: BRANCH_REPORTING_SCOPE_QUERY,
       useExisting: BranchReportingScopeQueryService,
     },
+    // B1-2 scoped RBAC — the branch's parent brand, for the lattice's
+    // "BRAND X covers a branch whose parent brand is X" limb. Not an
+    // authorization decision; grants nothing.
+    BranchBrandQueryService,
+    { provide: BRANCH_BRAND_QUERY, useExisting: BranchBrandQueryService },
+    // RPT-DEMO-1 — the branch's own storage location(s), for Inventory's
+    // branch-scoped operational snapshot in the Reporting overview. Not
+    // authorization; grants nothing.
+    BranchLocationsQueryService,
+    {
+      provide: BRANCH_LOCATIONS_QUERY,
+      useExisting: BranchLocationsQueryService,
+    },
+    // B1-3 resource-derived authorization targets. These answer "what does this
+    // row belong to?"; they never decide authorization.
+    StationTargetResolver,
+    {
+      provide: ORG_STATION_TARGET_RESOLVER,
+      useExisting: StationTargetResolver,
+    },
+    TableTargetResolver,
+    { provide: ORG_TABLE_TARGET_RESOLVER, useExisting: TableTargetResolver },
+    WarehouseTargetResolver,
+    {
+      provide: ORG_WAREHOUSE_TARGET_RESOLVER,
+      useExisting: WarehouseTargetResolver,
+    },
+    LocationTargetResolver,
+    {
+      provide: ORG_LOCATION_TARGET_RESOLVER,
+      useExisting: LocationTargetResolver,
+    },
   ],
   exports: [
     LocationsService,
@@ -91,6 +151,12 @@ import { WarehousesService } from './warehouses/warehouses.service';
     STATION_DISPLAY_BINDING_QUERY,
     KDS_BRANCH_CONFIG_QUERY,
     BRANCH_REPORTING_SCOPE_QUERY,
+    BRANCH_BRAND_QUERY,
+    BRANCH_LOCATIONS_QUERY,
+    ORG_STATION_TARGET_RESOLVER,
+    ORG_TABLE_TARGET_RESOLVER,
+    ORG_WAREHOUSE_TARGET_RESOLVER,
+    ORG_LOCATION_TARGET_RESOLVER,
   ],
 })
 export class OrganisationModule {}

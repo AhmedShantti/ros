@@ -53,7 +53,15 @@ describe('state machine (SRS §7.3 #22)', () => {
 
   it('explains the legal targets when refusing', () => {
     expect(() => assertTransition('draft', 'held')).toThrow(/Legal targets/);
-    expect(() => assertTransition('completed', 'open')).toThrow(/terminal/);
+    // POS-FIN-1: `completed` is no longer terminal in TRANSITIONS — a Refund
+    // legally moves it to partially_refunded/refunded — so the refusal now
+    // names those legal targets instead of saying "terminal".
+    expect(() => assertTransition('completed', 'open')).toThrow(
+      /Legal targets/,
+    );
+    // `refunded` has no legal targets at all, so it is the state that still
+    // exercises the "terminal in this implementation" message.
+    expect(() => assertTransition('refunded', 'open')).toThrow(/terminal/);
   });
 });
 

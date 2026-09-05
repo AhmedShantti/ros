@@ -52,6 +52,13 @@ import { TicketReaderService } from './tickets/ticket-reader.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KDS_BRANCH_CONFIG_QUERY } from '../organisation/contract';
 import type { KdsBranchConfigQuery } from '../organisation/contract';
+import {
+  AuthorizationTarget,
+  fromParam,
+  resourceTarget,
+} from '../identity/contract';
+import { ORG_STATION_TARGET_RESOLVER } from '../organisation/contract';
+import { KDS_TICKET_TARGET_RESOLVER } from './contract';
 
 /**
  * KDS operator lifecycle — Kitchen's FIRST controller (KDS-R11/KDS-R12,
@@ -217,6 +224,14 @@ export class KitchenController {
    * rejects it before this handler runs).
    */
   @Get('stations/:stationId/queue')
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_STATION_TARGET_RESOLVER,
+      { stationId: fromParam('stationId') },
+      'The station row carries the branch; KdsStationGuard separately proves the terminal is bound to exactly this station.',
+      'Station not found.',
+    ),
+  )
   @ApiOperation({ summary: 'Read a KDS station queue (FIFO, read-only).' })
   @ApiOkResponse({
     description: 'The station queue and branch KDS config facts.',
@@ -261,6 +276,14 @@ export class KitchenController {
 
   /** First-viewed acknowledgement — design gate §9. */
   @Post('stations/:stationId/tickets/view')
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_STATION_TARGET_RESOLVER,
+      { stationId: fromParam('stationId') },
+      'The station row carries the branch; KdsStationGuard separately proves the terminal is bound to exactly this station.',
+      'Station not found.',
+    ),
+  )
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Acknowledge tickets as first-viewed on this station.',
@@ -298,6 +321,14 @@ export class KitchenController {
 
   /** Optional item start — design gate §10. */
   @Post('tickets/:ticketId/lines/:lineId/start')
+  @AuthorizationTarget(
+    resourceTarget(
+      KDS_TICKET_TARGET_RESOLVER,
+      { ticketId: fromParam('ticketId') },
+      "kitchen.tickets.branch_id, proven to be the order's branch by a partition-safe composite FK.",
+      'Ticket not found.',
+    ),
+  )
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark a ticket line started.' })
   @ApiOkResponse({
@@ -329,6 +360,14 @@ export class KitchenController {
 
   /** Bump item — design gate §11. */
   @Post('tickets/:ticketId/lines/:lineId/bump')
+  @AuthorizationTarget(
+    resourceTarget(
+      KDS_TICKET_TARGET_RESOLVER,
+      { ticketId: fromParam('ticketId') },
+      "kitchen.tickets.branch_id, proven to be the order's branch by a partition-safe composite FK.",
+      'Ticket not found.',
+    ),
+  )
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark a ticket line ready (bump item).' })
   @ApiOkResponse({
@@ -363,6 +402,14 @@ export class KitchenController {
 
   /** Bump all — design gate §11. */
   @Post('tickets/:ticketId/bump-all')
+  @AuthorizationTarget(
+    resourceTarget(
+      KDS_TICKET_TARGET_RESOLVER,
+      { ticketId: fromParam('ticketId') },
+      "kitchen.tickets.branch_id, proven to be the order's branch by a partition-safe composite FK.",
+      'Ticket not found.',
+    ),
+  )
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Mark every eligible line on a ticket ready (bump all).',
@@ -396,6 +443,14 @@ export class KitchenController {
 
   /** Recall — design gate §14, KDS-R12. Idempotency-Key REQUIRED. */
   @Post('tickets/:ticketId/recall')
+  @AuthorizationTarget(
+    resourceTarget(
+      KDS_TICKET_TARGET_RESOLVER,
+      { ticketId: fromParam('ticketId') },
+      "kitchen.tickets.branch_id, proven to be the order's branch by a partition-safe composite FK.",
+      'Ticket not found.',
+    ),
+  )
   @HttpCode(HttpStatus.OK)
   @Idempotent()
   @ApiOperation({ summary: 'Recall a bumped ticket back to active work.' })

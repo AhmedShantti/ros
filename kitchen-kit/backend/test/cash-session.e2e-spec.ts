@@ -215,7 +215,11 @@ describe('Cash session open (e2e)', () => {
     const membershipA = await admin.membership.findFirstOrThrow({
       where: { userId: userA, tenantId: tenantA },
     });
-    await membershipRoles.assign(tenantA, membershipA.id, cashier.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: membershipA.id,
+      roleId: cashier.id,
+      scope: { type: 'tenant' },
+    });
 
     // A role with NO cash permission, to prove the guard.
     const noPerm = await roles.createTenantRole(tenantA, {
@@ -224,7 +228,11 @@ describe('Cash session open (e2e)', () => {
     const membershipB = await admin.membership.findFirstOrThrow({
       where: { userId: userB, tenantId: tenantA },
     });
-    await membershipRoles.assign(tenantA, membershipB.id, noPerm.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: membershipB.id,
+      roleId: noPerm.id,
+      scope: { type: 'tenant' },
+    });
 
     const pins = app.get(PinService);
     await pins.setPin(tenantA, userA, employeeA, PIN_A);
@@ -1108,7 +1116,12 @@ describe('Cash session open (e2e)', () => {
       // statement about the application and was never really a statement
       // about Treasury's own boundary, which is what this test guards.
       expect(treasury.filter((p) => p.includes('payment'))).toHaveLength(0);
-      expect(paths.filter((p) => p.includes('refund'))).toHaveLength(0);
+      // POS-FIN-1: a Refund is likewise a SALES route
+      // (`/orders/{businessDay}/{id}/refunds`), not a Treasury one —
+      // BR-POS-001 makes it a correction of the ORDER, only settled in
+      // cash via the pre-existing `cash_session_id` link. Re-scoped to
+      // `treasury` for the same reason as the payment check just above.
+      expect(treasury.filter((p) => p.includes('refund'))).toHaveLength(0);
       // Migration 35 (DayClose, DC-R1/R2/R3) legitimately introduces
       // `/branches/:branchId/day-closes/:businessDay` (POST + GET) — a
       // Treasury route, but not under `/cash-sessions` (this test's own
@@ -1137,7 +1150,7 @@ describe('Cash session open (e2e)', () => {
       expect(attemptRows).toHaveLength(0);
     });
 
-    it('creates only the seven authorised tables in workforce and treasury', async () => {
+    it('creates only the authorised tables in workforce and treasury', async () => {
       // P1G-0 adds treasury.cash_movements (FR-POS-091). P1G-1 migration 33
       // adds treasury.cash_close_policies (FR-FIN-006/FR-POS-094/095) — the
       // narrow cash-close policy substrate, NOT the generic FR-PLT-025
@@ -1148,6 +1161,15 @@ describe('Cash session open (e2e)', () => {
       // treasury.day_close_activations, treasury.day_close_sessions,
       // treasury.day_close_tax_class_totals and
       // treasury.day_close_order_type_totals.
+      //
+      // HR-1 (migration `20260904010000_workforce_core_employee_schedule_
+      // attendance`) is the FIRST deliberate, ratified widening of
+      // `workforce` past P1D-A's single `shifts` table — FR-HRM-003/010/
+      // 012/020..025's Schedule/ScheduledShift/AttendanceRecord/ClockEvent/
+      // AttendanceCorrection/AttendanceSettings/EmployeeCompensation
+      // substrate. `treasury` is untouched by HR-1: no new column, no new
+      // table, `workforce.shifts` and `treasury.cash_sessions` remain
+      // exactly as distinct as P1D-A left them.
       const rows = await admin.$queryRawUnsafe<
         { schemaname: string; tablename: string }[]
       >(
@@ -1166,6 +1188,13 @@ describe('Cash session open (e2e)', () => {
         'treasury.day_close_tax_class_totals',
         'treasury.day_closes',
         'treasury.drawers',
+        'workforce.attendance_corrections',
+        'workforce.attendance_records',
+        'workforce.attendance_settings',
+        'workforce.clock_events',
+        'workforce.employee_compensations',
+        'workforce.scheduled_shifts',
+        'workforce.schedules',
         'workforce.shifts',
       ]);
     });

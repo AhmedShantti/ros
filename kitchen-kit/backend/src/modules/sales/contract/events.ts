@@ -300,3 +300,43 @@ export type OrderCompletedEvent = DomainEventEnvelope<
   typeof ORDER_COMPLETED_EVENT_TYPE,
   OrderCompletedPayload
 >;
+
+/**
+ * `order.line.voided_postfire` — POS-FIN-1 (FR-POS-070/071). Publisher
+ * Sales, subscriber Kitchen Ops.
+ *
+ * SRS §5.5.4's event catalogue names no post-fire-void event (the catalogue
+ * predates this operation's implementation entirely — no post-fire void
+ * path existed anywhere before this slice). This is an EXTENSION of that
+ * catalogue, not a contradiction of it, the same posture `ticket.recalled`
+ * (KDS-R12) already recorded for the opposite direction: the SRS is silent
+ * on what a fired line's kitchen-side ticket should do when the SALE side
+ * removes it from the bill after production has already started, and this
+ * event is the register's explicit answer, not a claimed SRS quotation.
+ *
+ * Narrowest payload the Kitchen handler needs to cancel the matching
+ * `TicketLine` row(s) (FR-KDS: a line may be routed to more than one
+ * station, so more than one `TicketLine` can share this `orderLineId`) and
+ * recompute each affected Ticket's aggregate status — exactly the
+ * `OrderLineFiredHandler`/`TicketRecalledHandler` precedent in the opposite
+ * direction. No money, no disposition detail: Kitchen tracks PRODUCTION
+ * state, not the financial/inventory disposition, which is POS-FIN-1's own
+ * `PostFireVoidRecord` (Sales-owned, not exposed to Kitchen).
+ */
+export const ORDER_LINE_VOIDED_POSTFIRE_EVENT_TYPE =
+  'order.line.voided_postfire' as const;
+export const ORDER_LINE_VOIDED_POSTFIRE_EVENT_VERSION = 1;
+
+export interface OrderLineVoidedPostFirePayload {
+  readonly orderId: string;
+  /** `YYYY-MM-DD` — see `OrderLineFiredPayload.businessDay`'s docblock note. */
+  readonly businessDay: string;
+  readonly orderLineId: string;
+  /** ISO-8601 — the void command's own instant. */
+  readonly voidedAt: string;
+}
+
+export type OrderLineVoidedPostFireEvent = DomainEventEnvelope<
+  typeof ORDER_LINE_VOIDED_POSTFIRE_EVENT_TYPE,
+  OrderLineVoidedPostFirePayload
+>;

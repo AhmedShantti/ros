@@ -4,6 +4,8 @@ import { NodeEnv, validateEnv } from './env.validation';
 const base = {
   DATABASE_URL: 'postgresql://ros_migrator:pw@localhost:5544/ros',
   APP_DATABASE_URL: 'postgresql://ros_app:pw@localhost:5544/ros',
+  PARTITION_ADMIN_DATABASE_URL:
+    'postgresql://ros_partition_admin:pw@localhost:5544/ros',
   JWT_ACCESS_SECRET: 'a'.repeat(48),
   JWT_ACCESS_TTL: '15m',
   JWT_REFRESH_TTL: '30d',
@@ -77,5 +79,50 @@ describe('validateEnv', () => {
     });
     expect(env.NODE_ENV).toBe(NodeEnv.Production);
     expect(env.AUTH_THROTTLE_LIMIT).toBe(8);
+  });
+
+  // FR-DR-002 — PARTITION_ADMIN_DATABASE_URL must be its own distinct,
+  // non-migrator role. See PartitionAdminConnectionService.
+  it('rejects the migrator role as the partition-admin connection in production', () => {
+    expect(() =>
+      validateEnv({
+        ...base,
+        NODE_ENV: 'production',
+        JWT_ACCESS_SECRET: 'Zt9' + 'x'.repeat(60),
+        PARTITION_ADMIN_DATABASE_URL:
+          'postgresql://ros_migrator:pw@db:5432/ros',
+      }),
+    ).toThrow(/PARTITION_ADMIN_DATABASE_URL/);
+  });
+
+  it('rejects a placeholder partition-admin connection string in production', () => {
+    expect(() =>
+      validateEnv({
+        ...base,
+        NODE_ENV: 'production',
+        JWT_ACCESS_SECRET: 'Zt9' + 'x'.repeat(60),
+        PARTITION_ADMIN_DATABASE_URL:
+          'postgresql://ros_partition_admin:CHANGE_ME_LOCAL_PASSWORD@db:5432/ros',
+      }),
+    ).toThrow(/PARTITION_ADMIN_DATABASE_URL/);
+  });
+
+  it('rejects reusing APP_DATABASE_URL verbatim as the partition-admin connection in production', () => {
+    expect(() =>
+      validateEnv({
+        ...base,
+        NODE_ENV: 'production',
+        JWT_ACCESS_SECRET: 'Zt9' + 'x'.repeat(60),
+        PARTITION_ADMIN_DATABASE_URL: base.APP_DATABASE_URL,
+      }),
+    ).toThrow(/PARTITION_ADMIN_DATABASE_URL/);
+  });
+
+  it('fails fast when PARTITION_ADMIN_DATABASE_URL is missing', () => {
+    const withoutPartitionAdmin: Partial<typeof base> = { ...base };
+    delete withoutPartitionAdmin.PARTITION_ADMIN_DATABASE_URL;
+    expect(() => validateEnv({ ...withoutPartitionAdmin })).toThrow(
+      /PARTITION_ADMIN_DATABASE_URL/,
+    );
   });
 });

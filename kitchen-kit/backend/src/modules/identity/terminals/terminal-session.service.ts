@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { parseDurationMs } from '../../../common/duration';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessTokenService } from '../auth/access-token.service';
+import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { TenantContext } from '../context/tenant-context';
 import { TerminalSummary, toTerminalSummary } from './terminal.view';
 import { TerminalsService } from './terminals.service';
@@ -33,6 +34,7 @@ export class TerminalSessionService {
     private readonly prisma: PrismaService,
     private readonly terminals: TerminalsService,
     private readonly tokens: AccessTokenService,
+    private readonly snapshots: AuthorizationSnapshotService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
@@ -61,12 +63,23 @@ export class TerminalSessionService {
       data: { terminalId },
     });
 
+    // T-4-LIVE: re-minting a tenant-bound token re-mints the snapshot with it,
+    // so a terminal-bound token is never left carrying an older epoch than the
+    // token it replaced.
+    const snapshot = await this.snapshots.build(
+      context.userId,
+      context.tenantId,
+      context.membershipId,
+    );
     const accessToken = await this.tokens.sign({
       sub: context.userId,
       sid: context.sessionId,
       tid: context.tenantId,
       mid: context.membershipId,
       trm: terminalId,
+      scp: [...snapshot.scp],
+      pbr: snapshot.pbr,
+      epo: snapshot.epo,
     });
 
     return {

@@ -28,7 +28,9 @@ import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { RequirePermission } from '../identity/authz/decorators/require-permission.decorator';
 import { PermissionGuard } from '../identity/authz/guards/permission.guard';
 import { CurrentTenantContext } from '../identity/context/current-tenant-context.decorator';
+import { CurrentAuthorization } from '../identity/context/current-tenant-context.decorator';
 import type { TenantContext } from '../identity/context/tenant-context';
+import type { RequestAuthorization } from '../identity/context/tenant-context';
 import { TenantContextGuard } from '../identity/context/tenant-context.guard';
 import { BrandsService } from './brands/brands.service';
 import { CreateBrandDto } from './brands/dto/create-brand.dto';
@@ -57,6 +59,20 @@ import { TablesService } from './tables/tables.service';
 import { CreateWarehouseDto } from './warehouses/dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './warehouses/dto/update-warehouse.dto';
 import { WarehousesService } from './warehouses/warehouses.service';
+import {
+  AuthorizationTarget,
+  brandFromBody,
+  brandFromParam,
+  branchFromParam,
+  fromParam,
+  resourceTarget,
+  tenantTarget,
+} from '../identity/contract';
+import {
+  ORG_STATION_TARGET_RESOLVER,
+  ORG_TABLE_TARGET_RESOLVER,
+  ORG_WAREHOUSE_TARGET_RESOLVER,
+} from './contract';
 
 /**
  * Organisation configuration API (Phase 15).
@@ -210,6 +226,33 @@ const stationRoutingRuleSchema = {
   },
 };
 
+const accessSchema = {
+  type: 'object',
+  properties: {
+    tenantId: uuidSchema(),
+    brands: {
+      type: 'array',
+      description:
+        "Brands the caller's live scoped authority can see. A tenant-scoped " +
+        'grant sees every brand; a brand-scoped grant sees that brand; a ' +
+        "branch-scoped grant sees that branch's own brand. Never every " +
+        'brand in the tenant merely because the tenant has one.',
+      items: brandSchema,
+    },
+    branches: {
+      type: 'array',
+      description:
+        "Branches the caller's live scoped authority can see, both active " +
+        'and inactive (status is returned so the frontend can grey out an ' +
+        'inactive branch rather than have it silently disappear). Resolved ' +
+        'from LIVE scoped role assignments on every call — never from a ' +
+        'JWT claim, a home branch, or `EmployeeBranch`, none of which grant ' +
+        'visibility on their own.',
+      items: branchSchema,
+    },
+  },
+};
+
 @ApiTags('organisation')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing/invalid/expired token.' })
@@ -231,8 +274,55 @@ export class OrganisationController {
     private readonly stationRouting: StationRoutingService,
   ) {}
 
+  // ----------------------------- Access discovery (MTMB-1) -----------------
+  /**
+   * FRONTEND BRANCH/BRAND DISCOVERY CONTRACT (MTMB-1, SRS §5.6).
+   *
+   * The authoritative "what can I see" read for a dashboard client: no
+   * `@RequirePermission` (mirrors `GET /auth/permissions`'s own precedent) —
+   * every authenticated member of the tenant may discover their OWN
+   * accessible scope, because this is presentation about the caller's own
+   * authority, not access to a business resource that needs a permission
+   * check of its own. `permittedBranches` on `GET /auth/permissions` gives
+   * the SYMBOLIC scope set (`all`/`brands`/`branches`) a token can carry
+   * without growing with branch count; this endpoint is the corresponding
+   * RESOLVED view — actual brand/branch rows, with names and status — that a
+   * branch picker can render directly, so no client has to fetch `GET
+   * /auth/permissions` and then separately resolve every id in it.
+   *
+   * `tenantId` is included for convenience: it is already on the caller's
+   * token (`GET /auth/tenant`), and the tenant's own name/slug/currency are
+   * already on `GET /auth/tenants`. Duplicating that here would be a second
+   * source of truth for tenant identity, not a smaller read surface.
+   */
+  @Get('access')
+  @ApiOperation({
+    summary:
+      "The caller's live, authorized brands and branches (frontend discovery).",
+  })
+  @ApiOkResponse({
+    description:
+      'Brands and branches visible under the current, live scoped authority.',
+    schema: accessSchema,
+  })
+  async getAccessibleScope(
+    @CurrentTenantContext() ctx: TenantContext,
+    @CurrentAuthorization() auth: RequestAuthorization,
+  ) {
+    const [brands, branches] = await Promise.all([
+      this.brands.listAccessible(ctx.tenantId, auth.grants),
+      this.branches.listAccessible(ctx.tenantId, auth.grants),
+    ]);
+    return { tenantId: ctx.tenantId, brands, branches };
+  }
+
   // ----------------------------- Brands (tenant-level) ---------------------
   @Post('brands')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Creating a brand is a tenant-level act: the brand does not exist yet, so it has no owner narrower than the tenant.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created brand.',
@@ -249,6 +339,11 @@ export class OrganisationController {
   }
 
   @Get('brands')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists every brand in the tenant; the collection itself is tenant-owned.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({
     description: 'All brands in the tenant.',
@@ -259,6 +354,7 @@ export class OrganisationController {
   }
 
   @Get('brands/:brandId')
+  @AuthorizationTarget(brandFromParam('brandId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({ description: 'The brand.', schema: brandSchema })
   @ApiNotFoundResponse({ description: 'Brand not found.' })
@@ -270,6 +366,7 @@ export class OrganisationController {
   }
 
   @Patch('brands/:brandId')
+  @AuthorizationTarget(brandFromParam('brandId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiOkResponse({ description: 'The updated brand.', schema: brandSchema })
   @ApiNotFoundResponse({ description: 'Brand not found.' })
@@ -286,6 +383,7 @@ export class OrganisationController {
 
   // ----------------------------- Branches ----------------------------------
   @Post('branches')
+  @AuthorizationTarget(brandFromBody('brandId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created branch.',
@@ -305,6 +403,11 @@ export class OrganisationController {
   }
 
   @Get('branches')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists every branch in the tenant; the collection itself is tenant-owned.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({
     description: 'All branches in the tenant.',
@@ -315,6 +418,7 @@ export class OrganisationController {
   }
 
   @Get('branches/:branchId')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({ description: 'The branch.', schema: branchSchema })
   @ApiNotFoundResponse({ description: 'Branch not found.' })
@@ -326,6 +430,7 @@ export class OrganisationController {
   }
 
   @Patch('branches/:branchId')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiOkResponse({ description: 'The updated branch.', schema: branchSchema })
   @ApiNotFoundResponse({ description: 'Branch not found.' })
@@ -339,6 +444,19 @@ export class OrganisationController {
 
   /** Explicit status transition (D-03) — never a generic PATCH field. */
   @Post('branches/:branchId/status')
+  @AuthorizationTarget(
+    branchFromParam('branchId', {
+      reason:
+        'T-12 EXEMPTION — this route IS the branch lifecycle. A non-active ' +
+        'branch is denied for every scope on every other route, and the ' +
+        'operation that returns it to `active` addresses that same branch, so ' +
+        'without this exemption a deactivated branch could never be ' +
+        'reactivated: deactivation would be a one-way door. The exemption is ' +
+        'narrow on purpose — it covers the status transition ONLY, not reading ' +
+        'or editing an inactive branch, and every business operation against ' +
+        'the branch stays refused until it is active again.',
+    }),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiOperation({ summary: 'Set a branch active/inactive.' })
   @ApiOkResponse({ description: 'The updated branch.', schema: branchSchema })
@@ -362,6 +480,11 @@ export class OrganisationController {
    * tenant-level permission, and `code` is never changed.
    */
   @Post('branches/:branchId/brand')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Re-parenting a branch MOVES it between brands. A BRAND-scoped actor must not be able to move a branch into or out of its own brand, so the target is the tenant — the only scope that legitimately spans both brands.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiOperation({
     summary: 'Reassign a branch to another brand within the same tenant.',
@@ -386,6 +509,11 @@ export class OrganisationController {
 
   // ----------------------------- Warehouses (tenant-level) -----------------
   @Post('warehouses')
+  @AuthorizationTarget(
+    tenantTarget(
+      'The warehouse does not exist yet; `org.warehouses.branch_id` is nullable, so the operation is tenant-level (ADR 0009 D-02).',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created warehouse.',
@@ -403,6 +531,11 @@ export class OrganisationController {
   }
 
   @Get('warehouses')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists every warehouse in the tenant, branch-owned and standalone alike.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({
     description: 'All warehouses in the tenant.',
@@ -413,6 +546,14 @@ export class OrganisationController {
   }
 
   @Get('warehouses/:warehouseId')
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_WAREHOUSE_TARGET_RESOLVER,
+      { warehouseId: fromParam('warehouseId') },
+      'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.',
+      'Warehouse not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({ description: 'The warehouse.', schema: warehouseSchema })
   @ApiNotFoundResponse({ description: 'Warehouse not found.' })
@@ -424,6 +565,14 @@ export class OrganisationController {
   }
 
   @Patch('warehouses/:warehouseId')
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_WAREHOUSE_TARGET_RESOLVER,
+      { warehouseId: fromParam('warehouseId') },
+      'BRANCH when the warehouse belongs to a branch; TENANT when it is standalone.',
+      'Warehouse not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiOkResponse({
     description: 'The updated warehouse.',
@@ -446,6 +595,11 @@ export class OrganisationController {
 
   // ----------------------------- Central kitchens (tenant-level) -----------
   @Post('central-kitchens')
+  @AuthorizationTarget(
+    tenantTarget(
+      '`org.central_kitchens` is tenant-level by construction — ADR 0009 D-02 refused CENTRAL_KITCHEN as a scope type precisely because TENANT already covers it.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created central kitchen.',
@@ -464,6 +618,9 @@ export class OrganisationController {
   }
 
   @Get('central-kitchens')
+  @AuthorizationTarget(
+    tenantTarget('Central kitchens are tenant-level (ADR 0009 D-02).'),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({
     description: 'All central kitchens in the tenant.',
@@ -474,6 +631,9 @@ export class OrganisationController {
   }
 
   @Get('central-kitchens/:centralKitchenId')
+  @AuthorizationTarget(
+    tenantTarget('Central kitchens are tenant-level (ADR 0009 D-02).'),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_READ)
   @ApiOkResponse({
     description: 'The central kitchen.',
@@ -488,6 +648,9 @@ export class OrganisationController {
   }
 
   @Patch('central-kitchens/:centralKitchenId')
+  @AuthorizationTarget(
+    tenantTarget('Central kitchens are tenant-level (ADR 0009 D-02).'),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.TENANT_MANAGE)
   @ApiOkResponse({
     description: 'The updated central kitchen.',
@@ -510,6 +673,7 @@ export class OrganisationController {
 
   // ----------------------------- Stations ----------------------------------
   @Post('branches/:branchId/stations')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created station.',
@@ -528,6 +692,7 @@ export class OrganisationController {
   }
 
   @Get('branches/:branchId/stations')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({
     description: 'All stations in the branch.',
@@ -542,6 +707,14 @@ export class OrganisationController {
   }
 
   @Get('stations/:stationId')
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_STATION_TARGET_RESOLVER,
+      { stationId: fromParam('stationId') },
+      'A station is branch-owned and carries no tenant_id; its branch comes from the row.',
+      'Station not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({ description: 'The station.', schema: stationSchema })
   @ApiNotFoundResponse({ description: 'Station not found.' })
@@ -553,6 +726,14 @@ export class OrganisationController {
   }
 
   @Patch('stations/:stationId')
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_STATION_TARGET_RESOLVER,
+      { stationId: fromParam('stationId') },
+      'A station is branch-owned and carries no tenant_id; its branch comes from the row.',
+      'Station not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiOkResponse({ description: 'The updated station.', schema: stationSchema })
   @ApiNotFoundResponse({
@@ -571,6 +752,7 @@ export class OrganisationController {
 
   // ----------------------------- Tables ------------------------------------
   @Post('branches/:branchId/tables')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created table.',
@@ -589,6 +771,7 @@ export class OrganisationController {
   }
 
   @Get('branches/:branchId/tables')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({
     description: 'All tables in the branch.',
@@ -603,6 +786,14 @@ export class OrganisationController {
   }
 
   @Patch('tables/:tableId')
+  @AuthorizationTarget(
+    resourceTarget(
+      ORG_TABLE_TARGET_RESOLVER,
+      { tableId: fromParam('tableId') },
+      'A table is branch-owned and carries no tenant_id; its branch comes from the row.',
+      'Table not found.',
+    ),
+  )
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiOkResponse({ description: 'The updated table.', schema: tableSchema })
   @ApiNotFoundResponse({ description: 'Table not found.' })
@@ -619,6 +810,7 @@ export class OrganisationController {
 
   // ----------------------------- Operating hours ---------------------------
   @Post('branches/:branchId/operating-hours')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created operating-hours interval.',
@@ -637,6 +829,7 @@ export class OrganisationController {
   }
 
   @Get('branches/:branchId/operating-hours')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({
     description: 'All operating-hours intervals for the branch.',
@@ -652,6 +845,7 @@ export class OrganisationController {
 
   // ----------------------------- Print routing -----------------------------
   @Post('branches/:branchId/print-routing')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created print-routing rule.',
@@ -671,6 +865,7 @@ export class OrganisationController {
   }
 
   @Get('branches/:branchId/print-routing')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({
     description: 'All print-routing rules for the branch.',
@@ -686,6 +881,7 @@ export class OrganisationController {
 
   // ----------------------------- Station routing ---------------------------
   @Post('branches/:branchId/station-routing-rules')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created station-routing rule.',
@@ -710,6 +906,7 @@ export class OrganisationController {
   }
 
   @Get('branches/:branchId/station-routing-rules')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
   @ApiOkResponse({
     description: 'All station-routing rules for the branch.',

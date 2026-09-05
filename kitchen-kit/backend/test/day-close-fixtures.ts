@@ -20,6 +20,7 @@ import {
   TREASURY_PERMISSIONS,
 } from '../src/modules/treasury/treasury.permissions';
 import { createActiveBranch } from './reporting-fixtures';
+import type { RequestAuthorization } from './../src/modules/identity/context/tenant-context';
 
 /**
  * DayClose (migration 35) e2e bootstrap — mirrors `kds-fixtures.ts` /
@@ -147,7 +148,11 @@ export async function createDayCloseFixture(
       displayName: label,
     });
     const membership = await memberships.grant(user.id, tenantId, 'active');
-    await membershipRoles.assign(tenantId, membership.id, roleId);
+    await membershipRoles.create(tenantId, null, {
+      membershipId: membership.id,
+      roleId: roleId,
+      scope: { type: 'tenant' },
+    });
     return email;
   };
   const fullEmail = await mkDashboardUser('full', fullRole);
@@ -177,7 +182,11 @@ export async function createDayCloseFixture(
     tenantId,
     'active',
   );
-  await membershipRoles.assign(tenantId, employeeMembership.id, fullRole);
+  await membershipRoles.create(tenantId, null, {
+    membershipId: employeeMembership.id,
+    roleId: fullRole,
+    scope: { type: 'tenant' },
+  });
   const employeeCode = `E${seed.slice(-6)}`;
   const employee = await employees.create(tenantId, employeeUser.id, {
     code: employeeCode,
@@ -273,6 +282,43 @@ export async function activatePastEpoch(
       activatedByEmployeeId: null,
     },
   });
+}
+
+/**
+ * The resolved authorization a direct `DayCloseService.post(...)` call needs.
+ *
+ * B1-3 moved DayClose's authority check off the flat permission set and onto the
+ * scoped primitive, evaluated at the branch being closed and inside the write
+ * transaction. Tests that bypass HTTP (the concurrency harnesses, which need two
+ * real transactions racing) therefore have to supply what the guard would have
+ * resolved. A TENANT-scoped grant is what these fixtures' dashboard users
+ * genuinely hold, so this reproduces the HTTP path rather than widening it.
+ */
+export function dayCloseAuthorization(
+  fx: DayCloseFixture,
+  codes: readonly string[] = [TREASURY_PERMISSIONS.CASH_DAY_CLOSE],
+): RequestAuthorization {
+  return {
+    context: {
+      userId: fx.employeeUserId,
+      sessionId: newId(),
+      tenantId: fx.tenantId,
+      membershipId: newId(),
+      terminalId: fx.terminalId,
+      employeeId: fx.employeeId,
+    },
+    permissions: new Set(codes),
+    grants: [
+      {
+        assignmentId: newId(),
+        roleId: newId(),
+        scope: { type: 'tenant' },
+        permissions: new Set(codes),
+      },
+    ],
+    authzEpoch: 0,
+    scopeReviewRequired: false,
+  };
 }
 
 export { dateStr, branchBusinessDay, daysBefore } from './reporting-fixtures';

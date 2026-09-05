@@ -1,0 +1,244 @@
+name: Backend CI
+
+# G1-1 (SRS FR-PLT-013/014, FR-QA-001, NFR-MAINT-004/005/006) — the repository's
+# first CI quality gate. Scope is CI/quality gates only: no deployment, no image
+# build, no IaC. See kitchen-kit/backend/docs/reports/claude/full-srs-4day/
+# 2026-09-02_G1-1_ci-pipeline.md for the authority/traceability report.
+#
+# E2E execution against an isolated per-suite database was wired in G1-2 (see
+# 2026-09-02_G1-2_deterministic-e2e-harness.md) — before that the shared
+# persistent database made parallel/CI E2E execution non-deterministic, so it
+# is intentionally absent from the "quality" job below and lives in its own
+# "e2e" job instead.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: kitchen-kit/backend
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  quality:
+    name: Quality gates (typecheck, lint, unit, module-boundary, OpenAPI, audit)
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 (full history) — the secret-in-diff scan below needs
+      # the PR's merge-base / the push's previous commit to be a locally
+      # reachable object; actions/checkout's default shallow (depth-1) clone
+      # would make that ref unreachable and silently degrade the diff scan
+      # to "skip" (the whole-tree scan still runs regardless).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: kitchen-kit/backend/package-lock.json
+
+      - name: Install dependencies (from lockfile)
+        run: npm ci
+
+      - name: Prisma generate
+        run: npm run prisma:generate
+
+      - name: Prisma schema validate
+        run: npm run prisma:validate
+
+      - name: TypeScript typecheck (src + test)
+        run: npm run typecheck
+
+      # Real, currently-failing gate — see the G1-1 report's "Known limitations"
+      # section for the exact pre-existing errors. Not weakened / not skipped:
+      # a red run here is an accurate signal, not a broken pipeline.
+      - name: Lint (no autofix)
+        run: npm run lint:check
+
+      - name: Unit tests
+        run: npm test -- --ci
+
+      # module-boundaries.spec.ts already runs as part of `npm test` above
+      # (it matches the unit-suite's .spec.ts pattern); this step re-runs it
+      # in isolation so the architecture gate required by SRS §5.2.3/§5.4 has
+      # its own named, independently-inspectable CI result.
+      - name: Module-boundary architecture test
+        run: npx jest module-boundaries.spec.ts --ci
+
+      - name: OpenAPI drift check
+        run: npm run openapi:check
+
+      # SRS §28.5 / FR-SEC-049 / NFR-MAINT-005 — "Critical or high dependency
+      # vulnerability" blocks merge, literally. --audit-level=high already
+      # exits non-zero on high OR critical findings (the threshold is a
+      # floor, not an exact match), so this is the literal gate as written —
+      # not a placeholder pending stricter behaviour. A red result here is a
+      # correct, reportable production blocker; it must never be silenced by
+      # loosening the audit level or adding a blanket ignore file.
+      - name: Dependency vulnerability scan — machine-readable artifact (non-blocking capture)
+        if: always()
+        run: npm audit --omit=dev --json > npm-audit-report.json || true
+
+      - name: Upload dependency scan artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: kitchen-kit/backend/npm-audit-report.json
+          retention-days: 30
+
+      - name: Dependency vulnerability scan — enforced gate (critical/high blocks merge)
+        run: npm audit --omit=dev --audit-level=high
+
+      # SRS §28.5 — "Secret detected in diff" blocks merge. SECRET_SCAN_DIFF_BASE
+      # makes the diff-scoped half of the gate literal: the PR's merge base on
+      # pull_request, the previous commit on push. Absent on any other trigger
+      # (e.g. workflow_dispatch on an arbitrary ref) — the script's whole-tree
+      # safety net still runs unconditionally either way.
+      - name: Secret scan (committed-tree heuristics + secret-in-diff)
+        env:
+          SECRET_SCAN_DIFF_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
+        run: bash ./scripts/ci/secret-scan.sh
+
+  migrate-from-zero:
+    name: Migration-from-zero (disposable PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ros_migrator
+          POSTGRES_PASSWORD: ci_ephemeral_not_a_secret
+          POSTGRES_DB: ros_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ros_migrator -d ros_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: ros_migrator
+      PGPASSWORD: ci_ephemeral_not_a_secret
+      PGDATABASE: ros_ci
+      DATABASE_URL: postgresql://ros_migrator:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+      APP_DATABASE_URL: postgresql://ros_app:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+      # FR-DR-002 — the partition-lifecycle job's DDL-only connection. See
+      # PartitionAdminConnectionService.
+      PARTITION_ADMIN_DATABASE_URL: postgresql://ros_partition_admin:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: kitchen-kit/backend/package-lock.json
+
+      - name: Install dependencies (from lockfile)
+        run: npm ci
+
+      - name: Provision ros_app role (mirrors docker/postgres/init/01-init-app-role.sh)
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ros_app') THEN
+              CREATE ROLE ros_app LOGIN PASSWORD 'ci_ephemeral_not_a_secret'
+                NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+            END IF;
+          END
+          $$;
+          GRANT CONNECT ON DATABASE ros_ci TO ros_app;
+          SQL
+
+      - name: Provision ros_partition_admin role (mirrors docker/postgres/init/02-init-partition-admin-role.sh)
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ros_partition_admin') THEN
+              CREATE ROLE ros_partition_admin LOGIN PASSWORD 'ci_ephemeral_not_a_secret'
+                NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+            END IF;
+          END
+          $$;
+          GRANT CONNECT ON DATABASE ros_ci TO ros_partition_admin;
+          SQL
+
+      - name: Migrate from zero (prisma migrate deploy)
+        run: npx prisma migrate deploy
+
+      - name: Confirm clean migration status
+        run: npx prisma migrate status
+
+  e2e:
+    name: E2E (isolated per-suite databases, G1-2 harness)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ros_migrator
+          POSTGRES_PASSWORD: ci_ephemeral_not_a_secret
+          POSTGRES_DB: ros_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ros_migrator -d ros_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      # test/e2e-db-isolation/env.ts only reads these to derive host/port/
+      # credentials for its own admin connection and to build every scratch
+      # database's URL — the app never connects to "ros_ci" itself. The
+      # ros_app role does not need to be pre-provisioned here (unlike
+      # migrate-from-zero above): the harness's own globalSetup creates it
+      # idempotently (test/e2e-db-isolation/provision.ts `ensureAppRole`),
+      # mirroring docker/postgres/init/01-init-app-role.sh itself.
+      DATABASE_URL: postgresql://ros_migrator:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+      APP_DATABASE_URL: postgresql://ros_app:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+      # FR-DR-002 — ros_partition_admin does not need to be pre-provisioned
+      # here either: the harness's own globalSetup creates it idempotently
+      # (test/e2e-db-isolation/provision.ts `ensurePartitionAdminRole`).
+      PARTITION_ADMIN_DATABASE_URL: postgresql://ros_partition_admin:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: kitchen-kit/backend/package-lock.json
+
+      - name: Install dependencies (from lockfile)
+        run: npm ci
+
+      - name: E2E — per-suite ephemeral database (G1-2)
+        run: npm run test:e2e
+
+      # test/tenant-isolation/*.e2e-spec.ts already run as part of the full
+      # `npm run test:e2e` sweep above (they match jest-e2e.json's testRegex);
+      # these two steps re-run them in isolation, the same pattern the quality
+      # job's "Module-boundary architecture test" step uses, so FR-PLT-013 and
+      # FR-PLT-014 each have their own named, independently-inspectable CI
+      # result rather than being buried inside one aggregate E2E result.
+      - name: Generated RLS enable+force+policy inventory gate (FR-PLT-014)
+        run: npx jest --config ./test/jest-e2e.json rls-inventory.e2e-spec.ts
+
+      - name: Generated cross-tenant isolation suite (FR-PLT-013)
+        run: npx jest --config ./test/jest-e2e.json generated-cross-tenant.e2e-spec.ts

@@ -28,6 +28,7 @@ import { AuditService } from './../src/modules/governance/audit/audit.service';
 import { AUDIT_ACTION } from './../src/modules/governance/audit/audit.constants';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { createMigratorClient } from './rls-admin';
+import type { RequestAuthorization } from './../src/modules/identity/context/tenant-context';
 
 /**
  * P1G-0 ACCEPTANCE CLOSURE §3/§4, superseded/extended by P1G-1 migration 34.
@@ -509,9 +510,38 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
       terminalReference: `manual-ref-${newId()}`,
     });
 
-  /** `cash.session.close` — the OWN-session case (`employeeA` opened every
-   *  fixture session in this file). */
-  const CLOSE_PERMISSIONS = new Set([TREASURY_PERMISSIONS.CASH_SESSION_CLOSE]);
+  /**
+   * `cash.session.close` — the OWN-session case (`employeeA` opened every
+   * fixture session in this file).
+   *
+   * B1-3: `CashSessionCloseService` now takes the resolved `RequestAuthorization`
+   * and re-decides authority through the scoped primitive at the SESSION'S OWN
+   * BRANCH, so these direct-service calls supply a tenant-scoped grant holding
+   * the code — the same authority the HTTP path would have resolved.
+   */
+  const closeAuthorization = (): RequestAuthorization => ({
+    context: {
+      userId: userA,
+      sessionId: newId(),
+      tenantId: tenantA,
+      membershipId: newId(),
+      terminalId: terminalA,
+      sessionType: 'pos',
+      employeeId: employeeA,
+      branchId: branchA,
+    },
+    permissions: new Set([TREASURY_PERMISSIONS.CASH_SESSION_CLOSE]),
+    grants: [
+      {
+        assignmentId: newId(),
+        roleId: newId(),
+        scope: { type: 'tenant' },
+        permissions: new Set([TREASURY_PERMISSIONS.CASH_SESSION_CLOSE]),
+      },
+    ],
+    authzEpoch: 0,
+    scopeReviewRequired: false,
+  });
 
   // =============================================================== §G
   // DETERMINISTIC lock-queue harness — acceptance closure Blocker C.
@@ -609,7 +639,7 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
       tenantA,
       userA,
       { employeeId: employeeA, terminalId: terminalA },
-      CLOSE_PERMISSIONS,
+      closeAuthorization(),
       { cashSessionId: sessionId, closeAttemptId: newId(), countedTotalMinorUnits: '0' },
     );
 
@@ -728,7 +758,7 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
           tenantA,
           userA,
           { employeeId: employeeA, terminalId: terminalA },
-          CLOSE_PERMISSIONS,
+          closeAuthorization(),
           { cashSessionId: sid, closeAttemptId: newId(), countedTotalMinorUnits: '0' },
         ),
       ]);
@@ -785,7 +815,7 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
           tenantA,
           userA,
           { employeeId: employeeA, terminalId: terminalA },
-          CLOSE_PERMISSIONS,
+          closeAuthorization(),
           { cashSessionId: sid, closeAttemptId: newId(), countedTotalMinorUnits: '0' },
         ),
       ]);

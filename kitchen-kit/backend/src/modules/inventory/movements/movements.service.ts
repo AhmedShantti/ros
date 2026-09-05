@@ -168,7 +168,9 @@ export class MovementsService {
     // compatible FOR UPDATE locks in the SAME deterministic order and can
     // never double-consume or skip a layer on either axis. This is COUNTER
     // MAINTENANCE AND LOCKING ONLY — `valuationUnitCost` below is UNCHANGED,
-    // and how transfers/waste/counts are VALUED is UNCHANGED.
+    // and how transfers/waste/counts are VALUED is UNCHANGED. Batch locks
+    // are taken BEFORE the stock_levels lock below, same relative order as
+    // pre-A1-4 (A1-4 §11: this ordering is preserved unchanged).
     let consumed: { batchId: string; quantity: number; unitCost: bigint }[] =
       [];
     let lockedLayers: LockedBatchLayer[] = [];
@@ -191,6 +193,59 @@ export class MovementsService {
       // FR-INV-014: a shortfall is recorded, never blocked.
       consumed = selectBatches(lots, qtyAbsNumber, item.batchStrategy).consumed;
     }
+
+    const occurredAt = input.occurredAt ?? new Date();
+
+    // ---- projection (BR-INV-003, ATOMIC, same transaction) ---------------
+    // The additive delta is applied by PostgreSQL itself — never read-then-
+    // absolute-write — so two concurrent movements on the same (item,
+    // location) can never lose an update (CG-01), and `balanceAfter` below
+    // is the database's own returned value, not a JS-computed guess. Mirrors
+    // the already-accepted `SaleDepletionService.writeAllocation` pattern.
+    //
+    // A1-4 (FR-INV-012/BR-INV-003): this is ALSO now the ONE lock-acquisition
+    // point this service uses for `average_cost`. `average_cost` is read
+    // back in the SAME statement that applies this movement's own quantity
+    // delta and holds the row lock — never an earlier, unprotected pre-read
+    // — so the value used to compute a NEW average (inbound) or re-affirmed
+    // on write-back (outbound, which never changes it) is always the
+    // truthful state as of THIS movement's own lock acquisition. A
+    // concurrent writer on the same row genuinely BLOCKS on this statement
+    // (a real PostgreSQL row lock) until it commits — never "both read
+    // stale, one wins" — including the very first receipt ever posted:
+    // the INSERT branch IS the row's creation-and-lock point, so two
+    // concurrent first receipts cannot both believe they created the row
+    // (§10). Previously `average_cost` was read via an EARLIER, unlocked
+    // `stockLevel.findUnique` and later overwritten by an absolute UPDATE —
+    // a lost-update race between two concurrent receipts (and, more subtly,
+    // between a receipt and any concurrent outbound movement on the same
+    // row, whose write-back could silently erase the receipt's committed
+    // average). Batch locking (if any) already happened above, so this
+    // change does not alter this path's lock order.
+    const deltaText = toSignedDecimal6(qty);
+    const projected = await tx.$queryRaw<
+      { quantityOnHand: string; averageCost: bigint }[]
+    >`
+      INSERT INTO "inventory"."stock_levels"
+        ("tenant_id", "stock_item_id", "location_id", "quantity_on_hand")
+      VALUES (${tenantId}::uuid, ${input.stockItemId}::uuid, ${input.locationId}::uuid,
+              ${deltaText}::numeric)
+      ON CONFLICT ("stock_item_id", "location_id") DO UPDATE
+        SET "quantity_on_hand" = "inventory"."stock_levels"."quantity_on_hand" + EXCLUDED."quantity_on_hand"
+      RETURNING "quantity_on_hand"::text AS "quantityOnHand", "average_cost" AS "averageCost"
+    `;
+    const balanceAfter = projected[0].quantityOnHand;
+    // Pre-THIS-movement (quantity, average), derived from the LOCKED
+    // post-upsert row state. `currentAvg` is exact (bigint, straight off
+    // the row); `currentQty` subtracts this movement's own exact delta from
+    // the returned new total using the same Rational arithmetic as the rest
+    // of this file, converting to `Number` only at this existing JS-facing
+    // boundary (mirrors `qtyAbsNumber` above) — not a new float path, and
+    // `weightedAverageCost`'s own arithmetic/rounding contract is untouched.
+    const currentAvg = projected[0].averageCost;
+    const currentQty = Number(
+      toSignedDecimal6(subtract(exact(balanceAfter), qty)),
+    );
 
     // ---- valuation -------------------------------------------------------
     const unitCost = outbound

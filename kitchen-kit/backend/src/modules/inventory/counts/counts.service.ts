@@ -250,9 +250,47 @@ export class CountsService {
           );
         }
 
+        // A1-4 (deadlock matrix, §11): deterministic stockItemId ASC order —
+        // the SAME global lock order Completion (`SaleDepletionService`) and
+        // `WasteService` use — so a multi-item count posting can never
+        // invert against a concurrent multi-item writer touching the same
+        // two items and deadlock.
         const lines = await tx.countLine.findMany({
           where: { countSessionId: sessionId, countedQuantity: { not: null } },
+          orderBy: { stockItemId: 'asc' },
         });
+
+        // FR-INV-044 / CT-08: `line.variance` (written in `recordCount`) is
+        // counted vs the quantity FROZEN at session open — it does not yet
+        // know about movements that happened DURING the count window, so
+        // using it as-is would report a concurrent sale as false shrinkage.
+        // The genuine variance the posted movement must carry is:
+        //   expected_at_post = expected_at_open + movements_during_window
+        //   true_variance     = counted_quantity - expected_at_post
+        //                      = line.variance   - movements_during_window
+        // "movements during the window" = every `stock_movements` row for
+        // this (item, location) with `occurred_at` after `session.startedAt`
+        // (the immutable open-time cutoff) and committed by the time THIS
+        // query runs — exactly the boundary FR-INV-044 already uses below
+        // for the audit-only count, now also driving the posted amount.
+        // `Prisma.groupBy._sum` is exact (Prisma.Decimal / decimal.js), so
+        // no Number()/parseFloat() touches a value that determines the
+        // persisted `count_adjustment` quantity.
+        const windowSums = await tx.stockMovement.groupBy({
+          by: ['stockItemId'],
+          where: {
+            locationId: session.locationId,
+            stockItemId: { in: lines.map((l) => l.stockItemId) },
+            occurredAt: { gt: session.startedAt },
+          },
+          _sum: { quantity: true },
+        });
+        const windowByItem = new Map(
+          windowSums.map((w) => [
+            w.stockItemId,
+            w._sum.quantity ?? new Prisma.Decimal(0),
+          ]),
+        );
 
         // FR-INV-044: movements during the count window are reported, not folded
         // into the variance — the expected quantity was frozen at open.

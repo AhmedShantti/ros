@@ -152,7 +152,20 @@ describe('Reporting authorization (e2e)', () => {
       .expect(403);
   });
 
-  it('NEGATIVE: two active branches -> 403 for BOTH branch ids', async () => {
+  /**
+   * B1-3 §11 — THE INTERNAL-MVP SINGLE-ACTIVE-BRANCH MASK IS RETIRED.
+   *
+   * This test previously asserted the opposite: two active branches meant 403
+   * for BOTH branch ids. That mask existed only because branch authorization did
+   * not, and the ratified conditions for retiring it (clause 13 / ADR 0009 D-11)
+   * are now met — the scoped model exists, this route carries a BRANCH target,
+   * and an unreviewed inherited-grant tenant still fails closed (proven in the
+   * test immediately below).
+   *
+   * A tenant-wide reader may now report on EITHER branch, and the reason it may
+   * is the lattice, not the branch count.
+   */
+  it('two active branches: a TENANT-scoped reader may report on BOTH (mask retired)', async () => {
     const fx = await createReportingFixture(app, admin, `${stamp}two`);
     const secondBranchId = await createActiveBranch(
       admin,
@@ -164,11 +177,47 @@ describe('Reporting authorization (e2e)', () => {
     await request(http)
       .get(url(fx.branchId, new Date()))
       .set('Authorization', `Bearer ${token}`)
-      .expect(403);
+      .expect(200);
     await request(http)
       .get(url(secondBranchId, new Date()))
       .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+  });
+
+  /**
+   * Limb C of the ratified retirement: the mask does NOT come off for a tenant
+   * whose migration-inherited grants are still unreviewed. Those grants are
+   * TENANT-scoped by construction, so they cover every branch — retiring the
+   * mask for such a tenant would hand it reach nobody reviewed.
+   */
+  it('M-4+ GATE: an unreviewed migration-inherited grant fails closed, with an actionable message', async () => {
+    const fx = await createReportingFixture(app, admin, `${stamp}m4`);
+    // Re-stamp this tenant's assignments as migration-originated and unreviewed
+    // — exactly the state the B1-2 backfill leaves behind.
+    await admin.$executeRaw`
+      UPDATE identity.membership_roles
+         SET origin = 'migration', reviewed_at = NULL, reviewed_by = NULL
+       WHERE tenant_id = ${fx.tenantId}::uuid`;
+    const token = await dashboardToken(http, fx.dashboardEmail, fx.tenantId);
+
+    const res = await request(http)
+      .get(url(fx.branchId, new Date()))
+      .set('Authorization', `Bearer ${token}`)
       .expect(403);
+    expect((res.body as { message: string }).message).toContain(
+      'scopeReviewRequired',
+    );
+
+    // Reviewing clears it — WITHOUT changing the scope, which is M-4+ outcome A.
+    await admin.$executeRaw`
+      UPDATE identity.membership_roles
+         SET reviewed_at = now(), reviewed_by = ${fx.dashboardUserId}::uuid
+       WHERE tenant_id = ${fx.tenantId}::uuid`;
+    const after = await dashboardToken(http, fx.dashboardEmail, fx.tenantId);
+    await request(http)
+      .get(url(fx.branchId, new Date()))
+      .set('Authorization', `Bearer ${after}`)
+      .expect(200);
   });
 
   it('ONE active branch: positive control still succeeds after the two-branch fixture is torn back down', async () => {

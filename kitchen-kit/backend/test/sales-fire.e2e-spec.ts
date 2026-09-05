@@ -401,18 +401,30 @@ describe('Sales Fire (P1E-6 e2e)', () => {
 
     const a = await mkUser(`fire.a.${stamp}@example.com`, tenantA);
     userA = a.userId;
-    await membershipRoles.assign(tenantA, a.membershipId, cashierFull.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: a.membershipId,
+      roleId: cashierFull.id,
+      scope: { type: 'tenant' },
+    });
     // Also grant the Waiter role's permission set to the SAME actor is
     // unnecessary — userA's cashierFull role already carries ORDER_FIRE;
     // waiterNoCash exists to prove point 4 of §20 structurally (below).
 
     const nf = await mkUser(`fire.noauth.${stamp}@example.com`, tenantA);
     userNoFire = nf.userId;
-    await membershipRoles.assign(tenantA, nf.membershipId, createOnly.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: nf.membershipId,
+      roleId: createOnly.id,
+      scope: { type: 'tenant' },
+    });
 
     const b = await mkUser(`fire.b.${stamp}@example.com`, tenantB);
     userB = b.userId;
-    await membershipRoles.assign(tenantB, b.membershipId, cashierB.id);
+    await membershipRoles.create(tenantB, null, {
+      membershipId: b.membershipId,
+      roleId: cashierB.id,
+      scope: { type: 'tenant' },
+    });
 
     employeeACode = `FEA${stamp % 1000}`;
     employeeA = (

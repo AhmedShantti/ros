@@ -34,6 +34,7 @@ import { TREASURY_PERMISSIONS } from '../treasury.permissions';
 import { toCashClosePolicyView } from '../treasury.views';
 import { CashClosePolicyService } from './cash-close-policy.service';
 import { CreateCashClosePolicyDto } from './cash-close-policy.dto';
+import { AuthorizationTarget, branchFromParam } from '../../identity/contract';
 
 /**
  * Cash-close policy administration — P1G-1 migration 33.
@@ -80,6 +81,7 @@ export class CashClosePolicyController {
    * flaky link must not produce a second version.
    */
   @Post(':branchId/cash-close-policy')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(TREASURY_PERMISSIONS.SETTINGS_BRANCH_MANAGE)

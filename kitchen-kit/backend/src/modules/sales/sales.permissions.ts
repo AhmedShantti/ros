@@ -58,6 +58,33 @@ export const SALES_PERMISSIONS = {
    * CashSession management, or approvals.
    */
   PAYMENT_CAPTURE: 'pos.payment.capture',
+
+  // ── POS-FIN-1 — SRS §15.2 verbatim, previously named but unused ─────────
+  // (design gate §1: `discount|refund|comp\.|cancel` matched zero routes
+  // before this slice). Adding these completes the same "taken VERBATIM
+  // from the SRS §15.2 catalogue" discipline this file's own docblock
+  // states — it does not invent a new code.
+  /** SRS §15.2: "Apply discounts within limits". */
+  DISCOUNT_APPLY: 'pos.discount.apply',
+  /** SRS §15.2: "Approve discounts above limits". Also reused as the one
+   *  generic manager-override permission for refund approval (FR-POS-073) —
+   *  the catalogue names no distinct refund-approve code, and inventing one
+   *  is forbidden; this is the closest literal "approve a financial
+   *  threshold" authority the catalogue provides. */
+  DISCOUNT_APPROVE: 'pos.discount.approve',
+  /** SRS §15.2: "Apply discounts without limit" — the one per-actor
+   *  threshold override this slice implements for FR-POS-047. */
+  DISCOUNT_UNLIMITED: 'pos.discount.unlimited',
+  /** SRS §15.2: "Give complimentary items" (FR-POS-050). */
+  COMP_APPLY: 'pos.comp.apply',
+  /** SRS §15.2: "Void a line after firing". Named in this file's own P1E-6
+   *  doc comment above as deliberately not yet declared/used; this slice is
+   *  the first to declare and use it (FR-POS-070/071). */
+  ORDER_VOID_LINE_POSTFIRE: 'pos.order.void_line_postfire',
+  /** SRS §15.2: "Issue a refund" (FR-POS-072/073). */
+  REFUND_ISSUE: 'pos.refund.issue',
+  /** SRS §15.2: "Refund to a tender other than the original" (FR-POS-074). */
+  REFUND_DIFFERENT_TENDER: 'pos.refund.different_tender',
 } as const;
 
 export const SALES_PERMISSION_DEFS: PermissionDef[] = [
@@ -80,5 +107,40 @@ export const SALES_PERMISSION_DEFS: PermissionDef[] = [
     code: SALES_PERMISSIONS.PAYMENT_CAPTURE,
     module: 'pos',
     description: 'Capture an ordinary POS customer payment',
+  },
+  {
+    code: SALES_PERMISSIONS.DISCOUNT_APPLY,
+    module: 'pos',
+    description: 'Apply discounts within limits',
+  },
+  {
+    code: SALES_PERMISSIONS.DISCOUNT_APPROVE,
+    module: 'pos',
+    description: 'Approve discounts above limits',
+  },
+  {
+    code: SALES_PERMISSIONS.DISCOUNT_UNLIMITED,
+    module: 'pos',
+    description: 'Apply discounts without limit',
+  },
+  {
+    code: SALES_PERMISSIONS.COMP_APPLY,
+    module: 'pos',
+    description: 'Give complimentary items',
+  },
+  {
+    code: SALES_PERMISSIONS.ORDER_VOID_LINE_POSTFIRE,
+    module: 'pos',
+    description: 'Void a line after firing',
+  },
+  {
+    code: SALES_PERMISSIONS.REFUND_ISSUE,
+    module: 'pos',
+    description: 'Issue a refund',
+  },
+  {
+    code: SALES_PERMISSIONS.REFUND_DIFFERENT_TENDER,
+    module: 'pos',
+    description: 'Refund to a tender other than the original',
   },
 ];
