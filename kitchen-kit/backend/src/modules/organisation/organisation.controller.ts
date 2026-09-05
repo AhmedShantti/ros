@@ -28,7 +28,9 @@ import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { RequirePermission } from '../identity/authz/decorators/require-permission.decorator';
 import { PermissionGuard } from '../identity/authz/guards/permission.guard';
 import { CurrentTenantContext } from '../identity/context/current-tenant-context.decorator';
+import { CurrentAuthorization } from '../identity/context/current-tenant-context.decorator';
 import type { TenantContext } from '../identity/context/tenant-context';
+import type { RequestAuthorization } from '../identity/context/tenant-context';
 import { TenantContextGuard } from '../identity/context/tenant-context.guard';
 import { BrandsService } from './brands/brands.service';
 import { CreateBrandDto } from './brands/dto/create-brand.dto';
@@ -224,6 +226,33 @@ const stationRoutingRuleSchema = {
   },
 };
 
+const accessSchema = {
+  type: 'object',
+  properties: {
+    tenantId: uuidSchema(),
+    brands: {
+      type: 'array',
+      description:
+        "Brands the caller's live scoped authority can see. A tenant-scoped " +
+        'grant sees every brand; a brand-scoped grant sees that brand; a ' +
+        "branch-scoped grant sees that branch's own brand. Never every " +
+        'brand in the tenant merely because the tenant has one.',
+      items: brandSchema,
+    },
+    branches: {
+      type: 'array',
+      description:
+        "Branches the caller's live scoped authority can see, both active " +
+        'and inactive (status is returned so the frontend can grey out an ' +
+        'inactive branch rather than have it silently disappear). Resolved ' +
+        'from LIVE scoped role assignments on every call — never from a ' +
+        'JWT claim, a home branch, or `EmployeeBranch`, none of which grant ' +
+        'visibility on their own.',
+      items: branchSchema,
+    },
+  },
+};
+
 @ApiTags('organisation')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing/invalid/expired token.' })
@@ -244,6 +273,48 @@ export class OrganisationController {
     private readonly printRouting: PrintRoutingService,
     private readonly stationRouting: StationRoutingService,
   ) {}
+
+  // ----------------------------- Access discovery (MTMB-1) -----------------
+  /**
+   * FRONTEND BRANCH/BRAND DISCOVERY CONTRACT (MTMB-1, SRS §5.6).
+   *
+   * The authoritative "what can I see" read for a dashboard client: no
+   * `@RequirePermission` (mirrors `GET /auth/permissions`'s own precedent) —
+   * every authenticated member of the tenant may discover their OWN
+   * accessible scope, because this is presentation about the caller's own
+   * authority, not access to a business resource that needs a permission
+   * check of its own. `permittedBranches` on `GET /auth/permissions` gives
+   * the SYMBOLIC scope set (`all`/`brands`/`branches`) a token can carry
+   * without growing with branch count; this endpoint is the corresponding
+   * RESOLVED view — actual brand/branch rows, with names and status — that a
+   * branch picker can render directly, so no client has to fetch `GET
+   * /auth/permissions` and then separately resolve every id in it.
+   *
+   * `tenantId` is included for convenience: it is already on the caller's
+   * token (`GET /auth/tenant`), and the tenant's own name/slug/currency are
+   * already on `GET /auth/tenants`. Duplicating that here would be a second
+   * source of truth for tenant identity, not a smaller read surface.
+   */
+  @Get('access')
+  @ApiOperation({
+    summary:
+      "The caller's live, authorized brands and branches (frontend discovery).",
+  })
+  @ApiOkResponse({
+    description:
+      'Brands and branches visible under the current, live scoped authority.',
+    schema: accessSchema,
+  })
+  async getAccessibleScope(
+    @CurrentTenantContext() ctx: TenantContext,
+    @CurrentAuthorization() auth: RequestAuthorization,
+  ) {
+    const [brands, branches] = await Promise.all([
+      this.brands.listAccessible(ctx.tenantId, auth.grants),
+      this.branches.listAccessible(ctx.tenantId, auth.grants),
+    ]);
+    return { tenantId: ctx.tenantId, brands, branches };
+  }
 
   // ----------------------------- Brands (tenant-level) ---------------------
   @Post('brands')

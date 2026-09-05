@@ -33,7 +33,14 @@ jobs:
     name: Quality gates (typecheck, lint, unit, module-boundary, OpenAPI, audit)
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 (full history) — the secret-in-diff scan below needs
+      # the PR's merge-base / the push's previous commit to be a locally
+      # reachable object; actions/checkout's default shallow (depth-1) clone
+      # would make that ref unreachable and silently degrade the diff scan
+      # to "skip" (the whole-tree scan still runs regardless).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -72,10 +79,36 @@ jobs:
       - name: OpenAPI drift check
         run: npm run openapi:check
 
-      - name: Dependency vulnerability scan
+      # SRS §28.5 / FR-SEC-049 / NFR-MAINT-005 — "Critical or high dependency
+      # vulnerability" blocks merge, literally. --audit-level=high already
+      # exits non-zero on high OR critical findings (the threshold is a
+      # floor, not an exact match), so this is the literal gate as written —
+      # not a placeholder pending stricter behaviour. A red result here is a
+      # correct, reportable production blocker; it must never be silenced by
+      # loosening the audit level or adding a blanket ignore file.
+      - name: Dependency vulnerability scan — machine-readable artifact (non-blocking capture)
+        if: always()
+        run: npm audit --omit=dev --json > npm-audit-report.json || true
+
+      - name: Upload dependency scan artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: kitchen-kit/backend/npm-audit-report.json
+          retention-days: 30
+
+      - name: Dependency vulnerability scan — enforced gate (critical/high blocks merge)
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Secret scan (committed-file heuristics)
+      # SRS §28.5 — "Secret detected in diff" blocks merge. SECRET_SCAN_DIFF_BASE
+      # makes the diff-scoped half of the gate literal: the PR's merge base on
+      # pull_request, the previous commit on push. Absent on any other trigger
+      # (e.g. workflow_dispatch on an arbitrary ref) — the script's whole-tree
+      # safety net still runs unconditionally either way.
+      - name: Secret scan (committed-tree heuristics + secret-in-diff)
+        env:
+          SECRET_SCAN_DIFF_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
         run: bash ./scripts/ci/secret-scan.sh
 
   migrate-from-zero:
@@ -103,6 +136,9 @@ jobs:
       PGDATABASE: ros_ci
       DATABASE_URL: postgresql://ros_migrator:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
       APP_DATABASE_URL: postgresql://ros_app:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+      # FR-DR-002 — the partition-lifecycle job's DDL-only connection. See
+      # PartitionAdminConnectionService.
+      PARTITION_ADMIN_DATABASE_URL: postgresql://ros_partition_admin:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
     steps:
       - uses: actions/checkout@v4
 
@@ -127,6 +163,20 @@ jobs:
           END
           $$;
           GRANT CONNECT ON DATABASE ros_ci TO ros_app;
+          SQL
+
+      - name: Provision ros_partition_admin role (mirrors docker/postgres/init/02-init-partition-admin-role.sh)
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ros_partition_admin') THEN
+              CREATE ROLE ros_partition_admin LOGIN PASSWORD 'ci_ephemeral_not_a_secret'
+                NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+            END IF;
+          END
+          $$;
+          GRANT CONNECT ON DATABASE ros_ci TO ros_partition_admin;
           SQL
 
       - name: Migrate from zero (prisma migrate deploy)
@@ -162,6 +212,10 @@ jobs:
       # mirroring docker/postgres/init/01-init-app-role.sh itself.
       DATABASE_URL: postgresql://ros_migrator:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
       APP_DATABASE_URL: postgresql://ros_app:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
+      # FR-DR-002 — ros_partition_admin does not need to be pre-provisioned
+      # here either: the harness's own globalSetup creates it idempotently
+      # (test/e2e-db-isolation/provision.ts `ensurePartitionAdminRole`).
+      PARTITION_ADMIN_DATABASE_URL: postgresql://ros_partition_admin:ci_ephemeral_not_a_secret@localhost:5432/ros_ci?schema=public
     steps:
       - uses: actions/checkout@v4
 
@@ -176,3 +230,15 @@ jobs:
 
       - name: E2E — per-suite ephemeral database (G1-2)
         run: npm run test:e2e
+
+      # test/tenant-isolation/*.e2e-spec.ts already run as part of the full
+      # `npm run test:e2e` sweep above (they match jest-e2e.json's testRegex);
+      # these two steps re-run them in isolation, the same pattern the quality
+      # job's "Module-boundary architecture test" step uses, so FR-PLT-013 and
+      # FR-PLT-014 each have their own named, independently-inspectable CI
+      # result rather than being buried inside one aggregate E2E result.
+      - name: Generated RLS enable+force+policy inventory gate (FR-PLT-014)
+        run: npx jest --config ./test/jest-e2e.json rls-inventory.e2e-spec.ts
+
+      - name: Generated cross-tenant isolation suite (FR-PLT-013)
+        run: npx jest --config ./test/jest-e2e.json generated-cross-tenant.e2e-spec.ts

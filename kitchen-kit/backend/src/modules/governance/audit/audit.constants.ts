@@ -299,6 +299,8 @@ export const AUDIT_ENTITY = {
   STOCK_MOVEMENT: 'stock_movement',
   COUNT_SESSION: 'count_session',
   WASTE_RECORD: 'waste_record',
+  // POS-FIN-1 acceptance correction (2026-09-04).
+  POST_FIRE_VOID_DISPOSITION_RECORD: 'post_fire_void_disposition_record',
 
   // Production Spec entities.
   RECIPE: 'recipe',

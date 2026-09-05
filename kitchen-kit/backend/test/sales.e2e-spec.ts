@@ -983,11 +983,16 @@ describe('Sales P1A (e2e)', () => {
       expect(sales).toEqual([
         '/orders',
         '/orders/:businessDay/:id',
+        '/orders/:businessDay/:id/discount',
         '/orders/:businessDay/:id/fire',
         '/orders/:businessDay/:id/lines',
         '/orders/:businessDay/:id/lines/:lineId',
+        '/orders/:businessDay/:id/lines/:lineId/comp',
+        '/orders/:businessDay/:id/lines/:lineId/discount',
+        '/orders/:businessDay/:id/lines/:lineId/void-postfire',
         '/orders/:businessDay/:id/payments',
         '/orders/:businessDay/:id/receipt',
+        '/orders/:businessDay/:id/refunds',
       ]);
 
       // P1E-6: explicit Fire is now real (ratified "Fire Authorization
@@ -999,14 +1004,18 @@ describe('Sales P1A (e2e)', () => {
       // FISCAL receipt (tax registration number, invoice sequence,
       // country-pack tax breakdown, fiscal QR) remains an unmet
       // prerequisite and is not exposed by this route.
-      expect(paths.filter((p) => p.includes('fire'))).toHaveLength(1);
+      // `p.includes('fire')` would also match the new
+      // `.../void-postfire` route (POS-FIN-1) — scoped to an exact suffix.
+      expect(paths.filter((p) => p.endsWith('/fire'))).toHaveLength(1);
       // `/catalogue/completeness` is a Catalogue reporting route and is not an
       // order-completion route; scope the check to Sales.
       expect(sales.filter((p) => p.includes('complete'))).toHaveLength(0);
       // P1F-1: explicit partial CASH / manual-external-card Payment capture
       // is now real — exactly the one route above, never a second.
       expect(paths.filter((p) => p.includes('payment'))).toHaveLength(1);
-      expect(paths.filter((p) => p.includes('refund'))).toHaveLength(0);
+      // POS-FIN-1: append-only refund issuance is now real — exactly the
+      // one route above (FR-POS-072/073/074/075).
+      expect(paths.filter((p) => p.includes('refund'))).toHaveLength(1);
       // Country packs and tax stay internal: no administrative surface exists.
       expect(paths.filter((p) => p.includes('country-pack'))).toHaveLength(0);
       expect(paths.filter((p) => p.includes('/tax'))).toHaveLength(0);

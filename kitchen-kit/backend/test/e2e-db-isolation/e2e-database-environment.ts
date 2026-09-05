@@ -90,7 +90,7 @@ export default class E2eDatabaseEnvironment extends NodeEnvironment {
       createDatabase(admin, scratchDatabaseName, {
         owner: state.migratorRoleName,
         template: state.templateDatabaseName,
-        grantConnectTo: state.appRoleName,
+        grantConnectTo: [state.appRoleName, state.partitionAdminRoleName],
       }),
     );
 
@@ -99,6 +99,10 @@ export default class E2eDatabaseEnvironment extends NodeEnvironment {
       scratchDatabaseName,
     );
     const appUrl = withDatabaseName(state.appBaseUrl, scratchDatabaseName);
+    const partitionAdminUrl = withDatabaseName(
+      state.partitionAdminBaseUrl,
+      scratchDatabaseName,
+    );
 
     // Both the real process.env (read by anything not going through the
     // sandboxed environment global) and this.global.process.env (what the
@@ -107,8 +111,10 @@ export default class E2eDatabaseEnvironment extends NodeEnvironment {
     // removes any doubt.
     process.env.DATABASE_URL = migratorUrl;
     process.env.APP_DATABASE_URL = appUrl;
+    process.env.PARTITION_ADMIN_DATABASE_URL = partitionAdminUrl;
     this.global.process.env.DATABASE_URL = migratorUrl;
     this.global.process.env.APP_DATABASE_URL = appUrl;
+    this.global.process.env.PARTITION_ADMIN_DATABASE_URL = partitionAdminUrl;
   }
 
   async teardown(): Promise<void> {
@@ -117,6 +123,8 @@ export default class E2eDatabaseEnvironment extends NodeEnvironment {
       // stale pointer to an already-dropped database.
       process.env.DATABASE_URL = this.state.migratorBaseUrl;
       process.env.APP_DATABASE_URL = this.state.appBaseUrl;
+      process.env.PARTITION_ADMIN_DATABASE_URL =
+        this.state.partitionAdminBaseUrl;
 
       await withAdminConnection(this.state.migratorBaseUrl, (admin) =>
         dropDatabase(admin, this.scratchDatabaseName as string),

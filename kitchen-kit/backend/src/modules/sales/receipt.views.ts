@@ -79,7 +79,14 @@ export function toReceiptView(
       terminalId: order.terminalId,
       orderType: order.orderType,
       channel: order.channel,
-      /** Always `'completed'` — `ReceiptService` refuses every other state. */
+      /**
+       * `'completed'`, or `'partially_refunded'`/`'refunded'` (POS-FIN-1) —
+       * `ReceiptService` refuses every other state. The frozen line/total
+       * facts below are the ORIGINAL sale's, never rewritten by a later
+       * refund (CR-04) — this field is the only signal a reader has that a
+       * refund exists at all; refund line-item detail is out of this
+       * receipt's scope (no SRS/RCPT-R1 requirement names it).
+       */
       state: order.state,
       completedAt: order.completedAt,
       currency: order.currency,

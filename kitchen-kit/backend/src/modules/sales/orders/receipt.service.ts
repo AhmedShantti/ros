@@ -34,10 +34,19 @@ export class ReceiptService {
       // same convention `OrdersController`'s existing routes follow).
       if (!order) throw new NotFoundException('Order not found.');
 
-      if (order.state !== 'completed') {
+      // POS-FIN-1 — a refund (BR-POS-001) moves a completed order to
+      // `partially_refunded`/`refunded`; the order's historical receipt
+      // must remain retrievable (CR-04: the original posted facts are
+      // never rewritten), so all three "was completed" states are
+      // accepted here, never only the literal current `completed` value.
+      if (
+        order.state !== 'completed' &&
+        order.state !== 'partially_refunded' &&
+        order.state !== 'refunded'
+      ) {
         throw new ReceiptNotAvailableError(
-          `Order ${id} is '${order.state}', not 'completed'. A receipt can ` +
-            'only be produced for a completed order.',
+          `Order ${id} is '${order.state}'. A receipt can only be produced ` +
+            'for an order that has been completed (completed, partially_refunded or refunded).',
         );
       }
 
