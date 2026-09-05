@@ -1116,7 +1116,12 @@ describe('Cash session open (e2e)', () => {
       // statement about the application and was never really a statement
       // about Treasury's own boundary, which is what this test guards.
       expect(treasury.filter((p) => p.includes('payment'))).toHaveLength(0);
-      expect(paths.filter((p) => p.includes('refund'))).toHaveLength(0);
+      // POS-FIN-1: a Refund is likewise a SALES route
+      // (`/orders/{businessDay}/{id}/refunds`), not a Treasury one —
+      // BR-POS-001 makes it a correction of the ORDER, only settled in
+      // cash via the pre-existing `cash_session_id` link. Re-scoped to
+      // `treasury` for the same reason as the payment check just above.
+      expect(treasury.filter((p) => p.includes('refund'))).toHaveLength(0);
       // Migration 35 (DayClose, DC-R1/R2/R3) legitimately introduces
       // `/branches/:branchId/day-closes/:businessDay` (POST + GET) — a
       // Treasury route, but not under `/cash-sessions` (this test's own

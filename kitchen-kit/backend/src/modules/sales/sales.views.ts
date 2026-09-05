@@ -1,4 +1,11 @@
-import { Order, OrderLine, OrderPayment } from '../../generated/prisma/client';
+import {
+  Discount,
+  Order,
+  OrderLine,
+  OrderPayment,
+  PostFireVoidRecord,
+  Refund,
+} from '../../generated/prisma/client';
 
 /**
  * Sales read models.
@@ -136,5 +143,67 @@ export function toPaymentView(payment: OrderPayment) {
     authorizationCode: payment.authorizationCode,
     processedAt: payment.processedAt,
     createdAt: payment.createdAt,
+  };
+}
+
+/** POS-FIN-1 — FR-POS-049's seven facts, verbatim. */
+export function toDiscountView(discount: Discount) {
+  return {
+    id: discount.id,
+    orderId: discount.orderId,
+    businessDay: discount.businessDay.toISOString().slice(0, 10),
+    orderLineId: discount.orderLineId,
+    kind: discount.kind,
+    valueType: discount.valueType,
+    percentageValueBp: discount.percentageValueBp?.toString() ?? null,
+    fixedValueMinor: discount.fixedValueMinor?.toString() ?? null,
+    amountMinor: discount.amountMinor.toString(),
+    reasonCodeId: discount.reasonCodeId,
+    appliedByEmployeeId: discount.appliedByEmployeeId,
+    appliedByUserId: discount.appliedByUserId,
+    approvalRequired: discount.approvalRequired,
+    approvedByEmployeeId: discount.approvedByEmployeeId,
+    approvedByUserId: discount.approvedByUserId,
+    approvalRequestId: discount.approvalRequestId,
+    orderVersionAfter: discount.orderVersionAfter,
+    createdAt: discount.createdAt,
+  };
+}
+
+/** POS-FIN-1 — FR-POS-075's facts for a post-fire void's disposition. */
+export function toPostFireVoidRecordView(record: PostFireVoidRecord) {
+  return {
+    id: record.id,
+    orderId: record.orderId,
+    businessDay: record.businessDay.toISOString().slice(0, 10),
+    orderLineId: record.orderLineId,
+    disposition: record.disposition,
+    reasonCodeId: record.reasonCodeId,
+    financialAmountRemoved: record.financialAmountRemoved.toString(),
+    inventoryMovementIds: record.inventoryMovementIds,
+    actorUserId: record.actorUserId,
+    createdAt: record.createdAt,
+  };
+}
+
+/** POS-FIN-1 — the append-only compensating financial record (CR-04). */
+export function toRefundView(refund: Refund) {
+  return {
+    id: refund.id,
+    orderId: refund.orderId,
+    businessDay: refund.businessDay.toISOString().slice(0, 10),
+    refundBusinessDay: refund.refundBusinessDay.toISOString().slice(0, 10),
+    originalPaymentId: refund.originalPaymentId,
+    tender: refund.tender,
+    amountMinor: refund.amountMinor.toString(),
+    cashSessionId: refund.cashSessionId,
+    reasonCodeId: refund.reasonCodeId,
+    appliedByEmployeeId: refund.appliedByEmployeeId,
+    appliedByUserId: refund.appliedByUserId,
+    approvalRequired: refund.approvalRequired,
+    approvedByEmployeeId: refund.approvedByEmployeeId,
+    approvedByUserId: refund.approvedByUserId,
+    approvalRequestId: refund.approvalRequestId,
+    createdAt: refund.createdAt,
   };
 }

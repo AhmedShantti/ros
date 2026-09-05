@@ -339,6 +339,39 @@ export class TicketPersistenceService {
     return { line: existing, wasCreated: false };
   }
 
+  /**
+   * POS-FIN-1 (FR-POS-070/071) — cancel every `TicketLine` for this order
+   * line that has not already reached `served`/`cancelled`. A line may be
+   * routed to more than one station (FR-KDS-011), so more than one row can
+   * share this `orderLineId`; every one is cancelled, and the caller
+   * recomputes EACH affected Ticket's own aggregate projection afterwards
+   * (`TicketProjectionService.apply`, the same convention
+   * `OrderLineFiredHandler`'s amendment path already uses).
+   *
+   * `served` is deliberately excluded: FR-POS-070/071 permits a post-fire
+   * void even after the item was served, but Kitchen's own historical
+   * record of what it actually served is not retroactively rewritten by a
+   * later financial/inventory correction — those are POS-FIN-1's own
+   * `PostFireVoidRecord`, not a Kitchen-owned fact.
+   */
+  async cancelTicketLinesForOrderLine(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    orderLineId: string,
+    cancelledAt: Date,
+  ): Promise<readonly string[]> {
+    const rows = await tx.$queryRaw<{ ticket_id: string }[]>`
+      UPDATE "kitchen"."ticket_lines"
+      SET "status" = 'cancelled'::"kitchen"."TicketLineStatus",
+          "cancelled_at" = ${cancelledAt}::timestamptz
+      WHERE "tenant_id" = ${tenantId}::uuid
+        AND "order_line_id" = ${orderLineId}::uuid
+        AND "status" NOT IN ('served', 'cancelled')
+      RETURNING "ticket_id"
+    `;
+    return [...new Set(rows.map((r) => r.ticket_id))];
+  }
+
   async ensureTicketLineModifier(
     tx: Prisma.TransactionClient,
     tenantId: string,

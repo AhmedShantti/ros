@@ -49,6 +49,14 @@ export interface CashSessionTenderTotals {
   readonly manualExternalCardTotal: bigint;
   /** Total Payment row count for the session, for the close snapshot's provenance. */
   readonly paymentCount: number;
+  /**
+   * POS-FIN-1 — `sales.refunds` where `tender='cash' AND cash_session_id`
+   * is THIS session (a Refund's own `cashSessionId` is only ever set for a
+   * cash refund — see the model's CHECK constraint). FR-FIN-004 term 5
+   * ("Cash Refunds"), previously structurally zero (no refund mechanism
+   * existed); real from this slice on.
+   */
+  readonly cashRefundsTotal: bigint;
 }
 
 export interface CashSessionTenderTotalsQuery {

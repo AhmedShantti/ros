@@ -8,6 +8,7 @@ import {
   AUDIT_ENTITY,
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
+import type { ScopedGrant } from '../../identity/context/tenant-context';
 import { BrandSummary, toBrandSummary } from './brand.view';
 
 /** (tenant_id, name) is unique per ADR 0008 D-15 → 409 on collision. */
@@ -84,6 +85,60 @@ export class BrandsService {
         tx.brand.findMany({ orderBy: { createdAt: 'asc' } }),
       )
       .then((brands) => brands.map(toBrandSummary));
+  }
+
+  /**
+   * MTMB-1 — the brands actually visible to a caller's LIVE scoped
+   * authority. See `BranchesService.listAccessible` for the full rationale
+   * (same lattice, mirrored the same way to stay inside the
+   * `organisation->identity` module-boundary allow-list).
+   *
+   * A BRANCH-scoped grant's parent brand is included too — a branch-scoped
+   * manager can see the brand their one branch belongs to, never any other
+   * brand's branches.
+   */
+  async listAccessible(
+    tenantId: string,
+    grants: readonly ScopedGrant[],
+  ): Promise<BrandSummary[]> {
+    if (grants.some((g) => g.scope.type === 'tenant')) {
+      return this.list(tenantId);
+    }
+    const brandIds = new Set(
+      grants
+        .filter((g) => g.scope.type === 'brand')
+        .map((g) => (g.scope as { brandId: string }).brandId),
+    );
+    const branchIds = [
+      ...new Set(
+        grants
+          .filter((g) => g.scope.type === 'branch')
+          .map((g) => (g.scope as { branchId: string }).branchId),
+      ),
+    ];
+    if (branchIds.length > 0) {
+      const owningBranches = await this.prisma.withAuthContext(
+        { tenantId },
+        (tx) =>
+          tx.branch.findMany({
+            where: { id: { in: branchIds } },
+            select: { brandId: true },
+          }),
+      );
+      for (const b of owningBranches) {
+        brandIds.add(b.brandId);
+      }
+    }
+    if (brandIds.size === 0) {
+      return [];
+    }
+    const brands = await this.prisma.withAuthContext({ tenantId }, (tx) =>
+      tx.brand.findMany({
+        where: { id: { in: [...brandIds] } },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    return brands.map(toBrandSummary);
   }
 
   async findOne(tenantId: string, brandId: string): Promise<BrandSummary> {

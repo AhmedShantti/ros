@@ -262,25 +262,31 @@ describe('OpenAPI document (e2e)', () => {
    * P1E-6 — explicit Fire is now real and ratified ("Fire Authorization
    * Ratification — 2026-08-24"), so it is EXPECTED to be documented — but
    * only that ONE exact route. Automatic/configurable Fire (the other half
-   * of FR-POS-035), Completion, and refund remain unimplemented and must
-   * still be absent.
+   * of FR-POS-035) and Completion remain unimplemented and must still be
+   * absent.
    *
    * P1F-1 — explicit partial CASH / manual-external-card Payment capture is
    * now real too, so it joins Fire as an EXPECTED, single, exact route.
-   * Completion, refund, and any integrated-terminal or PaymentAttempt route
-   * remain unimplemented non-goals and must still be absent — the
-   * forbidden-pattern check below no longer includes `/payments?\b/`, since
-   * that would now also match the real, accepted Payment route; it is
-   * replaced with precise integrated-terminal/PaymentAttempt patterns
-   * instead.
+   * Completion, and any integrated-terminal or PaymentAttempt route remain
+   * unimplemented non-goals and must still be absent — the forbidden-pattern
+   * check below no longer includes `/payments?\b/`, since that would now
+   * also match the real, accepted Payment route; it is replaced with
+   * precise integrated-terminal/PaymentAttempt patterns instead.
    *
    * KDS operator lifecycle (KDS-R11/KDS-R12, ratified 2026-08-30) makes
    * bump/bump-all/recall real and ratified too — `bump`/`recall` are
    * REMOVED from `forbidden` and asserted as the exact six-route KDS
    * surface instead. `/serve` (FR-KDS-013 `[S]`, deferred) and any
    * cancellation/analytics/sort-configuration route remain absent.
+   *
+   * POS-FIN-1 — discount/comp/post-fire-void/refund are now real too
+   * (FR-POS-045..051/070..075), so `/refunds?\b/` is REMOVED from
+   * `forbidden` (asserted present, with the KDS-precedent exact-route
+   * style, in a dedicated test below instead). Completion and
+   * integrated-terminal/PaymentAttempt remain absent, unaffected by this
+   * slice.
    */
-  it('documents explicit Fire, Payment, Receipt, and the KDS operator lifecycle (and only those routes), and does not document Completion, refund, integrated-terminal, PaymentAttempt, serve, or cancellation endpoints', () => {
+  it('documents explicit Fire, Payment, Receipt, discounts/comps/post-fire-void/refunds, and the KDS operator lifecycle (and only those routes), and does not document Completion, integrated-terminal, PaymentAttempt, serve, or cancellation endpoints', () => {
     const paths = Object.keys(doc.paths);
     const fireMatches = paths.filter((p) => /\/fire\b/i.test(p));
     expect(fireMatches).toEqual(['/orders/{businessDay}/{id}/fire']);
@@ -306,9 +312,26 @@ describe('OpenAPI document (e2e)', () => {
       ].sort(),
     );
 
+    // POS-FIN-1 — exactly the five documented routes (FR-POS-045..051,
+    // 070..075). `/discount` also matches the line-level `.../discount`
+    // route, so this is one combined list rather than a per-route filter.
+    const refundMatches = paths.filter((p) => /\/refunds?\b/i.test(p));
+    expect(refundMatches).toEqual(['/orders/{businessDay}/{id}/refunds']);
+
+    const discountCompVoidMatches = paths
+      .filter((p) => /\/(discount|comp|void-postfire)\b/i.test(p))
+      .sort();
+    expect(discountCompVoidMatches).toEqual(
+      [
+        '/orders/{businessDay}/{id}/discount',
+        '/orders/{businessDay}/{id}/lines/{lineId}/comp',
+        '/orders/{businessDay}/{id}/lines/{lineId}/discount',
+        '/orders/{businessDay}/{id}/lines/{lineId}/void-postfire',
+      ].sort(),
+    );
+
     const forbidden = [
       /\/complete\b/i,
-      /\/refunds?\b/i,
       /\/serve\b/i,
       /\/cancel/i,
       /payment[-_]?attempts?/i,

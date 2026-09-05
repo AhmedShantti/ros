@@ -21,3 +21,19 @@ export class DailyTradingReportParamsDto {
  * parameters are refused, rather than merely documenting the intent.
  */
 export class DailyTradingReportQueryDto {}
+
+/** `GET /reports/branches/:branchId/overview` path params (RPT-DEMO-1). */
+export class OperationalOverviewParamsDto {
+  @Matches(UUID_PATTERN) branchId!: string;
+}
+
+/**
+ * `businessDay` is REQUIRED — a locator (partition-key-shaped), not a claim
+ * about the report's content, exactly like `daily-trading`'s path param.
+ * `whitelist: true, forbidNonWhitelisted: true` (global `ValidationPipe`)
+ * makes any OTHER query parameter a 400, since only `businessDay` is
+ * declared here.
+ */
+export class OperationalOverviewQueryDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/) businessDay!: string;
+}

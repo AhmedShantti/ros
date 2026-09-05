@@ -4,6 +4,7 @@ import { OrganisationModule } from '../organisation/organisation.module';
 import { KdsStationGuard } from './auth/kds-station.guard';
 import { KitchenController } from './kitchen.controller';
 import { OrderLineFiredHandler } from './tickets/order-line-fired.handler';
+import { OrderLineVoidedPostFireHandler } from './tickets/order-line-voided-postfire.handler';
 import { KdsOperationsService } from './tickets/kds-operations.service';
 import { KdsOfflineTicketOperationsService } from './tickets/kds-offline-ticket-operations.service';
 import { TicketPersistenceService } from './tickets/ticket-persistence.service';
@@ -11,8 +12,10 @@ import { TicketProjectionService } from './tickets/ticket-projection.service';
 import { TicketReaderService } from './tickets/ticket-reader.service';
 import { RoutingResolverService } from './routing/routing-resolver.service';
 import { TicketTargetResolver } from './tickets/scope-target.resolver';
+import { KdsSummaryQueryService } from './tickets/kds-summary.query.service';
 import {
   KDS_OFFLINE_TICKET_OPERATIONS,
+  KDS_SUMMARY_QUERY,
   KDS_TICKET_TARGET_RESOLVER,
 } from './contract';
 
@@ -70,6 +73,9 @@ import {
     TicketProjectionService,
     TicketReaderService,
     OrderLineFiredHandler,
+    // POS-FIN-1 — PRIVATE, same discovery mechanism as OrderLineFiredHandler
+    // above (see this module's own docblock).
+    OrderLineVoidedPostFireHandler,
     KdsOperationsService,
     KdsStationGuard,
     KdsOfflineTicketOperationsService,
@@ -77,12 +83,18 @@ import {
       provide: KDS_OFFLINE_TICKET_OPERATIONS,
       useExisting: KdsOfflineTicketOperationsService,
     },
+    // RPT-DEMO-1 — the branch/business-day-scoped ticket summary the
+    // Reporting overview needs. Read-only; never derives a `servedAt`-based
+    // duration (that column is never populated by any write path).
+    KdsSummaryQueryService,
+    { provide: KDS_SUMMARY_QUERY, useExisting: KdsSummaryQueryService },
   ],
   exports: [
     KDS_TICKET_TARGET_RESOLVER,
     RoutingResolverService,
     TicketReaderService,
     KDS_OFFLINE_TICKET_OPERATIONS,
+    KDS_SUMMARY_QUERY,
   ],
 })
 export class KitchenModule {}
