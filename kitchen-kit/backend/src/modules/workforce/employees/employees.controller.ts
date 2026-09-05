@@ -14,6 +14,7 @@ import {
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiHeader,
   ApiOkResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -74,6 +75,12 @@ export class EmployeesController {
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(WORKFORCE_PERMISSIONS.EMPLOYEE_MANAGE)
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.',
+  })
   @ApiCreatedResponse({
     schema: {
       ...employeeSchema,
@@ -209,6 +216,12 @@ export class EmployeesController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @Idempotent()
   @RequirePermission(WORKFORCE_PERMISSIONS.EMPLOYEE_MANAGE)
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.',
+  })
   async setPin(
     @CurrentTenantContext() context: TenantContext,
     @Param('employeeId') employeeId: string,

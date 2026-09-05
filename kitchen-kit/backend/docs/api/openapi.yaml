@@ -22901,7 +22901,13 @@ paths:
         - workforce-employees
     post:
       operationId: EmployeesController_create
-      parameters: []
+      parameters:
+        - description: Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.
+          in: header
+          name: idempotency-key
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -23565,6 +23571,12 @@ paths:
       parameters:
         - in: path
           name: employeeId
+          required: true
+          schema:
+            type: string
+        - description: Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.
+          in: header
+          name: idempotency-key
           required: true
           schema:
             type: string
