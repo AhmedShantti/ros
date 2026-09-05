@@ -140,7 +140,11 @@ describe('RBAC (e2e)', () => {
       IDENTITY_PERMISSIONS.ROLE_UPDATE,
       IDENTITY_PERMISSIONS.ROLE_ASSIGN,
     ]);
-    await membershipRoles.assign(tenantAId, mAId, roleAdminAId);
+    await membershipRoles.create(tenantAId, null, {
+      membershipId: mAId,
+      roleId: roleAdminAId,
+      scope: { type: 'tenant' },
+    });
 
     roleReaderAId = (
       await roles.createTenantRole(tenantAId, { name: 'reader_A' })
@@ -157,7 +161,11 @@ describe('RBAC (e2e)', () => {
       await roles.createTenantRole(tenantBId, { name: 'viewer_B' })
     ).id;
     await roles.addPermissions(tenantBId, roleViewerBId, [BIZ_PERM]);
-    await membershipRoles.assign(tenantBId, mBId, roleViewerBId);
+    await membershipRoles.create(tenantBId, null, {
+      membershipId: mBId,
+      roleId: roleViewerBId,
+      scope: { type: 'tenant' },
+    });
 
     // A protected system role (seeded out-of-band by the migration role).
     systemRoleId = (
@@ -229,29 +237,33 @@ describe('RBAC (e2e)', () => {
 
   it('4/6. permission via one of multiple roles, revoked when the role is removed', async () => {
     const adminTok = await scoped(emailAdmin, tenantAId);
-    const otherTok = await scoped(emailUser, tenantAId);
 
     // No roles yet -> 403.
     await request(http)
       .get('/auth/roles')
-      .set('Authorization', `Bearer ${otherTok}`)
+      .set('Authorization', `Bearer ${await scoped(emailUser, tenantAId)}`)
       .expect(403);
 
     // Assign two roles; only reader_A grants identity.role.read.
     await request(http)
       .post(`/auth/memberships/${mA2Id}/roles`)
       .set('Authorization', `Bearer ${adminTok}`)
-      .send({ roleId: roleNoopAId })
-      .expect(204);
+      .send({ roleId: roleNoopAId, scope: { type: 'tenant' } })
+      .expect(201);
     await request(http)
       .post(`/auth/memberships/${mA2Id}/roles`)
       .set('Authorization', `Bearer ${adminTok}`)
-      .send({ roleId: roleReaderAId })
-      .expect(204);
+      .send({ roleId: roleReaderAId, scope: { type: 'tenant' } })
+      .expect(201);
 
+    // B1-2 (T-4-LIVE): changing this membership's authority — GRANTING it, not
+    // only revoking it — bumps `memberships.authz_epoch`, so a token minted
+    // before the grant now carries a stale snapshot and is refused. That is the
+    // ratified fail-closed rule, so the holder re-authenticates to pick up the
+    // new authority rather than the server silently honouring an old snapshot.
     await request(http)
       .get('/auth/roles')
-      .set('Authorization', `Bearer ${otherTok}`)
+      .set('Authorization', `Bearer ${await scoped(emailUser, tenantAId)}`)
       .expect(200);
 
     // Remove reader_A from the membership -> access revoked (live).
@@ -261,19 +273,20 @@ describe('RBAC (e2e)', () => {
       .expect(204);
     await request(http)
       .get('/auth/roles')
-      .set('Authorization', `Bearer ${otherTok}`)
+      .set('Authorization', `Bearer ${await scoped(emailUser, tenantAId)}`)
       .expect(403);
   });
 
   it('5. revokes access when a permission is removed from a role', async () => {
     const adminTok = await scoped(emailAdmin, tenantAId);
-    const otherTok = await scoped(emailUser, tenantAId);
 
     await request(http)
       .post(`/auth/memberships/${mA2Id}/roles`)
       .set('Authorization', `Bearer ${adminTok}`)
-      .send({ roleId: roleReaderAId })
-      .expect(204);
+      .send({ roleId: roleReaderAId, scope: { type: 'tenant' } })
+      .expect(201);
+    // Minted AFTER the grant — see the T-4-LIVE note in test 4/6.
+    const otherTok = await scoped(emailUser, tenantAId);
     await request(http)
       .get('/auth/roles')
       .set('Authorization', `Bearer ${otherTok}`)
@@ -294,10 +307,16 @@ describe('RBAC (e2e)', () => {
       .set('Authorization', `Bearer ${otherTok}`)
       .expect(403);
 
-    // Restore for isolation.
+    // Restore for isolation. B1-2: the assignment is removed too, because a
+    // second assignment of the same role at the SAME scope with an overlapping
+    // validity window is now a genuine duplicate and is refused (409).
     await roles.addPermissions(tenantAId, roleReaderAId, [
       IDENTITY_PERMISSIONS.ROLE_READ,
     ]);
+    await request(http)
+      .delete(`/auth/memberships/${mA2Id}/roles/${roleReaderAId}`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .expect(204);
   });
 
   it('7. cannot assign a role from another tenant or target a foreign membership', async () => {
@@ -306,20 +325,30 @@ describe('RBAC (e2e)', () => {
     await request(http)
       .post(`/auth/memberships/${mA2Id}/roles`)
       .set('Authorization', `Bearer ${adminTok}`)
-      .send({ roleId: roleViewerBId })
+      .send({ roleId: roleViewerBId, scope: { type: 'tenant' } })
       .expect(404);
     // Tenant A role onto a tenant B membership.
     await request(http)
       .post(`/auth/memberships/${mBId}/roles`)
       .set('Authorization', `Bearer ${adminTok}`)
-      .send({ roleId: roleReaderAId })
+      .send({ roleId: roleReaderAId, scope: { type: 'tenant' } })
       .expect(404);
   });
 
   it('8. a cross-tenant role grants nothing even if wrongly attached', async () => {
     // Simulate a bad row: tenant B role attached to a tenant A membership.
+    // B1-2: the row now needs its own identity, tenant and explicit scope. The
+    // point of the test is unchanged — a role belonging to tenant B, wrongly
+    // attached to a tenant A membership, must still grant nothing.
+    const badAssignmentId = newId();
     await admin.membershipRole.create({
-      data: { membershipId: mAId, roleId: roleViewerBId },
+      data: {
+        id: badAssignmentId,
+        tenantId: tenantAId,
+        membershipId: mAId,
+        roleId: roleViewerBId,
+        scopeType: 'tenant',
+      },
     });
     try {
       const token = await scoped(emailAdmin, tenantAId);
@@ -332,9 +361,7 @@ describe('RBAC (e2e)', () => {
       expect(perms.permissions).not.toContain(BIZ_PERM);
     } finally {
       await admin.membershipRole.delete({
-        where: {
-          membershipId_roleId: { membershipId: mAId, roleId: roleViewerBId },
-        },
+        where: { id: badAssignmentId },
       });
     }
   });
@@ -349,7 +376,7 @@ describe('RBAC (e2e)', () => {
     await request(http)
       .post(`/auth/memberships/${mA2Id}/roles`)
       .set('Authorization', `Bearer ${adminTok}`)
-      .send({ roleId: systemRoleId })
+      .send({ roleId: systemRoleId, scope: { type: 'tenant' } })
       .expect(403);
   });
 

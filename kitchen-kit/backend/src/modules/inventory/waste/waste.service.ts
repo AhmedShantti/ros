@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { newId } from '../../../common/ids';
+import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   AUDIT_ACTION,
@@ -12,7 +13,8 @@ import { MovementsService } from '../movements/movements.service';
 export interface RecordWasteInput {
   locationId: string;
   reasonCodeId: string;
-  lines: { stockItemId: string; quantity: number }[];
+  /** `quantity` is an exact decimal string (BR-CORE-003), positive. */
+  lines: { stockItemId: string; quantity: string }[];
   /** B-2: caller-supplied. Inventory NEVER evaluates a threshold. */
   requiresApproval?: boolean;
   notes?: string;
@@ -60,16 +62,38 @@ export class WasteService {
           const posted: { stockItemId: string; movementId: string }[] = [];
           const lineData: {
             stockItemId: string;
-            quantity: number;
+            quantity: Prisma.Decimal;
             unitCost: bigint;
           }[] = [];
 
-          for (const line of input.lines) {
+          // A1-4 (deadlock matrix, §11): a multi-line waste record posts one
+          // outbound movement per stock item in ONE transaction, each
+          // taking `stock_batches`/`stock_levels` locks that are held to
+          // COMMIT. Processing in caller-supplied order would let two
+          // concurrent multi-item writers (e.g. this waste record and a
+          // count posting, or another waste record) touch the same two
+          // items in opposite order and deadlock. Sorting by stockItemId
+          // ASC matches the ONE global deterministic lock order already
+          // established for Completion (`SaleDepletionService` sorts its
+          // triples the same way) — never a generic deadlock retry.
+          const orderedLines = [...input.lines].sort((a, b) =>
+            a.stockItemId < b.stockItemId
+              ? -1
+              : a.stockItemId > b.stockItemId
+                ? 1
+                : 0,
+          );
+          for (const line of orderedLines) {
+            // Exact from the authoritative input onward — one Prisma.Decimal
+            // magnitude feeds both the persisted movement quantity (negated)
+            // and the waste_lines quantity (positive); no Math.abs/negation
+            // on a JS number determines either.
+            const quantityExact = new Prisma.Decimal(line.quantity).abs();
             const mv = await this.movements.post(tx, tenantId, actorId, {
               locationId: input.locationId,
               stockItemId: line.stockItemId,
               movementType: 'waste',
-              quantity: -Math.abs(line.quantity),
+              quantity: quantityExact.negated().toFixed(6),
               referenceType: 'waste',
               referenceId: recordId,
               reasonCodeId: input.reasonCodeId,
@@ -79,7 +103,7 @@ export class WasteService {
             posted.push({ stockItemId: line.stockItemId, movementId: mv.id });
             lineData.push({
               stockItemId: line.stockItemId,
-              quantity: Math.abs(line.quantity),
+              quantity: quantityExact,
               unitCost: BigInt(mv.unitCost),
             });
           }

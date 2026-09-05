@@ -90,6 +90,19 @@ export const AUDIT_ACTION = {
   REFRESH_REUSE_DETECTED: 'REFRESH_REUSE_DETECTED',
   TENANT_SELECTED: 'TENANT_SELECTED',
   ROLE_ASSIGNED: 'ROLE_ASSIGNED',
+  // B1-2 scoped RBAC (FR-AUD-006 "role changes"). The pre-B1-2 world had one
+  // shape of role change — assigned/removed — so `ROLE_ASSIGNED` sufficed. A
+  // scoped assignment can additionally be RE-SCOPED, have its validity window
+  // changed, or be REVIEWED as an inherited migration grant, and those are
+  // materially different security events: conflating them would make the audit
+  // trail unable to answer "who widened this authority, and when". Same
+  // <ENTITY>_<PAST_TENSE> convention as every other verb in this file. NO new
+  // permission code is created — the existing `identity.role.assign` remains
+  // the authority for all of them (amendment clause 20).
+  ROLE_ASSIGNMENT_REMOVED: 'ROLE_ASSIGNMENT_REMOVED',
+  ROLE_ASSIGNMENT_RESCOPED: 'ROLE_ASSIGNMENT_RESCOPED',
+  ROLE_ASSIGNMENT_VALIDITY_CHANGED: 'ROLE_ASSIGNMENT_VALIDITY_CHANGED',
+  ROLE_ASSIGNMENT_REVIEWED: 'ROLE_ASSIGNMENT_REVIEWED',
   TERMINAL_REGISTERED: 'TERMINAL_REGISTERED',
   PASSWORD_CHANGED: 'PASSWORD_CHANGED',
   PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
@@ -185,6 +198,42 @@ export const AUDIT_ACTION = {
   TICKET_LINE_BUMPED: 'TICKET_LINE_BUMPED',
   TICKET_BUMPED: 'TICKET_BUMPED',
   TICKET_RECALLED: 'TICKET_RECALLED',
+  // D4-1A offline/sync protocol kernel (migration 37). Same
+  // <ENTITY>_<PAST_TENSE> convention; the audit taxonomy is not
+  // governance-controlled, so these follow the existing shape rather than
+  // inventing one.
+  //
+  // FR-OFF-042 requires a device whose clock is out by more than the
+  // configured threshold to be RECORDED and the branch manager ALERTED. No
+  // notification substrate exists in this repository, so the audit entry IS
+  // the alert for now and FR-OFF-042 remains PARTIAL — see the D4-1A report.
+  SYNC_CLOCK_SKEW_DETECTED: 'SYNC_CLOCK_SKEW_DETECTED',
+  // FR-OFF-044 — every automatic conflict resolution is recorded with BOTH
+  // input states and the applied rule. D4-1A ships the writer; D4-1B wires the
+  // domain conflict handlers that call it.
+  SYNC_CONFLICT_RECORDED: 'SYNC_CONFLICT_RECORDED',
+  // FR-OFF-046 — a revalidation mismatch NEVER rejects a sale that physically
+  // occurred; it is accepted, both values are recorded, and this is the entry
+  // that says so.
+  SYNC_REVALIDATION_EXCEPTION_RAISED: 'SYNC_REVALIDATION_EXCEPTION_RAISED',
+  // D4-1B — lossless revoked-terminal recovery (migration 38, GD-D1-07). Same
+  // <ENTITY>_<PAST_TENSE> convention. Three distinct verbs for three distinct
+  // accountable events: an admin authorizing the window, the window being
+  // bound to one specific batch, and that batch finishing — each is a
+  // separately meaningful fact for "who authorized recovery of what, and did
+  // it actually happen".
+  TERMINAL_RECOVERY_GRANTED: 'TERMINAL_RECOVERY_GRANTED',
+  TERMINAL_RECOVERY_BATCH_ACCEPTED: 'TERMINAL_RECOVERY_BATCH_ACCEPTED',
+  TERMINAL_RECOVERY_BATCH_PROCESSED: 'TERMINAL_RECOVERY_BATCH_PROCESSED',
+
+  // AUD-1 — FR-AUD-007 "Audit log access SHALL itself be audited." Two verbs
+  // (not one, unlike CASH_MOVEMENT_RECORDED's single-verb-many-types
+  // convention) because a search and an export are materially different
+  // accountable events for an audit trail specifically: a search is a read, an
+  // export is a durable copy leaving the system's own query surface. Written
+  // by `AuditQueryService` for EVERY call to either route, success or not.
+  AUDIT_LOG_QUERIED: 'AUDIT_LOG_QUERIED',
+  AUDIT_LOG_EXPORTED: 'AUDIT_LOG_EXPORTED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -199,6 +248,11 @@ export const AUDIT_ENTITY = {
   // Migration 35 — DayClose.
   DAY_CLOSE: 'day_close',
   DAY_CLOSE_ACTIVATION: 'day_close_activation',
+
+  // D4-1A offline/sync protocol kernel (migration 37).
+  SYNC_DEVICE_STATE: 'sync_device_state',
+  SYNC_CONFLICT_RECORD: 'sync_conflict_record',
+  SYNC_REVALIDATION_EXCEPTION: 'sync_revalidation_exception',
   APPROVAL_REQUEST: 'approval_request',
   APPROVAL_DECISION: 'approval_decision',
   DRAWER: 'drawer',
@@ -207,7 +261,11 @@ export const AUDIT_ENTITY = {
   SESSION: 'session',
   TENANT: 'tenant',
   MEMBERSHIP: 'membership',
+  /// B1-2 — a single scoped role assignment (`identity.membership_roles.id`).
+  ROLE_ASSIGNMENT: 'role_assignment',
   TERMINAL: 'terminal',
+  // D4-1B — migration 38.
+  SYNC_RECOVERY_GRANT: 'sync_recovery_grant',
 
   // Phase 15 — Organisation entities.
   BRAND: 'brand',
@@ -250,4 +308,7 @@ export const AUDIT_ENTITY = {
   // KDS operator lifecycle entities.
   TICKET: 'ticket',
   TICKET_LINE: 'ticket_line',
+
+  // AUD-1 — the audit log itself, as the object of an access (FR-AUD-007).
+  AUDIT_LOG: 'audit_log',
 } as const;

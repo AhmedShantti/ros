@@ -19,11 +19,14 @@ import {
 import { OrderLinesService } from './orders/order-lines.service';
 import { OrdersController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
+import { ReceiptService } from './orders/receipt.service';
 import { SalesFireService } from './orders/sales-fire.service';
 import { SalesPaymentService } from './orders/sales-payment.service';
 import { TicketBumpedHandler } from './orders/ticket-bumped.handler';
 import { TicketRecalledHandler } from './orders/ticket-recalled.handler';
 import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
+import { OrderTargetResolver } from './orders/scope-target.resolver';
+import { SALES_ORDER_TARGET_RESOLVER } from './contract';
 
 /**
  * Sales bounded context.
@@ -85,6 +88,13 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
  * completed-sales/tender/tax-by-class/session-span facts the `reporting`
  * module's daily-trading route composes. `reporting` imports ONLY this
  * token and `SalesModule` for DI composition, never a private Sales path.
+ *
+ * PUBLIC SURFACE, RCPT-R1 addition: an itemized, INTERNAL, NON-FISCAL
+ * receipt for a completed order (`GET
+ * /orders/{businessDay}/{id}/receipt`). `ReceiptService` reads ONLY
+ * Sales-owned tables (`orders`, `order_lines`, `order_line_modifiers`,
+ * `order_payments`) — zero new module imports, zero new published
+ * contract, zero new `KNOWN_DEVIATIONS`.
  */
 @Module({
   imports: [
@@ -104,10 +114,13 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
   ],
   controllers: [OrdersController],
   providers: [
+    OrderTargetResolver,
+    { provide: SALES_ORDER_TARGET_RESOLVER, useExisting: OrderTargetResolver },
     OrdersService,
     OrderLinesService,
     SalesFireService,
     SalesPaymentService,
+    ReceiptService,
     // KDS operator lifecycle (KDS-R11/KDS-R12) — PRIVATE subscribers, never
     // exported, discovered purely via `@DomainEventHandler` metadata
     // (`DomainEventHandlerRegistry`'s `DiscoveryService` scan), exactly the
@@ -139,6 +152,7 @@ import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
     { provide: APP_FILTER, useClass: SalesDomainExceptionFilter },
   ],
   exports: [
+    SALES_ORDER_TARGET_RESOLVER,
     OrdersService,
     OrderLinesService,
     CASH_SESSION_TENDER_TOTALS_QUERY,

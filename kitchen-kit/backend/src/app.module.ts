@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { ObservabilityModule } from './common/observability/observability.module';
 import { AuditModule } from './modules/governance/audit/audit.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { IdentityModule } from './modules/identity/identity.module';
@@ -18,6 +19,8 @@ import { TreasuryModule } from './modules/treasury/treasury.module';
 import { WorkforceModule } from './modules/workforce/workforce.module';
 import { ReportingModule } from './modules/reporting/reporting.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SyncModule } from './modules/sync/sync.module';
+import { PlatformModule } from './modules/platform/platform.module';
 
 @Module({
   imports: [
@@ -27,6 +30,10 @@ import { PrismaModule } from './prisma/prisma.module';
       validate: validateEnv,
     }),
     PrismaModule,
+    // SRS §27.6 observability foundation (G1-3) — structured logging, RED
+    // metrics, correlation/causation context. Imported early/globally so
+    // every downstream module's routes are observed automatically.
+    ObservabilityModule,
     // SRS §5.5.2 transaction-aware domain-event foundation (P1E-1). No
     // business event is published yet; see the module's own docblock.
     DomainEventsModule,
@@ -71,6 +78,22 @@ import { PrismaModule } from './prisma/prisma.module';
     // every fact through Sales/Treasury/Organisation/Localisation's own
     // published contract/ tokens.
     ReportingModule,
+    // Offline/Sync bounded context (D4-1A, migration 37) — the protocol kernel
+    // behind POST /v1/sync/batch: operation dedup, history, crash-recoverable
+    // batch reservation, HLC, causal ordering and per-operation failure
+    // isolation. Ships ZERO domain operation handlers by design; domains attach
+    // in D4-1B via `@SyncOperationHandlerFor`.
+    SyncModule,
+    // Platform bounded context (SCHED-1, migration 39) — durable scheduled job
+    // execution: `platform.job_schedules` / `job_occurrences` / `job_findings`,
+    // a multi-instance-safe claim lease, bounded retry, and the tick that
+    // drives them. Ships ZERO job handlers by design; domains attach by
+    // declaring a provider carrying `@ScheduledJobHandlerFor` in their own
+    // module. Imported after the domains so their handlers are already
+    // constructed when the registry scans the container at `onModuleInit`
+    // (Nest constructs every provider app-wide before any lifecycle hook, so
+    // this is documentation of intent rather than a load-order dependency).
+    PlatformModule,
   ],
 })
 export class AppModule {}

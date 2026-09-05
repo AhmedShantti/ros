@@ -142,10 +142,49 @@
         "properties": {
           "roleId": {
             "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AssignmentScopeDto"
+          },
+          "validFrom": {
+            "description": "FR-SEC-005 — defaults to now when omitted.",
+            "type": "string"
+          },
+          "validTo": {
+            "description": "FR-SEC-005 — omit or null for an open-ended assignment.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
-          "roleId"
+          "roleId",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "AssignmentScopeDto": {
+        "properties": {
+          "branchId": {
+            "description": "Required iff `type = branch`.",
+            "type": "string"
+          },
+          "brandId": {
+            "description": "Required iff `type = brand`.",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "tenant",
+              "brand",
+              "branch"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
         ],
         "type": "object"
       },
@@ -740,9 +779,9 @@
           "scopeType": {
             "description": "C-06: `branch_group` is intentionally absent from the enum.",
             "enum": [
-              "branch",
               "tenant",
-              "brand"
+              "brand",
+              "branch"
             ],
             "type": "string"
           },
@@ -1277,6 +1316,29 @@
         },
         "required": [
           "email"
+        ],
+        "type": "object"
+      },
+      "IssueRecoveryGrantDto": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
+          },
+          "ttlMinutes": {
+            "description": "Default and cap enforced server-side in `SyncRecoveryService`.",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "terminalId",
+          "reason"
         ],
         "type": "object"
       },
@@ -1853,6 +1915,104 @@
         ],
         "type": "object"
       },
+      "SyncBatchDto": {
+        "properties": {
+          "batchId": {
+            "description": "SRS §21.5.1 — \"idempotency key for the batch\".",
+            "type": "string"
+          },
+          "deviceId": {
+            "description": "Must equal the authenticated terminal. A mismatch is 403, not a hint.",
+            "type": "string"
+          },
+          "lastServerCursor": {
+            "description": "Opaque to the client; `null` on a first sync. D4-2 gives it meaning.",
+            "maxLength": 80,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/SyncOperationDto"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "protocolVersion": {
+            "maximum": 1,
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "deviceId",
+          "batchId",
+          "operations"
+        ],
+        "type": "object"
+      },
+      "SyncOperationDto": {
+        "properties": {
+          "actorEmployeeId": {
+            "description": "Per-OPERATION, not per-batch: a 72-hour batch spans shift changes\n(`UC-OFF-01` step 8), and a batch-level actor would attribute a whole\noutage to one employee.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "causedBy": {
+            "description": "`FR-OFF-022` — the opId of the causal parent. A child whose parent has not\nbeen applied is DEFERRED, never rejected.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entityId": {
+            "description": "The aggregate this operation concerns. Never reassigned (`FR-OFF-015`).",
+            "type": "string"
+          },
+          "hlc": {
+            "description": "`FR-OFF-041`. Stored verbatim; the server never rewrites it.",
+            "type": "string"
+          },
+          "occurredAt": {
+            "description": "The DEVICE's wall clock, preserved alongside the server's receipt time\n(`FR-OFF-042`). Distinct from `hlc`: one is causal, one is what the receipt\nsays.",
+            "type": "string"
+          },
+          "opId": {
+            "description": "`FR-OFF-021` / SRS §21.5.1 — \"idempotency key for the operation\". There is\nno separate idempotency field: `opId` IS it.",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "Handler-specific. Validated by the registered handler, not here.",
+            "type": "object"
+          },
+          "schemaVersion": {
+            "description": "Payload shape version for THIS operation type.",
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "number"
+          },
+          "type": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "opId",
+          "hlc",
+          "type",
+          "entityId",
+          "occurredAt",
+          "schemaVersion",
+          "payload"
+        ],
+        "type": "object"
+      },
       "Toggle86Dto": {
         "properties": {
           "autoReenableAt": {
@@ -1870,6 +2030,23 @@
         "required": [
           "isManual86"
         ],
+        "type": "object"
+      },
+      "UpdateAssignmentDto": {
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/AssignmentScopeDto"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "validTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "UpdateBranchDto": {
@@ -2431,8 +2608,8 @@
       }
     },
     "/auth/memberships/{membershipId}/roles": {
-      "post": {
-        "operationId": "RbacController_assignRole",
+      "get": {
+        "operationId": "RbacController_listAssignments",
         "parameters": [
           {
             "in": "path",
@@ -2445,90 +2622,98 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssignRoleDto"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
-          "204": {
-            "description": "Role assigned."
-          },
-          "401": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "items": {
+                    "properties": {
+                      "createdAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "id": {
+                        "description": "Stable assignment identity (FR-SEC-003).",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "membershipId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "origin": {
+                        "description": "migration = inherited by the B1-2 backfill and not deliberately granted.",
+                        "enum": [
+                          "explicit",
+                          "migration"
+                        ],
+                        "type": "string"
+                      },
+                      "reviewedAt": {
+                        "description": "When an inherited grant was explicitly reviewed.",
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "roleId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "scopeBranchId": {
+                        "description": "Set iff scopeType = branch.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "scopeBrandId": {
+                        "description": "Set iff scopeType = brand.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "scopeType": {
+                        "enum": [
+                          "tenant",
+                          "brand",
+                          "branch"
+                        ],
+                        "type": "string"
+                      },
+                      "validFrom": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "validTo": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
                 }
               }
             },
-            "description": "Missing/invalid/expired token."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The role is a system role and cannot be assigned here."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "The membership or role does not exist in this tenant."
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Assign a role to a membership.",
-        "tags": [
-          "rbac"
-        ]
-      }
-    },
-    "/auth/memberships/{membershipId}/roles/{roleId}": {
-      "delete": {
-        "operationId": "RbacController_removeRole",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "membershipId",
-            "required": true,
-            "schema": {
-              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "roleId",
-            "required": true,
-            "schema": {
-              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Role removed."
+            "description": "Assignments, oldest first."
           },
           "401": {
             "content": {
@@ -2566,7 +2751,266 @@
             "bearer": []
           }
         ],
-        "summary": "Remove a role from a membership.",
+        "summary": "A membership's scoped role assignments, including expired ones.",
+        "tags": [
+          "rbac"
+        ]
+      },
+      "post": {
+        "description": "FR-SEC-002/003/005. `scope` is mandatory — a new assignment is never silently tenant-scoped. The same role may be assigned at several scopes; each is a separate assignment with its own id and its own validity window.",
+        "operationId": "RbacController_assignRole",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "membershipId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignRoleDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable assignment identity (FR-SEC-003).",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "membershipId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "origin": {
+                      "description": "migration = inherited by the B1-2 backfill and not deliberately granted.",
+                      "enum": [
+                        "explicit",
+                        "migration"
+                      ],
+                      "type": "string"
+                    },
+                    "reviewedAt": {
+                      "description": "When an inherited grant was explicitly reviewed.",
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "roleId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "scopeBranchId": {
+                      "description": "Set iff scopeType = branch.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scopeBrandId": {
+                      "description": "Set iff scopeType = brand.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scopeType": {
+                      "enum": [
+                        "tenant",
+                        "brand",
+                        "branch"
+                      ],
+                      "type": "string"
+                    },
+                    "validFrom": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "validTo": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The created assignment."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope shape invalid, or validTo not after validFrom."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role is a system role and cannot be assigned here."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The membership, role, brand or branch does not exist in this tenant."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "This role is already assigned at this exact scope for an overlapping validity window."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Assign a role to a membership at an EXPLICIT scope (tenant, brand or branch).",
+        "tags": [
+          "rbac"
+        ]
+      }
+    },
+    "/auth/memberships/{membershipId}/roles/{roleId}": {
+      "delete": {
+        "deprecated": true,
+        "description": "Before B1-2 a membership+role pair identified exactly one row. FR-SEC-003 exists so it no longer does. This route therefore FAILS CLOSED with 409 when the role is held at more than one scope, rather than silently revoking several grants. Use DELETE /auth/role-assignments/{assignmentId}.",
+        "operationId": "RbacController_removeRole",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "membershipId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "roleId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Role removed (or already absent)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The membership does not exist in this tenant."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The role is held at several scopes; remove a specific assignment by its id."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DEPRECATED — remove a role from a membership by role id.",
         "tags": [
           "rbac"
         ]
@@ -2727,9 +3171,90 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "authorizationEpoch": {
+                      "description": "Live authorization epoch. A client holding a token minted at an older epoch must refresh.",
+                      "type": "integer"
+                    },
                     "permissions": {
+                      "description": "TENANT-scoped permission codes only — what an unscoped, target-less endpoint authorises today.",
                       "items": {
                         "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "permittedBranches": {
+                      "description": "SYMBOLIC permitted-branch set. `all: true` means every branch in the tenant; `all: false` with empty lists means NO branches. Omission never means unrestricted.",
+                      "properties": {
+                        "all": {
+                          "type": "boolean"
+                        },
+                        "branches": {
+                          "items": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "brands": {
+                          "items": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "v": {
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "scopeReviewRequired": {
+                      "description": "M-4+ — the tenant still holds unreviewed migration-originated TENANT grants.",
+                      "type": "boolean"
+                    },
+                    "scopes": {
+                      "description": "Every effective assignment, scope-qualified.",
+                      "items": {
+                        "properties": {
+                          "assignmentId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "branchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "brandId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "permissions": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "scopeType": {
+                            "enum": [
+                              "tenant",
+                              "brand",
+                              "branch"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
                       },
                       "type": "array"
                     }
@@ -2738,7 +3263,7 @@
                 }
               }
             },
-            "description": "The caller's effective permission codes, sorted."
+            "description": "Tenant-scoped permission codes, every scoped grant, the symbolic permitted-branch set, the live authorization epoch, and whether inherited-scope review is still outstanding."
           },
           "401": {
             "content": {
@@ -2766,7 +3291,7 @@
             "bearer": []
           }
         ],
-        "summary": "Effective permissions of the caller's active membership.",
+        "summary": "The caller's effective, scope-qualified authority (presentation only).",
         "tags": [
           "rbac"
         ]
@@ -3013,6 +3538,395 @@
         "summary": "Rotate a refresh token for a new access + refresh token pair.",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/auth/role-assignments/{assignmentId}": {
+      "delete": {
+        "operationId": "RbacController_removeAssignment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assignmentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Assignment removed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The assignment does not exist in this tenant."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove ONE scoped assignment by its stable id.",
+        "tags": [
+          "rbac"
+        ]
+      },
+      "patch": {
+        "description": "Both are authority changes: each bumps the membership authorization epoch, so access tokens minted before it are refused until refreshed.",
+        "operationId": "RbacController_updateAssignment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assignmentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssignmentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable assignment identity (FR-SEC-003).",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "membershipId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "origin": {
+                      "description": "migration = inherited by the B1-2 backfill and not deliberately granted.",
+                      "enum": [
+                        "explicit",
+                        "migration"
+                      ],
+                      "type": "string"
+                    },
+                    "reviewedAt": {
+                      "description": "When an inherited grant was explicitly reviewed.",
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "roleId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "scopeBranchId": {
+                      "description": "Set iff scopeType = branch.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scopeBrandId": {
+                      "description": "Set iff scopeType = brand.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scopeType": {
+                      "enum": [
+                        "tenant",
+                        "brand",
+                        "branch"
+                      ],
+                      "type": "string"
+                    },
+                    "validFrom": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "validTo": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated assignment."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No change requested, invalid scope shape, or validTo not after validFrom."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The assignment, brand or branch does not exist in this tenant."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The requested scope/validity overlaps an existing assignment of the same role at the same scope."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Re-scope an assignment and/or change its validity window.",
+        "tags": [
+          "rbac"
+        ]
+      }
+    },
+    "/auth/role-assignments/{assignmentId}/review": {
+      "post": {
+        "description": "M-4+ outcome A: record that a tenant-wide grant the B1-2 migration inherited is intentionally correct, clearing the review condition WITHOUT forcing a scope change. Outcome B is to re-scope it instead (PATCH). Idempotent: reviewing an already-reviewed assignment changes nothing and does not bump the epoch.",
+        "operationId": "RbacController_reviewAssignment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assignmentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable assignment identity (FR-SEC-003).",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "membershipId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "origin": {
+                      "description": "migration = inherited by the B1-2 backfill and not deliberately granted.",
+                      "enum": [
+                        "explicit",
+                        "migration"
+                      ],
+                      "type": "string"
+                    },
+                    "reviewedAt": {
+                      "description": "When an inherited grant was explicitly reviewed.",
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "roleId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "scopeBranchId": {
+                      "description": "Set iff scopeType = branch.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scopeBrandId": {
+                      "description": "Set iff scopeType = brand.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scopeType": {
+                      "enum": [
+                        "tenant",
+                        "brand",
+                        "branch"
+                      ],
+                      "type": "string"
+                    },
+                    "validFrom": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "validTo": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The reviewed assignment."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The assignment was not migration-originated."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The assignment does not exist in this tenant."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Explicitly review an INHERITED (migration-originated) tenant-wide assignment.",
+        "tags": [
+          "rbac"
         ]
       }
     },
@@ -4715,7 +5629,7 @@
                 }
               }
             },
-            "description": "Missing the required permission."
+            "description": "The required permission is not held by a single role assignment whose scope COVERS this branch (FR-SEC-004); the branch is not active; or the tenant still holds unreviewed role assignments inherited from the scoped-RBAC migration (scopeReviewRequired). The Internal-MVP single-active-branch restriction is retired: a tenant may have any number of active branches."
           },
           "404": {
             "content": {
@@ -5270,7 +6184,7 @@
                 }
               }
             },
-            "description": "Missing the required permission."
+            "description": "The required permission is not held by a single role assignment whose scope COVERS this branch (FR-SEC-004); the branch is not active; or the tenant still holds unreviewed role assignments inherited from the scoped-RBAC migration (scopeReviewRequired). The Internal-MVP single-active-branch restriction is retired: a tenant may have any number of active branches."
           },
           "404": {
             "content": {
@@ -6922,6 +7836,16 @@
               }
             },
             "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named branch is not visible in this tenant — unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists."
           }
         },
         "security": [
@@ -10658,6 +11582,606 @@
         ]
       }
     },
+    "/governance/audit/entries": {
+      "get": {
+        "description": "Filters: actorId, entityType, entityId, action, dateFrom/dateTo, branchId, correlationId — the exact FR-AUD-008 filter set. Ordered by sequenceNo DESC (most recent first); keyset-paginated via `cursor` (the last sequenceNo already seen) — never OFFSET, so no page can skip or duplicate a row. `limit` defaults to 50, max 200. Every call records its own AUDIT_LOG_QUERIED audit entry (FR-AUD-007).",
+        "operationId": "AuditQueryController_search",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "dateFrom",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dateTo",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque continuation token: the `sequenceNo` of the last row already seen.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actorId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entityType",
+            "required": false,
+            "schema": {
+              "maxLength": 48,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entityId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "correlationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "entries": {
+                      "items": {
+                        "properties": {
+                          "action": {
+                            "type": "string"
+                          },
+                          "actorId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "actorType": {
+                            "enum": [
+                              "user",
+                              "anonymous",
+                              "system",
+                              "terminal"
+                            ],
+                            "type": "string"
+                          },
+                          "afterState": {
+                            "type": "null"
+                          },
+                          "approvalId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "approverId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "beforeState": {
+                            "type": "null"
+                          },
+                          "branchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "causationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "correlationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "entityId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "entityType": {
+                            "type": "string"
+                          },
+                          "entryHash": {
+                            "description": "Hex-encoded SHA-256 tamper-evidence hash (FR-AUD-004).",
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "impersonatedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "ipAddress": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "occurredAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "previousHash": {
+                            "description": "Hex-encoded; null for a chain's first entry.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonCode": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonText": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "recordedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "sequenceNo": {
+                            "description": "Per-tenant hash-chain position (BigInt on the wire).",
+                            "type": "string"
+                          },
+                          "tenantId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "terminalId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "userAgent": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A page of audit entries, most recent first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A filter value is malformed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No active tenant context, audit.view is not held, or (when branchId is supplied) no held grant covers that branch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Search/filter the tenant audit log (FR-AUD-008). Requires audit.view.",
+        "tags": [
+          "governance"
+        ]
+      }
+    },
+    "/governance/audit/entries/export": {
+      "get": {
+        "description": "Same six filters as search; dateFrom/dateTo are REQUIRED so every export is bounded. Refused (400) if more than 10,000 records would match — narrow the date range and retry. Not paginated: a bounded, complete result for the requested range in one response, preserving every canonical audit fact and hash-chain field (entryHash, previousHash) verbatim — nothing is re-derived, re-signed, or modified. Every call records its own AUDIT_LOG_EXPORTED audit entry (FR-AUD-007).",
+        "operationId": "AuditQueryController_exportEntries",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "dateFrom",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dateTo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actorId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entityType",
+            "required": false,
+            "schema": {
+              "maxLength": 48,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entityId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "correlationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "entries": {
+                      "items": {
+                        "properties": {
+                          "action": {
+                            "type": "string"
+                          },
+                          "actorId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "actorType": {
+                            "enum": [
+                              "user",
+                              "anonymous",
+                              "system",
+                              "terminal"
+                            ],
+                            "type": "string"
+                          },
+                          "afterState": {
+                            "type": "null"
+                          },
+                          "approvalId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "approverId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "beforeState": {
+                            "type": "null"
+                          },
+                          "branchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "causationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "correlationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "entityId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "entityType": {
+                            "type": "string"
+                          },
+                          "entryHash": {
+                            "description": "Hex-encoded SHA-256 tamper-evidence hash (FR-AUD-004).",
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "impersonatedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "ipAddress": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "occurredAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "previousHash": {
+                            "description": "Hex-encoded; null for a chain's first entry.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonCode": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonText": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "recordedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "sequenceNo": {
+                            "description": "Per-tenant hash-chain position (BigInt on the wire).",
+                            "type": "string"
+                          },
+                          "tenantId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "terminalId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "userAgent": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The complete, bounded set of matching audit entries."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A filter value is malformed, dateFrom/dateTo is missing, or the match count exceeds the 10,000-record export bound."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No active tenant context, audit.view and report.export are not BOTH held, or (when branchId is supplied) no held grant covers that branch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Export the tenant audit log (FR-AUD-008). Requires audit.view AND report.export.",
+        "tags": [
+          "governance"
+        ]
+      }
+    },
     "/health": {
       "get": {
         "operationId": "HealthController_check",
@@ -11923,6 +13447,16 @@
               }
             },
             "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both."
           }
         },
         "security": [
@@ -12127,6 +13661,16 @@
               }
             },
             "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both."
           }
         },
         "security": [
@@ -15276,7 +16820,7 @@
                           },
                           "countryPackVersion": {
                             "description": "FR-LOC-021 — the pack version this order was priced under, pinned.",
-                            "type": "integer"
+                            "type": "string"
                           },
                           "createdAt": {
                             "example": "2026-08-23T14:30:00.000Z",
@@ -15407,7 +16951,10 @@
                                 },
                                 "priceRule": {
                                   "description": "Opaque pricing-rule provenance snapshot.",
-                                  "type": "object"
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
                                 },
                                 "quantity": {
                                   "description": "Decimal quantity as a string (preserves exact precision).",
@@ -15461,10 +17008,7 @@
                                 "taxClassId": {
                                   "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                                   "format": "uuid",
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
+                                  "type": "string"
                                 },
                                 "unitCostSnapshot": {
                                   "description": "Decimal quantity as a string (preserves exact precision).",
@@ -15659,7 +17203,7 @@
                 }
               }
             },
-            "description": "Unknown or cross-tenant resource."
+            "description": "The named branch is not visible in this tenant — unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists."
           }
         },
         "security": [
@@ -15742,7 +17286,7 @@
                     },
                     "countryPackVersion": {
                       "description": "FR-LOC-021 — the pack version this order was priced under, pinned.",
-                      "type": "integer"
+                      "type": "string"
                     },
                     "createdAt": {
                       "example": "2026-08-23T14:30:00.000Z",
@@ -15873,7 +17417,10 @@
                           },
                           "priceRule": {
                             "description": "Opaque pricing-rule provenance snapshot.",
-                            "type": "object"
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "quantity": {
                             "description": "Decimal quantity as a string (preserves exact precision).",
@@ -15927,10 +17474,7 @@
                           "taxClassId": {
                             "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                             "format": "uuid",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
+                            "type": "string"
                           },
                           "unitCostSnapshot": {
                             "description": "Decimal quantity as a string (preserves exact precision).",
@@ -16226,7 +17770,7 @@
                     },
                     "countryPackVersion": {
                       "description": "FR-LOC-021 — the pack version this order was priced under, pinned.",
-                      "type": "integer"
+                      "type": "string"
                     },
                     "createdAt": {
                       "example": "2026-08-23T14:30:00.000Z",
@@ -16357,7 +17901,10 @@
                           },
                           "priceRule": {
                             "description": "Opaque pricing-rule provenance snapshot.",
-                            "type": "object"
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "quantity": {
                             "description": "Decimal quantity as a string (preserves exact precision).",
@@ -16411,10 +17958,7 @@
                           "taxClassId": {
                             "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                             "format": "uuid",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
+                            "type": "string"
                           },
                           "unitCostSnapshot": {
                             "description": "Decimal quantity as a string (preserves exact precision).",
@@ -16708,7 +18252,7 @@
                     },
                     "countryPackVersion": {
                       "description": "FR-LOC-021 — the pack version this order was priced under, pinned.",
-                      "type": "integer"
+                      "type": "string"
                     },
                     "createdAt": {
                       "example": "2026-08-23T14:30:00.000Z",
@@ -16839,7 +18383,10 @@
                           },
                           "priceRule": {
                             "description": "Opaque pricing-rule provenance snapshot.",
-                            "type": "object"
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "quantity": {
                             "description": "Decimal quantity as a string (preserves exact precision).",
@@ -16893,10 +18440,7 @@
                           "taxClassId": {
                             "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                             "format": "uuid",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
+                            "type": "string"
                           },
                           "unitCostSnapshot": {
                             "description": "Decimal quantity as a string (preserves exact precision).",
@@ -17275,7 +18819,10 @@
                         },
                         "priceRule": {
                           "description": "Opaque pricing-rule provenance snapshot.",
-                          "type": "object"
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "quantity": {
                           "description": "Decimal quantity as a string (preserves exact precision).",
@@ -17329,10 +18876,7 @@
                         "taxClassId": {
                           "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                           "format": "uuid",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
+                          "type": "string"
                         },
                         "unitCostSnapshot": {
                           "description": "Decimal quantity as a string (preserves exact precision).",
@@ -17400,7 +18944,7 @@
                         },
                         "countryPackVersion": {
                           "description": "FR-LOC-021 — the pack version this order was priced under, pinned.",
-                          "type": "integer"
+                          "type": "string"
                         },
                         "createdAt": {
                           "example": "2026-08-23T14:30:00.000Z",
@@ -17531,7 +19075,10 @@
                               },
                               "priceRule": {
                                 "description": "Opaque pricing-rule provenance snapshot.",
-                                "type": "object"
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               },
                               "quantity": {
                                 "description": "Decimal quantity as a string (preserves exact precision).",
@@ -17585,10 +19132,7 @@
                               "taxClassId": {
                                 "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                                 "format": "uuid",
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
+                                "type": "string"
                               },
                               "unitCostSnapshot": {
                                 "description": "Decimal quantity as a string (preserves exact precision).",
@@ -17970,7 +19514,10 @@
                         },
                         "priceRule": {
                           "description": "Opaque pricing-rule provenance snapshot.",
-                          "type": "object"
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "quantity": {
                           "description": "Decimal quantity as a string (preserves exact precision).",
@@ -18024,10 +19571,7 @@
                         "taxClassId": {
                           "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                           "format": "uuid",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
+                          "type": "string"
                         },
                         "unitCostSnapshot": {
                           "description": "Decimal quantity as a string (preserves exact precision).",
@@ -18095,7 +19639,7 @@
                         },
                         "countryPackVersion": {
                           "description": "FR-LOC-021 — the pack version this order was priced under, pinned.",
-                          "type": "integer"
+                          "type": "string"
                         },
                         "createdAt": {
                           "example": "2026-08-23T14:30:00.000Z",
@@ -18226,7 +19770,10 @@
                               },
                               "priceRule": {
                                 "description": "Opaque pricing-rule provenance snapshot.",
-                                "type": "object"
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               },
                               "quantity": {
                                 "description": "Decimal quantity as a string (preserves exact precision).",
@@ -18280,10 +19827,7 @@
                               "taxClassId": {
                                 "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                                 "format": "uuid",
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
+                                "type": "string"
                               },
                               "unitCostSnapshot": {
                                 "description": "Decimal quantity as a string (preserves exact precision).",
@@ -18622,7 +20166,7 @@
                         },
                         "countryPackVersion": {
                           "description": "FR-LOC-021 — the pack version this order was priced under, pinned.",
-                          "type": "integer"
+                          "type": "string"
                         },
                         "createdAt": {
                           "example": "2026-08-23T14:30:00.000Z",
@@ -18753,7 +20297,10 @@
                               },
                               "priceRule": {
                                 "description": "Opaque pricing-rule provenance snapshot.",
-                                "type": "object"
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               },
                               "quantity": {
                                 "description": "Decimal quantity as a string (preserves exact precision).",
@@ -18807,10 +20354,7 @@
                               "taxClassId": {
                                 "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                                 "format": "uuid",
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
+                                "type": "string"
                               },
                               "unitCostSnapshot": {
                                 "description": "Decimal quantity as a string (preserves exact precision).",
@@ -19160,6 +20704,431 @@
           }
         ],
         "summary": "Capture a partial, or final settling, CASH or manual/external-card payment. A settling payment completes the order atomically.",
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/orders/{businessDay}/{id}/receipt": {
+      "get": {
+        "operationId": "OrdersController_receipt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "`sales.orders` is partitioned by `business_day` and its primary key is\n(id, business_day), so a read needs both. It is a locator, not a claim\nabout the order's content.",
+            "in": "path",
+            "name": "businessDay",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "An itemized, INTERNAL, NON-FISCAL receipt view for a completed order (RCPT-R1). Makes no claim of legal or fiscal invoice compliance: no tax registration number, invoice sequence, country-pack-mandated tax breakdown, fiscal QR, fiscal signature or tax-authority submission status is present or derivable from this document.",
+                  "properties": {
+                    "disclosureKey": {
+                      "description": "Localization key for the visible non-fiscal disclosure text.",
+                      "example": "receipt.internal.nonFiscal",
+                      "type": "string"
+                    },
+                    "documentType": {
+                      "description": "Primary machine-readable non-fiscal classification.",
+                      "enum": [
+                        "INTERNAL_NON_FISCAL_RECEIPT"
+                      ],
+                      "type": "string"
+                    },
+                    "fiscal": {
+                      "description": "Always false. This is never a fiscal document.",
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    },
+                    "lines": {
+                      "items": {
+                        "properties": {
+                          "itemNameSnapshot": {
+                            "description": "Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue.",
+                            "type": "object"
+                          },
+                          "lineDiscount": {
+                            "description": "Minor-unit money amount as a decimal string. Always \"0\" under the current runtime — discounts are not implemented — reported verbatim, never invented.",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "lineSubtotal": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "lineTotal": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "menuItemId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "modifierTotal": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "modifiers": {
+                            "items": {
+                              "properties": {
+                                "modifierId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                },
+                                "nameSnapshot": {
+                                  "description": "Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue.",
+                                  "type": "object"
+                                },
+                                "priceDelta": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "quantity": {
+                                  "type": "integer"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer"
+                          },
+                          "taxAmount": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "taxClassId": {
+                            "description": "The sale-time tax-class identity (never re-resolved). Non-null: a MenuItem with no TaxClass is not sellable.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "unitPrice": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "variantId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "order": {
+                      "properties": {
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "channel": {
+                          "enum": [
+                            "pos",
+                            "kiosk",
+                            "qr",
+                            "aggregator",
+                            "phone",
+                            "api"
+                          ],
+                          "type": "string"
+                        },
+                        "completedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "countryPackVersion": {
+                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned. Provenance only; never re-resolved.",
+                          "type": "string"
+                        },
+                        "currency": {
+                          "description": "ISO 4217 currency code.",
+                          "example": "AED",
+                          "type": "string"
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "orderNumber": {
+                          "description": "FR-POS-002 operational order number, e.g. <branch_code>-<business_day_seq>, drawn from a terminal block. This is NOT a fiscal invoice sequence: it is neither gapless nor globally ordered.",
+                          "type": "string"
+                        },
+                        "orderType": {
+                          "enum": [
+                            "dine_in",
+                            "takeaway",
+                            "delivery",
+                            "drive_thru",
+                            "pickup",
+                            "aggregator"
+                          ],
+                          "type": "string"
+                        },
+                        "state": {
+                          "description": "Always completed — a receipt cannot be produced for any other order state.",
+                          "enum": [
+                            "completed"
+                          ],
+                          "type": "string"
+                        },
+                        "terminalId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "payments": {
+                      "items": {
+                        "properties": {
+                          "amount": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "cardLast4": {
+                            "description": "manual_external_card only, when supplied. Exactly 4 digits.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "cardScheme": {
+                            "description": "manual_external_card only, when supplied.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "changeGiven": {
+                            "description": "CASH only. Null for manual_external_card.",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "currency": {
+                            "description": "ISO 4217 currency code.",
+                            "example": "AED",
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "processedAt": {
+                            "description": "Server clock at capture.",
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "roundingAdjustment": {
+                            "description": "CASH-only cash-drawer rounding adjustment for this payment. Zero for manual_external_card. Never part of the order grandTotal or paidTotal.",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "tender": {
+                            "enum": [
+                              "cash",
+                              "manual_external_card"
+                            ],
+                            "type": "string"
+                          },
+                          "tenderedAmount": {
+                            "description": "CASH only. Null for manual_external_card.",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "taxPresentation": {
+                      "description": "FR-FIN-031 — whether the pinned country pack priced this order tax-inclusive or tax-exclusive, derived from the frozen order totals only. NOT_APPLICABLE when taxTotal is zero.",
+                      "enum": [
+                        "INCLUSIVE",
+                        "EXCLUSIVE",
+                        "NOT_APPLICABLE",
+                        "UNDETERMINED"
+                      ],
+                      "type": "string"
+                    },
+                    "totals": {
+                      "properties": {
+                        "cashRoundingAdjustment": {
+                          "description": "A separate cash-drawer-reconciliation figure. Never part of grandTotal or paidTotal.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "discountTotal": {
+                          "description": "Always \"0\" under the current runtime — discounts are not implemented — reported verbatim, never invented.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "grandTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "paidTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "serviceChargeTotal": {
+                          "description": "Always \"0\" under the current runtime — service charge is not implemented.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "subtotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "taxTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "tipTotal": {
+                          "description": "Always \"0\" under the current runtime — tips are not implemented.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The non-fiscal receipt document. Available only once the order is completed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown or cross-tenant resource."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The order exists but is not completed — no receipt exists for a draft, open, held, parked, partially_paid, cancelled, partially_refunded or refunded order."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "An itemized, INTERNAL, NON-FISCAL receipt for a completed order.",
         "tags": [
           "sales"
         ]
@@ -23823,7 +25792,7 @@
     },
     "/reports/branches/{branchId}/daily-trading/{businessDay}": {
       "get": {
-        "description": "Financially-correct, read-only, query-time aggregation over the transactional primary — NOT a read replica, NOT a rollup, NOT a cache (FR-RPT-001/002/003/005 remain NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial (AND). Refused (403) unless the caller's tenant has EXACTLY ONE active branch and the supplied branchId equals it. A future businessDay is 400, never an all-zeros OPEN report. Cash Reconciliation is WHOLE_SESSION scope and PARTIAL (zero-payment/movement-only sessions are not attributable to a business day and are not listed; no day-level variance/expected/counted/movement total is ever emitted). Tax is broken down by class only, never by rate. Money is a decimal (minor-unit) string on the wire, never a JSON number. tenderTotals.completedExcessCapturedTotal (acceptance correction, 2026-08-31) is captured payment value above a completed order’s grand total — P1F-2 permits paidTotal > grandTotal on completion; this term is reconciliation-only, with no revenue/tax/tip/discount/ refund/rounding/variance disposition inferred, and it makes tenderGrandTotal === grossSales + unsettledCapturedTotal + completedExcessCapturedTotal hold exactly.",
+        "description": "Financially-correct, read-only, query-time aggregation over the transactional primary — NOT a read replica, NOT a rollup, NOT a cache (FR-RPT-001/002/003/005 remain NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial (AND), held by a single role assignment whose scope COVERS this branch (FR-SEC-004). The Internal-MVP single-active-branch restriction is retired: a tenant may have any number of active branches. Refused (403) if the branch is not active, or if the tenant still holds unreviewed role assignments inherited from the scoped-RBAC migration. A future businessDay is 400, never an all-zeros OPEN report. Cash Reconciliation is WHOLE_SESSION scope and PARTIAL (zero-payment/movement-only sessions are not attributable to a business day and are not listed; no day-level variance/expected/counted/movement total is ever emitted). Tax is broken down by class only, never by rate. Money is a decimal (minor-unit) string on the wire, never a JSON number. tenderTotals.completedExcessCapturedTotal (acceptance correction, 2026-08-31) is captured payment value above a completed order’s grand total — P1F-2 permits paidTotal > grandTotal on completion; this term is reconciliation-only, with no revenue/tax/tip/discount/ refund/rounding/variance disposition inferred, and it makes tenderGrandTotal === grossSales + unsettledCapturedTotal + completedExcessCapturedTotal hold exactly.",
         "operationId": "ReportingController_getDailyTradingReport",
         "parameters": [
           {
@@ -24298,7 +26267,7 @@
                 }
               }
             },
-            "description": "A PIN/POS session; no active tenant context; missing either report.view.sales or report.view.financial; the tenant has zero or more than one active branch; or branchId is visible in the tenant but is not that single active branch."
+            "description": "A PIN/POS session; no active tenant context; report.view.sales and report.view.financial are not both held by one assignment covering this branch; the branch is not active; or the tenant still holds unreviewed migration-inherited role assignments (scopeReviewRequired)."
           },
           "404": {
             "content": {
@@ -24326,7 +26295,7 @@
             "bearer": []
           }
         ],
-        "summary": "Branch daily-trading report (Internal-MVP: dashboard-only, one tenant, exactly one active branch).",
+        "summary": "Branch daily-trading report (dashboard-only; authorized against the branch it names).",
         "tags": [
           "reporting"
         ]
@@ -24589,11 +26558,593 @@
           "production"
         ]
       }
+    },
+    "/v1/sync/batch": {
+      "post": {
+        "description": "FR-OFF-020..025. Operations are applied in causal order, each with its own failure isolation, and answered individually as accepted, duplicate, conflict, rejected or deferred. Only the first four are DEFINITIVE: a client may remove an operation from its outbox on those and must retain it on anything else, including deferred, a missing result, and any transport failure. Replaying the same batchId with the same body returns the stored response and re-applies nothing.",
+        "operationId": "SyncController_uploadBatch_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncBatchDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "batchId": {
+                      "description": "The batch id the client supplied, echoed unchanged.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "clockSkewExceededThreshold": {
+                      "description": "True when the skew exceeded the configured threshold (default 5 minutes). The skew is recorded and an alert raised; the operations are still accepted and their original timestamps preserved.",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "clockSkewMs": {
+                      "description": "Largest observed |device HLC physical clock − server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042).",
+                      "example": 1200,
+                      "type": "integer"
+                    },
+                    "counts": {
+                      "description": "Per-status totals for this batch.",
+                      "properties": {
+                        "accepted": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "conflict": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "deferred": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "duplicate": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "rejected": {
+                          "example": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "accepted",
+                        "duplicate",
+                        "conflict",
+                        "rejected",
+                        "deferred"
+                      ],
+                      "type": "object"
+                    },
+                    "protocolVersion": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "receivedAt": {
+                      "description": "The server's own receipt instant.",
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "description": "True when this batch had already been completed and the stored response was replayed verbatim. Nothing was re-applied (FR-OFF-025).",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "results": {
+                      "description": "One result per submitted operation, in submission order.",
+                      "items": {
+                        "properties": {
+                          "conflictId": {
+                            "description": "The sync.conflict_records row raised for this operation, when status is conflict.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "definitive": {
+                            "description": "True exactly when the client may delete this operation from its outbox. Restated as a field so a client never has to hard-code the status vocabulary to decide.",
+                            "example": true,
+                            "type": "boolean"
+                          },
+                          "detail": {
+                            "description": "Handler-supplied result detail, echoed to the client.",
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          },
+                          "opId": {
+                            "description": "The client-generated operation id, echoed back UNCHANGED — FR-OFF-015: the server never reassigns an identifier.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "reasonCode": {
+                            "description": "Machine-readable reason. Always present on rejected, conflict and deferred, so a client can decide between dead-lettering, fixing and resending, or waiting for a causal parent.",
+                            "example": "causal_parent_missing",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonDetail": {
+                            "description": "Human-readable explanation.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "description": "accepted | duplicate | conflict | rejected are DEFINITIVE — the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024).",
+                            "enum": [
+                              "accepted",
+                              "duplicate",
+                              "conflict",
+                              "rejected",
+                              "deferred"
+                            ],
+                            "example": "accepted",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "opId",
+                          "status",
+                          "definitive"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "batchId",
+                    "receivedAt",
+                    "protocolVersion",
+                    "replayed",
+                    "counts",
+                    "clockSkewMs",
+                    "clockSkewExceededThreshold",
+                    "results"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-operation results. Always 200 for a well-formed authorised batch, whatever the individual outcomes."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed envelope, an unknown field, an unsupported protocolVersion, more than the permitted number of operations, or an oversized batch."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No terminal-bound session, the terminal is not active, or deviceId does not match the authenticated terminal."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "This batchId was already used for a different body (a client defect), or it is currently being processed by a live owner."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload a batch of offline operations",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/v1/sync/recovery/grants": {
+      "post": {
+        "operationId": "SyncRecoveryController_issueGrant_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueRecoveryGrantDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "issuedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "pending"
+                      ],
+                      "type": "string"
+                    },
+                    "terminalId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recovery grant."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid ttlMinutes."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Terminal not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Terminal is active, or a pending grant already exists for it."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Authorize a bounded, one-shot recovery upload window for a disabled or revoked terminal's committed offline backlog (D1-1 GD-D1-07).",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/v1/sync/recovery/{grantId}/batch": {
+      "post": {
+        "operationId": "SyncRecoveryController_uploadRecoveryBatch_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "grantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncBatchDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "batchId": {
+                      "description": "The batch id the client supplied, echoed unchanged.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "clockSkewExceededThreshold": {
+                      "description": "True when the skew exceeded the configured threshold (default 5 minutes). The skew is recorded and an alert raised; the operations are still accepted and their original timestamps preserved.",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "clockSkewMs": {
+                      "description": "Largest observed |device HLC physical clock − server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042).",
+                      "example": 1200,
+                      "type": "integer"
+                    },
+                    "counts": {
+                      "description": "Per-status totals for this batch.",
+                      "properties": {
+                        "accepted": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "conflict": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "deferred": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "duplicate": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "rejected": {
+                          "example": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "accepted",
+                        "duplicate",
+                        "conflict",
+                        "rejected",
+                        "deferred"
+                      ],
+                      "type": "object"
+                    },
+                    "protocolVersion": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "receivedAt": {
+                      "description": "The server's own receipt instant.",
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "description": "True when this batch had already been completed and the stored response was replayed verbatim. Nothing was re-applied (FR-OFF-025).",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "results": {
+                      "description": "One result per submitted operation, in submission order.",
+                      "items": {
+                        "properties": {
+                          "conflictId": {
+                            "description": "The sync.conflict_records row raised for this operation, when status is conflict.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "definitive": {
+                            "description": "True exactly when the client may delete this operation from its outbox. Restated as a field so a client never has to hard-code the status vocabulary to decide.",
+                            "example": true,
+                            "type": "boolean"
+                          },
+                          "detail": {
+                            "description": "Handler-supplied result detail, echoed to the client.",
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          },
+                          "opId": {
+                            "description": "The client-generated operation id, echoed back UNCHANGED — FR-OFF-015: the server never reassigns an identifier.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "reasonCode": {
+                            "description": "Machine-readable reason. Always present on rejected, conflict and deferred, so a client can decide between dead-lettering, fixing and resending, or waiting for a causal parent.",
+                            "example": "causal_parent_missing",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonDetail": {
+                            "description": "Human-readable explanation.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "description": "accepted | duplicate | conflict | rejected are DEFINITIVE — the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024).",
+                            "enum": [
+                              "accepted",
+                              "duplicate",
+                              "conflict",
+                              "rejected",
+                              "deferred"
+                            ],
+                            "example": "accepted",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "opId",
+                          "status",
+                          "definitive"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "batchId",
+                    "receivedAt",
+                    "protocolVersion",
+                    "replayed",
+                    "counts",
+                    "clockSkewMs",
+                    "clockSkewExceededThreshold",
+                    "results"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-operation results — identical shape to ordinary sync."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed envelope, oversized batch, or deviceId mismatch."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Caller lacks identity.terminal.manage at the grant’s branch."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Recovery grant not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Grant expired, revoked, or already consumed for a different batch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload one batch of a revoked terminal's committed offline backlog, authenticated as the admin who holds (or was granted) recovery authority for it — never as the terminal itself (see the service docblock for why).",
+        "tags": [
+          "sync"
+        ]
+      }
     }
   },
   "servers": [
     {
-      "description": "Current application root — no path prefix. SRS §26.1 specifies /v1 URL versioning; this is NOT implemented by the application (no global prefix registered) and no deployment/proxy configuration exists in this repository to confirm whether an external layer adds one. Confirm the real deployed base URL with deployment/ops before treating any prefix as authoritative.",
+      "description": "Current application root. There is no global path prefix: routes appear here at the exact paths the application serves. Most are unversioned; the Sync routes are versioned under /v1 because their canonical contract requires it, using Nest URI versioning with a VERSION_NEUTRAL default so no other route was moved. Repository-wide /v1 versioning (SRS §26.1) is a Platform decision and is not yet made. No deployment/proxy configuration exists in this repository, so confirm the real deployed base URL with deployment/ops before treating any prefix as authoritative.",
       "url": "/"
     }
   ],

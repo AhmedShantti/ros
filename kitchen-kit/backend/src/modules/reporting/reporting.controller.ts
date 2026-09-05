@@ -39,6 +39,7 @@ import {
   DailyTradingReportQueryDto,
 } from './reporting.dto';
 import { REPORTING_PERMISSIONS } from './reporting.permissions';
+import { AuthorizationTarget, branchFromParam } from '../identity/contract';
 
 // Shape verified against `daily-trading-report.service.ts`'s
 // `DailyTradingReportView`/`assembleView` — not against the Prisma schema or
@@ -218,17 +219,21 @@ export class ReportingController {
   constructor(private readonly reportService: DailyTradingReportService) {}
 
   @Get('branches/:branchId/daily-trading/:businessDay')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @Header('Cache-Control', 'no-store')
   @ApiOperation({
     summary:
-      'Branch daily-trading report (Internal-MVP: dashboard-only, one tenant, exactly one active branch).',
+      'Branch daily-trading report (dashboard-only; authorized against the branch it names).',
     description:
       'Financially-correct, read-only, query-time aggregation over the ' +
       'transactional primary — NOT a read replica, NOT a rollup, NOT a ' +
       'cache (FR-RPT-001/002/003/005 remain NOT IMPLEMENTED). Requires ' +
-      'BOTH report.view.sales and report.view.financial (AND). Refused ' +
-      "(403) unless the caller's tenant has EXACTLY ONE active branch and " +
-      'the supplied branchId equals it. A future businessDay is 400, never ' +
+      'BOTH report.view.sales and report.view.financial (AND), held by a ' +
+      'single role assignment whose scope COVERS this branch (FR-SEC-004). ' +
+      'The Internal-MVP single-active-branch restriction is retired: a tenant ' +
+      'may have any number of active branches. Refused (403) if the branch is ' +
+      'not active, or if the tenant still holds unreviewed role assignments ' +
+      'inherited from the scoped-RBAC migration. A future businessDay is 400, never ' +
       'an all-zeros OPEN report. Cash Reconciliation is WHOLE_SESSION scope ' +
       'and PARTIAL (zero-payment/movement-only sessions are not ' +
       'attributable to a business day and are not listed; no day-level ' +
@@ -262,10 +267,10 @@ export class ReportingController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid bearer token.' })
   @ApiForbiddenResponse({
     description:
-      'A PIN/POS session; no active tenant context; missing either ' +
-      'report.view.sales or report.view.financial; the tenant has zero or ' +
-      'more than one active branch; or branchId is visible in the tenant ' +
-      'but is not that single active branch.',
+      'A PIN/POS session; no active tenant context; report.view.sales and ' +
+      'report.view.financial are not both held by one assignment covering ' +
+      'this branch; the branch is not active; or the tenant still holds ' +
+      'unreviewed migration-inherited role assignments (scopeReviewRequired).',
   })
   @ApiNotFoundResponse({
     description:

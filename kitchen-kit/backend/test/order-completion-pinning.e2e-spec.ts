@@ -335,7 +335,7 @@ describe('Order Completion — historical pinning, gap semantics, modifier compo
       stockItemId,
       locationId: locationA,
       movementType: 'opening_balance',
-      quantity: Number(qty),
+      quantity: qty,
       unitCost,
       referenceType: 'opening_balance',
       referenceId: newId(),

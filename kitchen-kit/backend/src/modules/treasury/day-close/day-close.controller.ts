@@ -47,6 +47,7 @@ import { TenantContextGuard } from '../../identity/context/tenant-context.guard'
 import { DayCloseParamsDto, PostDayCloseDto } from './day-close.dto';
 import { DayCloseService } from './day-close.service';
 import { TREASURY_PERMISSIONS } from '../treasury.permissions';
+import { AuthorizationTarget, branchFromParam } from '../../identity/contract';
 
 /**
  * DayClose — Migration 35 (Internal-MVP `FR-FIN-020/021/023/024`).
@@ -282,13 +283,22 @@ const dayClosePostResultSchema = {
 @ApiTags('treasury')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid access token.' })
-@ApiForbiddenResponse({ description: 'Missing the required permission.' })
+@ApiForbiddenResponse({
+  description:
+    'The required permission is not held by a single role assignment whose ' +
+    'scope COVERS this branch (FR-SEC-004); the branch is not active; or the ' +
+    'tenant still holds unreviewed role assignments inherited from the ' +
+    'scoped-RBAC migration (scopeReviewRequired). The Internal-MVP ' +
+    'single-active-branch restriction is retired: a tenant may have any ' +
+    'number of active branches.',
+})
 @UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
 @Controller('branches')
 export class DayCloseController {
   constructor(private readonly dayClose: DayCloseService) {}
 
   @Post(':branchId/day-closes/:businessDay')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @HttpCode(HttpStatus.OK)
   @AllowPosSession()
   @Idempotent()
@@ -338,7 +348,7 @@ export class DayCloseController {
       authorization.context.tenantId,
       authorization.context.userId,
       { employeeId: principal.employeeId, terminalId: principal.terminalId },
-      authorization.permissions,
+      authorization,
       {
         branchId: params.branchId,
         businessDay: parseBusinessDay(params.businessDay),
@@ -347,6 +357,7 @@ export class DayCloseController {
   }
 
   @Get(':branchId/day-closes/:businessDay')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(TREASURY_PERMISSIONS.REPORT_VIEW_FINANCIAL)
   @Header('Cache-Control', 'no-store')
   @ApiOperation({

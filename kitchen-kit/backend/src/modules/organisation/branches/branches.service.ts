@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { newId } from '../../../common/ids';
 import { BranchStatus, Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -7,6 +12,10 @@ import {
   AUDIT_ENTITY,
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
+import {
+  SCOPE_REVIEW_QUERY,
+  type ScopeReviewQuery,
+} from '../../identity/contract';
 import { LocationsService } from '../locations/locations.service';
 import { rethrowAsNotFoundOnFk } from '../prisma-errors';
 import { BranchSummary, toBranchSummary } from './branch.view';
@@ -51,7 +60,58 @@ export class BranchesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly locations: LocationsService,
+    @Inject(SCOPE_REVIEW_QUERY)
+    private readonly scopeReview: ScopeReviewQuery,
   ) {}
+
+  /**
+   * M-4+ SECOND-ACTIVE-BRANCH GATE (ratified amendment clause 13.C).
+   *
+   * The B1-2 migration backfilled every pre-existing role assignment as TENANT
+   * scope, because that is what an unscoped assignment actually meant. Those
+   * inherited grants are harmless while a tenant operates ONE branch — they
+   * already covered it. The moment a tenant becomes multi-branch they would
+   * SILENTLY widen to cover the new branch too, which is exactly the outcome the
+   * ratified decision forbids ("Inherited access MUST NOT be silently widened
+   * when a tenant moves into multi-branch operation").
+   *
+   * So the gate fires at the 1 -> 2 transition, and only there:
+   *
+   *   currently >= 2 active branches -> NOT gated. The tenant is already
+   *     multi-branch (limb D): migration must not fail it, must not declare it
+   *     branch-RBAC-ready, and must not retroactively break its operations.
+   *     Its review-required state is derived and reported, not enforced here.
+   *   currently  < 2, and this operation would produce the second active
+   *     branch, and unreviewed inherited grants remain -> DENY, fail closed,
+   *     with an actionable message.
+   *
+   * The count and the review check run INSIDE the caller's transaction, so the
+   * decision cannot straddle a concurrent activation.
+   *
+   * This is the ONLY Organisation business behaviour B1-2 changes; it is
+   * specifically authorised because the migration requires it.
+   */
+  private async assertMayBecomeMultiBranch(
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const activeCount = await tx.branch.count({
+      where: { status: 'active' },
+    });
+    if (activeCount !== 1) {
+      // 0 -> 1 is the first branch; >= 2 is the already-multi-branch case.
+      return;
+    }
+    if (!(await this.scopeReview.hasUnreviewedInheritedAssignments(tx))) {
+      return;
+    }
+    throw new ForbiddenException(
+      'This tenant cannot activate a second branch while role assignments inherited ' +
+        'by the scoped-RBAC migration are still unreviewed: they were granted tenant-wide ' +
+        'before branches were an authorization boundary, and activating a second branch ' +
+        'would silently extend them to it. Review or re-scope every assignment reported by ' +
+        'GET /auth/permissions (scopeReviewRequired), then retry.',
+    );
+  }
 
   async create(
     tenantId: string,
@@ -62,6 +122,9 @@ export class BranchesService {
       const branch = await this.prisma.withAuthContext(
         { userId: actorId, tenantId },
         async (tx) => {
+          // `branches.status` defaults to `active`, so creating a branch IS
+          // activating one — the gate belongs here as well as on setStatus.
+          await this.assertMayBecomeMultiBranch(tx);
           const created = await tx.branch.create({
             data: {
               id: newId(),
@@ -194,6 +257,9 @@ export class BranchesService {
         });
         if (!existing) {
           throw new NotFoundException('Branch not found.');
+        }
+        if (status === 'active' && existing.status !== 'active') {
+          await this.assertMayBecomeMultiBranch(tx);
         }
         const updated = await tx.branch.update({
           where: { id: branchId },

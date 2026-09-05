@@ -583,7 +583,7 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
           stockItemId: fifoItem,
           locationId: locationA,
           movementType: 'purchase_receipt',
-          quantity: 10,
+          quantity: '10',
           unitCost: 50n,
           batchId: batch.id,
           referenceType: 'goods_receipt',

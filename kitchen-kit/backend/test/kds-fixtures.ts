@@ -146,7 +146,11 @@ export async function createKdsFixture(
     tenantId,
     'active',
   );
-  await membershipRoles.assign(tenantId, employeeMembership.id, kdsRole.id);
+  await membershipRoles.create(tenantId, null, {
+    membershipId: employeeMembership.id,
+    roleId: kdsRole.id,
+    scope: { type: 'tenant' },
+  });
   const employeeCode = `CK${seed.slice(-6)}`;
   const employee = await employees.create(tenantId, employeeUser.id, {
     code: employeeCode,
@@ -170,7 +174,11 @@ export async function createKdsFixture(
     tenantId,
     'active',
   );
-  await membershipRoles.assign(tenantId, dashboardMembership.id, kdsRole.id);
+  await membershipRoles.create(tenantId, null, {
+    membershipId: dashboardMembership.id,
+    roleId: kdsRole.id,
+    scope: { type: 'tenant' },
+  });
 
   return {
     tenantId,

@@ -8,6 +8,7 @@ import {
 import { AuditService } from '../../governance/audit/audit.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessTokenService } from '../auth/access-token.service';
+import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { SelectTenantResult } from '../memberships/membership.view';
 import { toTenantSummary } from './tenant.view';
 
@@ -19,6 +20,7 @@ export class TenantSelectionService {
     private readonly prisma: PrismaService,
     private readonly tokens: AccessTokenService,
     private readonly audit: AuditService,
+    private readonly snapshots: AuthorizationSnapshotService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
@@ -68,11 +70,22 @@ export class TenantSelectionService {
       },
     );
 
+    // T-4-LIVE: tenant selection is where a session first acquires scope, so it
+    // is where the SRS-required snapshot (FR-API-012 clause 1) and its epoch are
+    // first minted. Neither authorises anything — live resolution does.
+    const snapshot = await this.snapshots.build(
+      userId,
+      membership.tenantId,
+      membership.id,
+    );
     const accessToken = await this.tokens.sign({
       sub: userId,
       sid: sessionId,
       tid: membership.tenantId,
       mid: membership.id,
+      scp: [...snapshot.scp],
+      pbr: snapshot.pbr,
+      epo: snapshot.epo,
     });
 
     await this.audit.emit({

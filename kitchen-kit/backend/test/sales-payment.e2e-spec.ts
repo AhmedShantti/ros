@@ -331,19 +331,35 @@ describe('Sales Payment (P1F-1 e2e)', () => {
 
     const a = await mkUser(`pay.a.${stamp}@example.com`, tenantA);
     userA = a.userId;
-    await membershipRoles.assign(tenantA, a.membershipId, cashierFull.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: a.membershipId,
+      roleId: cashierFull.id,
+      scope: { type: 'tenant' },
+    });
 
     const other = await mkUser(`pay.other.${stamp}@example.com`, tenantA);
     userOther = other.userId;
-    await membershipRoles.assign(tenantA, other.membershipId, cashierFull.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: other.membershipId,
+      roleId: cashierFull.id,
+      scope: { type: 'tenant' },
+    });
 
     const nf = await mkUser(`pay.noauth.${stamp}@example.com`, tenantA);
     userNoAuth = nf.userId;
-    await membershipRoles.assign(tenantA, nf.membershipId, createOnly.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: nf.membershipId,
+      roleId: createOnly.id,
+      scope: { type: 'tenant' },
+    });
 
     const b = await mkUser(`pay.b.${stamp}@example.com`, tenantB);
     userB = b.userId;
-    await membershipRoles.assign(tenantB, b.membershipId, cashierB.id);
+    await membershipRoles.create(tenantB, null, {
+      membershipId: b.membershipId,
+      roleId: cashierB.id,
+      scope: { type: 'tenant' },
+    });
 
     employeeACode = `PEA${stamp % 1000}`;
     employeeA = (

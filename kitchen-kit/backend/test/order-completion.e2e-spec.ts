@@ -189,7 +189,7 @@ describe('Order Completion (P1F-2 e2e)', () => {
       stockItemId,
       locationId: locationA,
       movementType: 'purchase_receipt',
-      quantity: Number(qty),
+      quantity: qty,
       unitCost,
       batchId: batch.id,
       referenceType: 'goods_receipt',
@@ -488,7 +488,11 @@ describe('Order Completion (P1F-2 e2e)', () => {
     const membershipA = await admin.membership.findFirstOrThrow({
       where: { userId: userA, tenantId: tenantA },
     });
-    await membershipRoles.assign(tenantA, membershipA.id, cashier.id);
+    await membershipRoles.create(tenantA, null, {
+      membershipId: membershipA.id,
+      roleId: cashier.id,
+      scope: { type: 'tenant' },
+    });
 
     await pins.setPin(tenantA, userA, employeeA, '2468');
     const login = await request(http).post('/auth/pin').send({

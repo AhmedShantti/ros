@@ -131,7 +131,11 @@ describe('TenantContext (e2e)', () => {
       ROLE_READ,
       IDENTITY_PERMISSIONS.ROLE_CREATE,
     ]);
-    await app.get(MembershipRolesService).assign(tenantAId, mUAId, readerA.id);
+    await app.get(MembershipRolesService).create(tenantAId, null, {
+      membershipId: mUAId,
+      roleId: readerA.id,
+      scope: { type: 'tenant' },
+    });
   });
 
   afterAll(async () => {

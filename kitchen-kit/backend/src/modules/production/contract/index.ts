@@ -6,3 +6,4 @@ export * from './consumption-gap.errors';
 // instead of adding a second private import and growing KNOWN_DEVIATIONS.
 export { RECIPE_COST_RECOMPUTER } from '../costing/recipe-cost.port';
 export type { RecipeCostRecomputer } from '../costing/recipe-cost.port';
+export * from './scope-target.resolvers';

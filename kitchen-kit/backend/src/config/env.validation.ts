@@ -34,6 +34,20 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   APP_DATABASE_URL!: string;
 
+  /**
+   * FR-DR-002 — the ONE connection authenticated as anything other than
+   * `ros_app` at runtime: `ros_partition_admin`, which owns exactly the three
+   * partitioned parent tables `PartitionLifecycleJob` maintains and holds no
+   * DML privilege of its own. See `PartitionAdminConnectionService` for the
+   * full reasoning on why a second connection exists at all. Required from
+   * the start, like `APP_DATABASE_URL`: an unconfigured deployment must fail
+   * fast at boot, not silently ship a scheduler that can never create a
+   * partition.
+   */
+  @IsString()
+  @IsNotEmpty()
+  PARTITION_ADMIN_DATABASE_URL!: string;
+
   // Long random secret (openssl rand -base64 64). Kept out of source control.
   @IsString()
   @MinLength(32)
@@ -123,6 +137,60 @@ export class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   PORT: number = 3000;
+
+  /**
+   * SRS §27.6 NFR-OBS-003 metrics exposure. OPTIONAL and unset by default: the
+   * internal Prometheus exporter listener does not start at all unless this is
+   * explicitly configured (see `MetricsExporterService`) — the safe default,
+   * and what keeps the G1-2 parallel/sequential E2E harness free of port
+   * collisions (test env never sets this).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  METRICS_PORT?: number;
+
+  /** Bind host for the metrics exporter. Defaults to loopback-only. */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  METRICS_HOST?: string;
+
+  /**
+   * SCHED-1 — whether THIS instance runs the scheduler heartbeat. String
+   * `'true'` enables it; anything else (including unset) disables it.
+   *
+   * Disabled by default so a test run, a one-off migration container, or a
+   * console attach never starts background execution nobody asked for. Enabling
+   * it on EVERY instance is the intended production configuration: the heartbeat
+   * is only a liveness poll, and exactly-once is enforced by the durable
+   * occurrence key and the claim lease, not by electing a single instance.
+   */
+  @IsOptional()
+  @IsString()
+  SCHEDULER_ENABLED?: string;
+
+  /**
+   * How often an enabled instance polls for due occurrences. Latency only — a
+   * longer tick delays work, it cannot duplicate or lose it.
+   */
+  @IsInt()
+  @Min(1000)
+  @Max(3_600_000)
+  SCHEDULER_TICK_MS: number = 30_000;
+
+  /** How many tenants one tick may scan. Bounds a tick's cost on a large fleet. */
+  @IsInt()
+  @Min(1)
+  @Max(10_000)
+  SCHEDULER_TENANT_BATCH: number = 100;
+
+  /** How many occurrences one tick may claim per tenant. */
+  @IsInt()
+  @Min(1)
+  @Max(1_000)
+  SCHEDULER_CLAIM_BATCH: number = 10;
 }
 
 // Values that unambiguously indicate an un-replaced placeholder / dev secret.
@@ -141,10 +209,24 @@ function assertProductionHardened(env: EnvironmentVariables): void {
   if (PLACEHOLDER.test(env.DATABASE_URL)) offenders.push('DATABASE_URL');
   if (PLACEHOLDER.test(env.APP_DATABASE_URL))
     offenders.push('APP_DATABASE_URL');
+  if (PLACEHOLDER.test(env.PARTITION_ADMIN_DATABASE_URL))
+    offenders.push('PARTITION_ADMIN_DATABASE_URL');
   // Runtime must connect as the non-superuser app role, never the migrator.
   if (/ros_migrator/.test(env.APP_DATABASE_URL))
     offenders.push(
       'APP_DATABASE_URL (must use the ros_app role, not ros_migrator)',
+    );
+  // The DDL connection must be its own narrowly-scoped role too — never the
+  // full migrator/owner, and never silently reused as ros_app (which would
+  // defeat the entire point of separating them; see
+  // `PartitionAdminConnectionService`).
+  if (/ros_migrator/.test(env.PARTITION_ADMIN_DATABASE_URL))
+    offenders.push(
+      'PARTITION_ADMIN_DATABASE_URL (must use the ros_partition_admin role, not ros_migrator)',
+    );
+  if (env.PARTITION_ADMIN_DATABASE_URL === env.APP_DATABASE_URL)
+    offenders.push(
+      'PARTITION_ADMIN_DATABASE_URL (must be a distinct role from APP_DATABASE_URL)',
     );
   if (offenders.length > 0) {
     throw new Error(

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { LocalisationModule } from '../localisation/localisation.module';
@@ -8,6 +8,19 @@ import { AccessTokenService } from './auth/access-token.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { OrganisationModule } from '../organisation/organisation.module';
+import { AuthorizationSnapshotService } from './authz/authorization-snapshot.service';
+import { ScopeAuthorizationService } from './authz/scope-authorization.service';
+import { PosActorAuthorizationService } from './authz/pos-actor-authorization.service';
+import { POS_ACTOR_AUTHORIZATION } from './contract/pos-actor-authorization';
+import { AuthorizationTargetResolver } from './authz/authorization-target.resolver';
+import { TerminalTargetResolver } from './terminals/scope-target.resolver';
+import {
+  IDENTITY_TERMINAL_TARGET_RESOLVER,
+  SCOPE_AUTHORIZATION,
+} from './contract/authorization-target';
+import { ScopeReviewQueryService } from './authz/scope-review.query.service';
+import { SCOPE_REVIEW_QUERY } from './contract/scope-review.query';
 import { PermissionGuard } from './authz/guards/permission.guard';
 import { MembershipRolesService } from './authz/membership-roles.service';
 import { PermissionsService } from './authz/permissions.service';
@@ -46,6 +59,17 @@ import { UsersService } from './users/users.service';
  */
 @Module({
   imports: [
+    // B1-2 scoped RBAC: the ratified lattice says a BRAND-scoped assignment
+    // covers a BRANCH target "whose parent brand = X", and that parent-brand
+    // fact is Organisation's (`org.branches.brand_id`). Identity reaches it
+    // ONLY through `organisation/contract`'s published `BRANCH_BRAND_QUERY` —
+    // never a private Organisation path (`module-boundaries.spec.ts` enforces
+    // it). Organisation already imports Identity for the guard chain and now
+    // also for `identity/contract`'s `SCOPE_REVIEW_QUERY` (the M-4+ gate), so
+    // this is a genuinely BIDIRECTIONAL contract edge and needs `forwardRef()`
+    // on both sides — the same pattern `sales.module.ts` <-> `treasury.module.ts`
+    // already established for P1G-1.
+    forwardRef(() => OrganisationModule),
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService): JwtModuleOptions => {
@@ -118,6 +142,22 @@ import { UsersService } from './users/users.service';
     PermissionsService,
     RolesService,
     MembershipRolesService,
+    AuthorizationSnapshotService,
+    ScopeAuthorizationService,
+    { provide: SCOPE_AUTHORIZATION, useExisting: ScopeAuthorizationService },
+    PosActorAuthorizationService,
+    {
+      provide: POS_ACTOR_AUTHORIZATION,
+      useExisting: PosActorAuthorizationService,
+    },
+    AuthorizationTargetResolver,
+    TerminalTargetResolver,
+    {
+      provide: IDENTITY_TERMINAL_TARGET_RESOLVER,
+      useExisting: TerminalTargetResolver,
+    },
+    ScopeReviewQueryService,
+    { provide: SCOPE_REVIEW_QUERY, useExisting: ScopeReviewQueryService },
     TenantContextService,
     TenantContextGuard,
     PermissionGuard,
@@ -156,6 +196,24 @@ import { UsersService } from './users/users.service';
     PinService,
     TERMINAL_PIN_VERIFIER,
     TERMINAL_FACTS_QUERY,
+    // B1-2 scoped RBAC.
+    AuthorizationSnapshotService,
+    // The generic `permission + target scope` primitive, applied by
+    // `PermissionGuard` to every converted business operation (B1-3).
+    ScopeAuthorizationService,
+    // Published so a module can make a SECOND, in-transaction scoped decision
+    // the route-level guard cannot express (a different approver; a check that
+    // must be atomic with the write it protects).
+    SCOPE_AUTHORIZATION,
+    // D4-1B — the SYNC_AUTHORIZATION_PORT binding seam's employee resolution.
+    // See `contract/pos-actor-authorization.ts` for why Sync needs a SEPARATE
+    // entry point than the token-bound `TenantContextService.resolve`.
+    POS_ACTOR_AUTHORIZATION,
+    AuthorizationTargetResolver,
+    IDENTITY_TERMINAL_TARGET_RESOLVER,
+    // M-4+ inherited-scope review state, consumed by Organisation's
+    // second-active-branch gate.
+    SCOPE_REVIEW_QUERY,
   ],
 })
 export class IdentityModule {}

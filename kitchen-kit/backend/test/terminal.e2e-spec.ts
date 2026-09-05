@@ -124,7 +124,11 @@ describe('Terminals (e2e)', () => {
           IDENTITY_PERMISSIONS.TERMINAL_READ,
           IDENTITY_PERMISSIONS.TERMINAL_MANAGE,
         ]);
-        await membershipRoles.assign(tenantId, m.id, role.id);
+        await membershipRoles.create(tenantId, null, {
+          membershipId: m.id,
+          roleId: role.id,
+          scope: { type: 'tenant' },
+        });
       }
       return u.id;
     };

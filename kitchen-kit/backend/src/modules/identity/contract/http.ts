@@ -39,7 +39,22 @@ export {
 } from '../authz/decorators/require-permission.decorator';
 export { AllowPosSession } from '../auth/decorators/pos-session.decorator';
 export { CurrentPrincipal } from '../auth/decorators/current-principal.decorator';
-export { CurrentTenantContext } from '../context/current-tenant-context.decorator';
+export {
+  CurrentAuthorization,
+  CurrentTenantContext,
+} from '../context/current-tenant-context.decorator';
 export type { AuthenticatedPrincipal } from '../auth/auth.types';
-export type { TenantContext } from '../context/tenant-context';
+export type {
+  RequestAuthorization,
+  TenantContext,
+} from '../context/tenant-context';
 export type { PermissionDef } from '../authz/permissions.constants';
+/**
+ * D4-1B — Sync's recovery-grant issuance route reuses `TERMINAL_MANAGE`, the
+ * SAME permission that already revokes a terminal
+ * (`POST /auth/terminals/:terminalId/status`), rather than inventing a
+ * recovery-specific code. This is the first cross-module `@RequirePermission`
+ * use of an Identity-defined code; exporting the constant (not redeclaring
+ * its string) is what keeps that reuse literal rather than a re-typed copy.
+ */
+export { IDENTITY_PERMISSIONS } from '../authz/permissions.constants';

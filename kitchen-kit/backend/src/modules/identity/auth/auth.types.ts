@@ -1,7 +1,26 @@
+import type { PermittedBranchSet } from '../authz/scope';
 import { SafeUser } from '../users/user.view';
 
-/** Minimal access-token payload. No permissions, no tenant data — authorization
- * is resolved server-side per request, not carried in the token. */
+/**
+ * Access-token payload.
+ *
+ * ── T-4-LIVE (ratified 2026-09-02, D-2 REOPENED IN PART (2) clause 7) ───────
+ * A TENANT-BOUND token carries the SRS-required authorization snapshot that
+ * `FR-API-012` clause 1 mandates — subject (`sub`), tenant (`tid`), scope set
+ * (`scp`) and permitted branch set (`pbr`) — plus an authorization epoch
+ * (`epo`) that makes a stale snapshot DETECTABLE.
+ *
+ * **THE SNAPSHOT IS NOT THE AUTHORIZATION SOURCE.** Every protected request
+ * re-resolves the current scoped assignments server-side
+ * (`TenantContextService`), and the live database state decides. `scp` and
+ * `pbr` are never read to grant anything; `epo` is only ever used to REFUSE a
+ * token whose snapshot no longer matches the membership. A validly signed token
+ * claiming Branch A is still denied at Branch A once the live assignment is
+ * gone.
+ *
+ * A token with no `tid` (pre-tenant-selection) carries no snapshot: there is no
+ * tenant, so there is no scope set to describe.
+ */
 export interface AccessTokenPayload {
   sub: string; // user id
   sid: string; // session id
@@ -16,6 +35,22 @@ export interface AccessTokenPayload {
    * (FR-SEC-021: "SHALL NOT grant access to the web dashboard").
    */
   typ?: 'pos';
+  /**
+   * FR-API-012 "scope set" — the assignment scopes held at mint time, rendered
+   * compactly (`tenant`, `brand:<id>`, `branch:<id>`). Present on tenant-bound
+   * tokens. NOT an authorization source.
+   */
+  scp?: string[];
+  /**
+   * FR-API-012 "permitted branch set" — SYMBOLIC, so a tenant's branch COUNT
+   * never drives token size: `{ all: true }` for tenant-wide, brand ids for
+   * brand-wide, explicit ids only for branch-scoped grants. `all: false` with
+   * empty lists means ZERO permitted branches; omission NEVER means
+   * unrestricted. NOT an authorization source.
+   */
+  pbr?: PermittedBranchSet;
+  /** Authorization epoch at mint time. A mismatch with the live membership is refused. */
+  epo?: number;
   iat?: number;
   exp?: number;
 }
@@ -32,6 +67,12 @@ export interface AuthenticatedPrincipal {
   tenantId?: string;
   membershipId?: string;
   terminalId?: string;
+  /**
+   * The authorization epoch the token was minted at (T-4-LIVE). Absent on a
+   * tenant-bound token means the snapshot predates B1-2 and is treated as
+   * STALE — fail closed.
+   */
+  authzEpoch?: number;
 }
 
 export interface AuthTokens {

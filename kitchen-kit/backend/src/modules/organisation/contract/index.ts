@@ -17,3 +17,5 @@ export * from './branch-currency.query';
 export * from './station-display-binding.query';
 export * from './kds-branch-config.query';
 export * from './branch-reporting-scope.query';
+export * from './branch-brand.query';
+export * from './scope-target.resolvers';

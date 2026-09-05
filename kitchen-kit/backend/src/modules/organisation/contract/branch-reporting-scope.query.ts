@@ -36,10 +36,38 @@ export interface BranchReportingScopeQueryInput {
   readonly limit: number;
 }
 
+export interface BranchReportingScopeQueryBranchInput {
+  readonly tenantId: string;
+  readonly branchId: string;
+}
+
 export interface BranchReportingScopeQuery {
   /** Ids of `status = 'active'` branches in `tenantId`, capped at `limit`. */
   operativeBranches(
     tx: Prisma.TransactionClient,
     input: BranchReportingScopeQueryInput,
   ): Promise<readonly string[]>;
+
+  /**
+   * Whether ONE named branch is `status = 'active'` in `tenantId`.
+   *
+   * ── B1-3: WHAT SURVIVES THE INTERNAL-MVP MASK ─────────────────────────────
+   * The mask above asserted TWO different things at once: that the tenant is
+   * single-branch (an Internal-MVP release limit, retired in B1-3 once scoped
+   * enforcement and the M-4+ review make multi-branch safe), and that the branch
+   * being reported on is OPERATIVE (a business rule, which nothing retires).
+   *
+   * Conflating them is why the release limit could not be lifted without also
+   * lifting the business rule. This asks only the second question, per branch,
+   * so the count of a tenant's branches stops being an authorization input —
+   * which is exactly what `FR-BRN-001`'s "unlimited branches" requires.
+   *
+   * Same fail-closed convention as everything else in this contract: a branch
+   * that is invisible in the caller's RLS context is indistinguishable from one
+   * that is inactive, and both answer `false`.
+   */
+  isOperativeBranch(
+    tx: Prisma.TransactionClient,
+    input: BranchReportingScopeQueryBranchInput,
+  ): Promise<boolean>;
 }

@@ -43,6 +43,14 @@ import { RegisterTerminalDto } from './dto/register-terminal.dto';
 import { SetTerminalStatusDto } from './dto/set-terminal-status.dto';
 import { TerminalSessionService } from './terminal-session.service';
 import { TerminalsService } from './terminals.service';
+import {
+  AuthorizationTarget,
+  branchFromBody,
+  fromParam,
+  IDENTITY_TERMINAL_TARGET_RESOLVER,
+  resourceTarget,
+  tenantTarget,
+} from '../contract';
 
 // Shape verified against `toTerminalSummary` in `terminal.view.ts` — device
 // fingerprint material is never included.
@@ -77,6 +85,7 @@ export class TerminalController {
   ) {}
 
   @Post('terminals')
+  @AuthorizationTarget(branchFromBody('branchId'))
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_MANAGE)
   @ApiOperation({ summary: 'Register a terminal.' })
   @ApiCreatedResponse({
@@ -108,6 +117,11 @@ export class TerminalController {
   }
 
   @Get('terminals')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists every terminal registered to the tenant; the route takes no branch filter.',
+    ),
+  )
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_READ)
   @ApiOperation({ summary: 'List terminals registered to the tenant.' })
   @ApiOkResponse({
@@ -119,6 +133,14 @@ export class TerminalController {
   }
 
   @Post('terminals/:terminalId/status')
+  @AuthorizationTarget(
+    resourceTarget(
+      IDENTITY_TERMINAL_TARGET_RESOLVER,
+      { terminalId: fromParam('terminalId') },
+      'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.',
+      'Terminal not found.',
+    ),
+  )
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_MANAGE)
   @ApiOperation({ summary: "Set a terminal's status." })
   @ApiOkResponse({
@@ -138,6 +160,14 @@ export class TerminalController {
   }
 
   @Post('terminals/:terminalId/fingerprints')
+  @AuthorizationTarget(
+    resourceTarget(
+      IDENTITY_TERMINAL_TARGET_RESOLVER,
+      { terminalId: fromParam('terminalId') },
+      'identity.terminals.branch_id is NOT NULL; a terminal always belongs to one branch.',
+      'Terminal not found.',
+    ),
+  )
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(IDENTITY_PERMISSIONS.TERMINAL_MANAGE)
   @ApiOperation({
