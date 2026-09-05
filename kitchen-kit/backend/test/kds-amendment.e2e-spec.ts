@@ -243,7 +243,11 @@ describe('KDS amendment reactivation — real Fire path (e2e)', () => {
       tenantId,
       'active',
     );
-    await membershipRoles.assign(tenantId, membership.id, role.id);
+    await membershipRoles.create(tenantId, null, {
+      membershipId: membership.id,
+      roleId: role.id,
+      scope: { type: 'tenant' },
+    });
     employeeCode = `AM${stamp.slice(-6)}`;
     const employee = await employees.create(tenantId, employeeUser.id, {
       code: employeeCode,

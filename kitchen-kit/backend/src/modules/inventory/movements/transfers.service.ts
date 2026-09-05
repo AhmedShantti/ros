@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { newId } from '../../../common/ids';
+import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   AUDIT_ACTION,
@@ -12,15 +13,19 @@ export interface TransferInput {
   stockItemId: string;
   fromLocationId: string;
   toLocationId: string;
-  quantity: number;
+  /** Exact decimal string (BR-CORE-003), positive. */
+  quantity: string;
   reasonCodeId?: string;
   notes?: string;
 }
 
 export interface ReceiveTransferInput {
   transferReferenceId: string;
-  /** Quantity actually received; may differ from dispatched (FR-INV-032). */
-  receivedQuantity: number;
+  /**
+   * Exact decimal string (BR-CORE-003). Quantity actually received; may
+   * differ from dispatched (FR-INV-032).
+   */
+  receivedQuantity: string;
   /** Mandatory when receivedQuantity differs — the discrepancy adjustment
    *  carries it (ck_reason_required). */
   discrepancyReasonCodeId?: string;
@@ -54,7 +59,10 @@ export class TransfersService {
 
   /** Dispatch: writes the `transfer_out` leg. */
   async dispatch(tenantId: string, actorId: string, input: TransferInput) {
-    if (input.quantity <= 0) {
+    // Exact from the authoritative input onward — no Number()/parseFloat()
+    // on a value that determines a persisted `stock_movements.quantity`.
+    const quantity = new Prisma.Decimal(input.quantity);
+    if (quantity.lte(0)) {
       throw new BadRequestException('Transfer quantity must be positive.');
     }
     if (input.fromLocationId === input.toLocationId) {
@@ -70,7 +78,7 @@ export class TransfersService {
           locationId: input.fromLocationId,
           stockItemId: input.stockItemId,
           movementType: 'transfer_out',
-          quantity: -Math.abs(input.quantity),
+          quantity: quantity.negated().toFixed(6),
           referenceType: 'transfer',
           referenceId,
           reasonCodeId: input.reasonCodeId,
@@ -87,14 +95,17 @@ export class TransfersService {
             transferReferenceId: referenceId,
             fromLocationId: input.fromLocationId,
             toLocationId: input.toLocationId,
-            quantity: String(input.quantity),
+            quantity: input.quantity,
             unitCost: out.unitCost,
           },
         });
         return {
           transferReferenceId: referenceId,
           dispatchMovementId: out.id,
-          quantityDispatched: input.quantity,
+          // Transport-boundary conversion only (transferDispatchSchema
+          // documents `quantityDispatched` as a JS number) — never used to
+          // compute anything persisted.
+          quantityDispatched: quantity.toNumber(),
           unitCost: out.unitCost,
         };
       },
@@ -136,9 +147,15 @@ export class TransfersService {
           throw new BadRequestException('Transfer already received.');
         }
 
-        const dispatched = Math.abs(Number(out.quantity));
-        const discrepancy = input.receivedQuantity - dispatched;
-        if (discrepancy !== 0 && !input.discrepancyReasonCodeId) {
+        // Exact from the authoritative inputs onward: `out.quantity` is
+        // already a Prisma.Decimal (decimal.js exact arithmetic) and
+        // `input.receivedQuantity` an exact decimal string — no
+        // Number(out.quantity) / JS subtraction determines the persisted
+        // `transfer_in`/`manual_adjustment` quantity or the discrepancy.
+        const dispatchedExact = out.quantity.abs();
+        const receivedExact = new Prisma.Decimal(input.receivedQuantity);
+        const discrepancyExact = receivedExact.minus(dispatchedExact);
+        if (!discrepancyExact.isZero() && !input.discrepancyReasonCodeId) {
           throw new BadRequestException(
             'A receiving discrepancy requires a reason code.',
           );
@@ -152,7 +169,7 @@ export class TransfersService {
           locationId: toLocationId,
           stockItemId: out.stockItemId,
           movementType: 'transfer_in',
-          quantity: dispatched,
+          quantity: dispatchedExact.toFixed(6),
           referenceType: 'transfer',
           referenceId: input.transferReferenceId,
           // FR-INV-034: value at the sending location's cost.
@@ -162,12 +179,12 @@ export class TransfersService {
         });
 
         let adjustmentMovementId: string | null = null;
-        if (discrepancy !== 0) {
+        if (!discrepancyExact.isZero()) {
           const adj = await this.movements.post(tx, tenantId, actorId, {
             locationId: toLocationId,
             stockItemId: out.stockItemId,
             movementType: 'manual_adjustment',
-            quantity: discrepancy,
+            quantity: discrepancyExact.toFixed(6),
             referenceType: 'transfer',
             referenceId: input.transferReferenceId,
             reasonCodeId: input.discrepancyReasonCodeId,
@@ -183,11 +200,11 @@ export class TransfersService {
           actorType: 'user',
           actorId,
           entityId: inMv.id,
-          before: { quantityDispatched: String(dispatched) },
+          before: { quantityDispatched: dispatchedExact.toFixed(6) },
           metadata: {
             transferReferenceId: input.transferReferenceId,
-            quantityReceived: String(input.receivedQuantity),
-            discrepancy: String(discrepancy),
+            quantityReceived: input.receivedQuantity,
+            discrepancy: discrepancyExact.toFixed(6),
             adjustmentMovementId,
           },
         });
@@ -195,9 +212,12 @@ export class TransfersService {
         return {
           transferReferenceId: input.transferReferenceId,
           receiveMovementId: inMv.id,
-          quantityDispatched: dispatched,
-          quantityReceived: input.receivedQuantity,
-          discrepancy,
+          // Transport-boundary conversions only (transferReceiveSchema
+          // documents these as JS numbers) — never used to compute anything
+          // persisted; the persisted movements above are already committed.
+          quantityDispatched: dispatchedExact.toNumber(),
+          quantityReceived: receivedExact.toNumber(),
+          discrepancy: discrepancyExact.toNumber(),
           adjustmentMovementId,
         };
       },

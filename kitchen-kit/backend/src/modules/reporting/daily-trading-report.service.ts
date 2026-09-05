@@ -29,6 +29,10 @@ import {
   type CashSessionWholeSessionFacts,
   type DailyCashReconciliationQuery,
 } from '../treasury/contract';
+import {
+  SCOPE_REVIEW_QUERY,
+  type ScopeReviewQuery,
+} from '../identity/contract';
 
 export interface DailyTradingReportInput {
   readonly tenantId: string;
@@ -65,6 +69,8 @@ export class DailyTradingReportService {
     private readonly cashQuery: DailyCashReconciliationQuery,
     @Inject(BRANCH_CURRENCY_QUERY)
     private readonly branchCurrencyQuery: BranchCurrencyQuery,
+    @Inject(SCOPE_REVIEW_QUERY)
+    private readonly scopeReview: ScopeReviewQuery,
     @Inject(BRANCH_REPORTING_SCOPE_QUERY)
     private readonly branchScopeQuery: BranchReportingScopeQuery,
     @Inject(TAX_CLASS_LABELS_QUERY)
@@ -103,25 +109,47 @@ export class DailyTradingReportService {
       throw new NotFoundException('Branch not found.');
     }
 
-    // ── 3. single-active-branch fail-closed assertion — §14, D-2 untouched ──
-    const activeBranches = await this.branchScopeQuery.operativeBranches(tx, {
-      tenantId: input.tenantId,
-      limit: 2,
-    });
-    if (activeBranches.length === 0) {
+    // ── 3. M-4+ GATE, then the operative-branch assertion — B1-3 §11 ────────
+    //
+    // The Internal-MVP SINGLE-ACTIVE-BRANCH mask is RETIRED here. It existed
+    // because branch authorization did not: with no way to say "this actor may
+    // report on THIS branch", the only safe posture was to refuse any tenant
+    // that had more than one. B1-2 built the scoped model and B1-3 put a BRANCH
+    // target on this very route, so the caller is now authorized against the
+    // branch it named — which is the thing the mask was standing in for.
+    //
+    // The ratified retirement conditions (clause 13 / ADR 0009 D-11) are met in
+    // order, and the middle one is enforced HERE rather than assumed:
+    //   A. the B1-2 scoped foundation exists;
+    //   B. B1-3 enforcement covers this surface — `@AuthorizationTarget(
+    //      branchFromParam('branchId'))` on the route, decided by the same
+    //      primitive every other converted operation uses;
+    //   C. the tenant's INHERITED grants have been reviewed — asserted below.
+    //
+    // Limb C is why this is not simply a deletion. A tenant still holding
+    // migration-originated TENANT assignments that nobody has reviewed would
+    // GAIN reach the moment the mask came off: those grants cover every branch
+    // by construction. So an unreviewed tenant fails CLOSED, with a message that
+    // names the exact remedy rather than "not supported in this release".
+    if (await this.scopeReview.hasUnreviewedInheritedAssignments(tx)) {
       throw new ForbiddenException(
-        'No active branch is configured for this tenant.',
+        'This tenant still holds role assignments inherited from the ' +
+          'pre-scoped-RBAC migration that have not been reviewed. Review or ' +
+          're-scope them before using branch reporting — GET /auth/permissions ' +
+          'reports scopeReviewRequired, and POST ' +
+          '/auth/role-assignments/{assignmentId}/review records the outcome.',
       );
     }
-    if (activeBranches.length > 1) {
-      throw new ForbiddenException(
-        'Reporting is not supported for a tenant with more than one active branch in this release.',
-      );
-    }
-    if (activeBranches[0] !== input.branchId) {
-      throw new ForbiddenException(
-        'This branch is not the tenant’s single active branch.',
-      );
+    // The half of the old mask that was never a release limit: a report is only
+    // meaningful for an OPERATIVE branch. Asked per branch, so the tenant's
+    // branch COUNT is no longer an input (FR-BRN-001).
+    if (
+      !(await this.branchScopeQuery.isOperativeBranch(tx, {
+        tenantId: input.tenantId,
+        branchId: input.branchId,
+      }))
+    ) {
+      throw new ForbiddenException('This branch is not active.');
     }
 
     // ── 4. current business day + future-day 400 — §16 ───────────────────────
@@ -482,7 +510,8 @@ function assembleView(input: {
       ).length,
     },
     scope: {
-      salesPopulation: "orders.state = 'completed'",
+      salesPopulation:
+        "orders.state IN ('completed', 'partially_refunded', 'refunded') — a refund never removes its original order from this population (CR-04/BR-POS-001: posted totals are not rewritten); see refunds below.",
       lineExclusions: ['voided', 'comped'],
       tenderPopulation:
         'All order_payments for this branch-day, any order state.',
@@ -490,7 +519,7 @@ function assembleView(input: {
       notes: [
         'FR-RPT-001/002/003/005 NOT IMPLEMENTED — query-time aggregation over the transactional primary (Internal MVP).',
         'Tax by rate NOT IMPLEMENTED — the FR-FIN-032 component breakdown is not persisted.',
-        'Discounts and refunds are structurally zero — no mechanism exists at this release.',
+        'Discounts reflect line-level and order-level discounts/comps applied to this business day’s completed orders (POS-FIN-1); refunds reflect refunds ISSUED on this business day (by their own refund date, not the original sale’s business day) for this branch, and are excluded from tenderTotals — see the completedExcessCapturedTotal note below.',
         'Cash reconciliation covers only sessions that captured a payment on this business day; zero-payment and movement-only sessions are not attributable to a business day and are not listed.',
         'Session close facts (expected/counted/variance) and movement totals are WHOLE-SESSION figures, not business-day figures; check businessDayCount before attributing them to this day.',
         'currency is the currency the day’s transactions were actually recorded in, not the branch’s present-day configured currency.',

@@ -81,6 +81,11 @@ import type {
   CashVarianceDetectedPayload,
 } from '../contract';
 import { TREASURY_PERMISSIONS } from '../treasury.permissions';
+import {
+  SCOPE_AUTHORIZATION,
+  type ScopeAuthorizationActor,
+  type ScopeAuthorizationPort,
+} from '../../identity/contract';
 
 const LOCK_KEY = 'ros_cash_session';
 
@@ -112,7 +117,9 @@ export interface FinalizeCloseInput {
 
 /** Structurally zero at this HEAD (design gate §6) — never invented as non-zero. */
 const CASH_TIPS_TOTAL = 0n;
-const CASH_REFUNDS_TOTAL = 0n;
+// POS-FIN-1: cash refunds are no longer structurally zero — see
+// `computeExpectedCash`'s own `cashRefundsTotal`, sourced from
+// `CashSessionTenderTotalsQuery` (real `sales.refunds` data).
 
 @Injectable()
 export class CashSessionCloseService {
@@ -136,6 +143,13 @@ export class CashSessionCloseService {
      */
     @Inject(DAILY_TRADING_SALES_QUERY)
     private readonly businessDayQuery: DailyTradingSalesQuery,
+    /**
+     * B1-3 — the SAME `permission + target scope` primitive the route guard
+     * uses. Injected through Identity's published contract, so there is one
+     * lattice and one place non-leakage is decided.
+     */
+    @Inject(SCOPE_AUTHORIZATION)
+    private readonly scopeAuthorization: ScopeAuthorizationPort,
   ) {}
 
   // ============================================================ CONTEXT ===
@@ -155,12 +169,12 @@ export class CashSessionCloseService {
   async getCloseContext(
     tenantId: string,
     actor: CloseActor,
-    permissions: ReadonlySet<string>,
+    auth: ScopeAuthorizationActor,
     cashSessionId: string,
   ) {
     return this.prisma.withAuthContext({ tenantId }, async (tx) => {
       const session = await this.loadSession(tx, cashSessionId);
-      this.assertCloseAuthority(session, actor, permissions);
+      await this.assertCloseAuthority(tx, auth, session, actor);
 
       if (session.status === 'open') {
         // Acceptance closure correction: ONE policy resolve, not two, and
@@ -230,7 +244,7 @@ export class CashSessionCloseService {
     tenantId: string,
     actorUserId: string,
     actor: CloseActor,
-    permissions: ReadonlySet<string>,
+    auth: ScopeAuthorizationActor,
     input: DeclareCloseInput,
   ) {
     const denominations = this.parseDenominations(input.denominations);
@@ -268,7 +282,7 @@ export class CashSessionCloseService {
         }
 
         const session = await this.loadSession(tx, input.cashSessionId);
-        this.assertCloseAuthority(session, actor, permissions);
+        await this.assertCloseAuthority(tx, auth, session, actor);
         if (session.status !== 'open') {
           throw new ConflictException(
             'That cash session is not open — a close is already declared or ' +
@@ -327,7 +341,7 @@ export class CashSessionCloseService {
             ${input.closeAttemptId}::uuid, ${tenantId}::uuid, ${session.branchId}::uuid, ${session.id}::uuid,
             ${policy.policyVersionId}::uuid, ${policy.varianceToleranceMinorUnits}, ${policy.countMode}::"treasury"."CashCountMode",
             ${facts.openingFloat}, ${facts.cashSalesTotal}, ${CASH_TIPS_TOTAL}, ${facts.payInTotal},
-            ${CASH_REFUNDS_TOTAL}, ${facts.payOutTotal}, ${facts.safeDropTotal}, ${facts.cashRoundingAdjustments},
+            ${facts.cashRefundsTotal}, ${facts.payOutTotal}, ${facts.safeDropTotal}, ${facts.cashRoundingAdjustments},
             ${facts.expectedCash}, ${declaredTotal}, ${variance}, ${session.currency}, ${approvalRequired},
             ${actor.employeeId}::uuid, ${actorUserId}::uuid, ${actor.terminalId}::uuid, statement_timestamp()
           )
@@ -394,7 +408,7 @@ export class CashSessionCloseService {
           cashSalesTotalMinorUnits: facts.cashSalesTotal.toString(),
           cashTipsTotalMinorUnits: CASH_TIPS_TOTAL.toString(),
           payInTotalMinorUnits: facts.payInTotal.toString(),
-          cashRefundsTotalMinorUnits: CASH_REFUNDS_TOTAL.toString(),
+          cashRefundsTotalMinorUnits: facts.cashRefundsTotal.toString(),
           payOutTotalMinorUnits: facts.payOutTotal.toString(),
           safeDropTotalMinorUnits: facts.safeDropTotal.toString(),
           cashRoundingAdjustmentsMinorUnits:
@@ -474,7 +488,7 @@ export class CashSessionCloseService {
     tenantId: string,
     actorUserId: string,
     actor: CloseActor,
-    permissions: ReadonlySet<string>,
+    auth: ScopeAuthorizationActor,
     approver: VerifiedTerminalPrincipal,
     input: FinalizeCloseInput,
   ) {
@@ -488,7 +502,7 @@ export class CashSessionCloseService {
         );
 
         const session = await this.loadSession(tx, input.cashSessionId);
-        this.assertCloseAuthority(session, actor, permissions);
+        await this.assertCloseAuthority(tx, auth, session, actor);
 
         // ── Idempotent-replay of an ALREADY-APPROVED finalize. ────────────
         if (session.status === 'closed') {
@@ -692,21 +706,40 @@ export class CashSessionCloseService {
   }
 
   /**
-   * §15.2's own/other split, enforced against the RESOLVED permission set
+   * §15.2's own/other split, enforced against the RESOLVED authority
    * (guard-level `@RequireAnyPermission` only proves the actor holds AT
    * LEAST ONE of the two codes; this proves the SPECIFIC one their
    * relationship to the session requires).
+   *
+   * ── B1-3: SCOPED, AND AT THE SESSION'S OWN BRANCH ─────────────────────
+   * This used to consult the flat permission set. After B1-2 that set holds
+   * TENANT-scoped permissions ONLY, so a branch-scoped shift manager legitimately
+   * holding `cash.session.close_other` AT THIS BRANCH would have passed the route
+   * guard and then been refused here — the route would have been converted in
+   * name only. It now asks the same question the guard asks, through the same
+   * primitive, against the session's own `branch_id`.
+   *
+   * It runs inside the caller's transaction (`tx`), so the authority decision and
+   * the write it protects share one snapshot: authority cannot be revoked between
+   * the check and the close.
    */
-  private assertCloseAuthority(
-    session: { employeeId: string },
+  private async assertCloseAuthority(
+    tx: Prisma.TransactionClient,
+    auth: ScopeAuthorizationActor,
+    session: { employeeId: string; branchId: string },
     actor: CloseActor,
-    permissions: ReadonlySet<string>,
-  ): void {
+  ): Promise<void> {
     const isOwner = session.employeeId === actor.employeeId;
     const required = isOwner
       ? TREASURY_PERMISSIONS.CASH_SESSION_CLOSE
       : TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER;
-    if (!permissions.has(required)) {
+    const authorized = await this.scopeAuthorization.isAuthorized(
+      auth,
+      { codes: [required], mode: 'all' },
+      { type: 'branch', branchId: session.branchId },
+      tx,
+    );
+    if (!authorized) {
       throw new ForbiddenException(
         isOwner
           ? "Closing your own cash session requires 'cash.session.close'."
@@ -730,12 +763,16 @@ export class CashSessionCloseService {
     const payOutTotal = movements.payOutTotal;
     const safeDropTotal = movements.safeDropTotal;
     const cashRoundingAdjustments = tenders.cashRoundingAdjustments;
+    // POS-FIN-1 — real cash refunds paid out of this session's drawer
+    // (previously structurally zero; see `sales/contract`'s
+    // `CashSessionTenderTotalsQuery.cashRefundsTotal` doc comment).
+    const cashRefundsTotal = tenders.cashRefundsTotal;
     const expectedCash =
       openingFloat +
       cashSalesTotal +
       CASH_TIPS_TOTAL +
       payInTotal -
-      CASH_REFUNDS_TOTAL -
+      cashRefundsTotal -
       payOutTotal -
       safeDropTotal +
       cashRoundingAdjustments;
@@ -746,6 +783,7 @@ export class CashSessionCloseService {
       payOutTotal,
       safeDropTotal,
       cashRoundingAdjustments,
+      cashRefundsTotal,
       expectedCash,
     };
   }
@@ -900,6 +938,7 @@ export class CashSessionCloseService {
       payOutTotal: bigint;
       safeDropTotal: bigint;
       cashRoundingAdjustments: bigint;
+      cashRefundsTotal: bigint;
     },
     policyVersionId: string,
     declaredByEmployeeId: string,
@@ -915,7 +954,7 @@ export class CashSessionCloseService {
       cashSalesTotalMinorUnits: facts.cashSalesTotal.toString(),
       cashTipsTotalMinorUnits: CASH_TIPS_TOTAL.toString(),
       payInTotalMinorUnits: facts.payInTotal.toString(),
-      cashRefundsTotalMinorUnits: CASH_REFUNDS_TOTAL.toString(),
+      cashRefundsTotalMinorUnits: facts.cashRefundsTotal.toString(),
       payOutTotalMinorUnits: facts.payOutTotal.toString(),
       safeDropTotalMinorUnits: facts.safeDropTotal.toString(),
       cashRoundingAdjustmentsMinorUnits:

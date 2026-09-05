@@ -1,4 +1,5 @@
 import { JwtService } from '@nestjs/jwt';
+import type { StringValue } from 'ms';
 import { AccessTokenService } from './access-token.service';
 import { AccessTokenPayload } from './auth.types';
 
@@ -16,7 +17,7 @@ function signerWith(overrides: {
   algorithm?: 'HS256' | 'HS512';
   issuer?: string;
   audience?: string;
-  expiresIn?: string;
+  expiresIn?: StringValue;
   secret?: string;
 }): JwtService {
   return new JwtService({

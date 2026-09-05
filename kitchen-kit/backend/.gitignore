@@ -52,6 +52,11 @@ credentials.md
 .temp
 .tmp
 
+# e2e database-isolation harness runtime handoff (G1-2) — one JSON file per
+# run, written by globalSetup and read by per-suite hooks; contains resolved
+# DB connection strings (from .env) and must never be committed.
+/test/e2e-db-isolation/.runtime/
+
 # Runtime data
 pids
 *.pid

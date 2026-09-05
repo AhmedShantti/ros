@@ -1,9 +1,13 @@
 {
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
-  "testEnvironment": "node",
+  "testEnvironment": "<rootDir>/e2e-db-isolation/e2e-database-environment.ts",
   "setupFiles": ["<rootDir>/setup-e2e.ts"],
+  "globalSetup": "<rootDir>/e2e-db-isolation/global-setup.ts",
+  "globalTeardown": "<rootDir>/e2e-db-isolation/global-teardown.ts",
   "testRegex": ".e2e-spec.ts$",
+  "testTimeout": 30000,
+  "maxWorkers": 4,
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },

@@ -249,7 +249,11 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
       });
       const membership = await memberships.grant(user.id, tenantId, 'active');
       if (grantPermission) {
-        await membershipRoles.assign(tenantId, membership.id, role.id);
+        await membershipRoles.create(tenantId, null, {
+          membershipId: membership.id,
+          roleId: role.id,
+          scope: { type: 'tenant' },
+        });
       }
       const employee = await admin.employee.create({
         data: {

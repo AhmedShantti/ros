@@ -49,6 +49,15 @@ import { RecipesService } from './recipes/recipes.service';
 import { SubstituteGroupsService } from './substitute-groups/substitute-groups.service';
 import { RecipeVersionsService } from './versions/recipe-versions.service';
 import { toRecipeView, toVersionView, toGroupView } from './production.views';
+import {
+  AuthorizationTarget,
+  branchFromQueryOrTenant,
+  declaredScopeFromBody,
+  fromParam,
+  resourceTarget,
+  tenantTarget,
+} from '../identity/contract';
+import { PRODUCTION_RECIPE_TARGET_RESOLVER } from './contract';
 
 /**
  * Production Spec API.
@@ -275,6 +284,7 @@ export class ProductionController {
    * the C-11 PRICING invariant, and BR-MNU-012 must never be read as weakening it.
    */
   @Get('recipes/requiring-completion')
+  @AuthorizationTarget(branchFromQueryOrTenant('branchId'))
   @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description: 'The BR-MNU-012 completeness report.',
@@ -291,6 +301,7 @@ export class ProductionController {
 
   /** GAP-1 (Option A): the ratified recipe-creation deviation. */
   @Post('recipes')
+  @AuthorizationTarget(declaredScopeFromBody('scope', 'brandId', 'branchId'))
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
   @ApiCreatedResponse({
     description: 'The newly created recipe.',
@@ -313,6 +324,11 @@ export class ProductionController {
   }
 
   @Get('recipes')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists recipes at every scope in the tenant; the only filter is recipeType, which carries no scope.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
   @ApiOperation({ summary: 'List recipes, optionally filtered by type.' })
   @ApiOkResponse({
@@ -338,6 +354,14 @@ export class ProductionController {
 
   /** SRS §26.3 — version history. */
   @Get('recipes/:recipeId/versions')
+  @AuthorizationTarget(
+    resourceTarget(
+      PRODUCTION_RECIPE_TARGET_RESOLVER,
+      { recipeId: fromParam('recipeId') },
+      'production.recipes carries scope + brand_id/branch_id (D-17-03, ck_recipe_scope).',
+      'Recipe not found.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description: 'Version history, newest first, each with its lines.',
@@ -356,6 +380,14 @@ export class ProductionController {
    * A recipe is NEVER auto-created here (GAP-1): an unknown id is a 404.
    */
   @Post('recipes/:recipeId/versions')
+  @AuthorizationTarget(
+    resourceTarget(
+      PRODUCTION_RECIPE_TARGET_RESOLVER,
+      { recipeId: fromParam('recipeId') },
+      'production.recipes carries scope + brand_id/branch_id (D-17-03, ck_recipe_scope).',
+      'Recipe not found.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
   @ApiCreatedResponse({
     description: 'The newly created draft version.',
@@ -373,6 +405,14 @@ export class ProductionController {
 
   /** Replace a draft version's lines. Published versions are refused (409). */
   @Put('recipes/:recipeId/versions/:version/lines')
+  @AuthorizationTarget(
+    resourceTarget(
+      PRODUCTION_RECIPE_TARGET_RESOLVER,
+      { recipeId: fromParam('recipeId') },
+      'production.recipes carries scope + brand_id/branch_id (D-17-03, ck_recipe_scope).',
+      'Recipe not found.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
   @ApiOkResponse({
     description:
@@ -406,6 +446,14 @@ export class ProductionController {
 
   /** SRS §26.3 — publish. Demotes the incumbent, promotes the target, one txn. */
   @Post('recipes/:recipeId/versions/:version/publish')
+  @AuthorizationTarget(
+    resourceTarget(
+      PRODUCTION_RECIPE_TARGET_RESOLVER,
+      { recipeId: fromParam('recipeId') },
+      'production.recipes carries scope + brand_id/branch_id (D-17-03, ck_recipe_scope).',
+      'Recipe not found.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.PUBLISH)
   @ApiCreatedResponse({
     description:
@@ -438,6 +486,11 @@ export class ProductionController {
   // -------------------------------------------------- substitute groups --
 
   @Post('substitute-groups')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Substitute groups and modifier recipe effects are tenant-owned: neither table carries a brand or branch column, and both are shared by every recipe in the tenant.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
   @ApiOperation({
     summary:
@@ -460,6 +513,11 @@ export class ProductionController {
   }
 
   @Get('substitute-groups')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Substitute groups and modifier recipe effects are tenant-owned: neither table carries a brand or branch column, and both are shared by every recipe in the tenant.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
   @ApiOperation({ summary: 'List substitute groups.' })
   @ApiOkResponse({
@@ -471,6 +529,11 @@ export class ProductionController {
   }
 
   @Post('substitute-groups/:groupId/members')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Substitute groups and modifier recipe effects are tenant-owned: neither table carries a brand or branch column, and both are shared by every recipe in the tenant.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
   @ApiOperation({ summary: 'Add a stock item to a substitute group.' })
   @ApiCreatedResponse({
@@ -494,6 +557,11 @@ export class ProductionController {
 
   /** D-17-07 resolution — the pinned-at-capture-time recipe effects for a Modifier. */
   @Get('modifiers/:modifierId/recipe-effects')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Substitute groups and modifier recipe effects are tenant-owned: neither table carries a brand or branch column, and both are shared by every recipe in the tenant.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.VIEW)
   @ApiOkResponse({
     description: "The modifier's recipe effects, in sequence order.",
@@ -508,6 +576,11 @@ export class ProductionController {
 
   /** Full replace, shaped like `PUT /recipes/:id/versions/:v/lines`. */
   @Put('modifiers/:modifierId/recipe-effects')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Substitute groups and modifier recipe effects are tenant-owned: neither table carries a brand or branch column, and both are shared by every recipe in the tenant.',
+    ),
+  )
   @RequirePermission(PRODUCTION_PERMISSIONS.EDIT)
   @ApiOkResponse({
     description: 'The replaced set of recipe effects.',

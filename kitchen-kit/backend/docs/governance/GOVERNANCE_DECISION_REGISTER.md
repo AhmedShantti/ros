@@ -157,6 +157,338 @@ Database (3 columns). No RLS change. Authorization: `required_permission` become
 > · P-1 · D-10 · D-17-05 · SB-1 / SB-2 / SB-3 unresolved portions. **No new
 > numbered decision is created.**
 
+> ---
+>
+> **AMENDMENT — D-2 REOPENED IN PART (2): BRANCH-SCOPED RBAC.**
+> **RATIFIED 2026-09-02, by explicit user governance action in the Full-SRS 4-Day
+> execution.** The originally ratified D-2 text and the 2026-08-19 amendment above
+> are **unchanged, not reinterpreted, and not deleted**; this amendment is recorded
+> forward in the register's established manner. **No new numbered decision is
+> created and no decision is renumbered** — the 20-decision tally is unchanged.
+>
+> **Evidence base:** the B1-1 design gate,
+> `docs/reports/claude/full-srs-4day/2026-09-02_B1-1_branch-rbac-governance-gate.md`,
+> and the acceptance correction,
+> `docs/reports/claude/full-srs-4day/2026-09-02_B1-1_branch-rbac-ratification.md`.
+> **Those reports are non-authoritative evidence; this register entry is the
+> authoritative outcome, and where the B1-1 report's §14 proposal differs from the
+> clauses below, THESE CLAUSES GOVERN.**
+>
+> **Defer LIFTED for exactly these requirements:**
+>
+> - **`FR-SEC-002`** [M] — role assignments SHALL carry a scope (tenant, brand, a
+>   set of branches, or a single branch);
+> - **`FR-SEC-003`** [M] — a user MAY hold multiple assignments with different
+>   scopes;
+> - **`FR-SEC-004`** [M] — effective permissions are the union **within each
+>   assignment's own scope**; permissions SHALL NOT leak across scopes;
+> - **`FR-SEC-005`** [S] — assignments SHALL support validity dates enabling
+>   auto-expiring temporary elevation;
+> - **the branch/scope authorization portions of `FR-API-012`** [M] — the scope set
+>   and permitted branch set the token carries, and the requirement that every
+>   request be authorised against **both** the permission and the scope.
+>
+> The 2026-08-19 amendment's sentence *"permission resolution is **not** made
+> branch-aware by this amendment"* is **superseded, for these requirements only, by
+> this amendment.** Permission resolution **becomes scope-aware.**
+>
+> ---
+>
+> **1. AUTHORIZATION MODEL — C-1 RATIFIED.**
+> **Scoped role assignment is the SOLE source of authorization grant.** Authority is
+> derived only from `Membership → scoped MembershipRole assignment → Role →
+> RolePermission → Permission`.
+> **`EmployeeBranch` and `Employee.homeBranchId` MUST NOT grant, widen, infer or
+> imply authorization.** They remain HR (`FR-HRM-001`/`FR-HRM-005`) and
+> authentication-integrity (`FR-SEC-021`/`FR-SEC-022`) substrate. For POS sessions
+> they MAY **narrow** authority as an additional **AND** condition; they are
+> **NEVER** an `OR` grant. **Formal invariant: authorization cannot exist merely
+> because an employee belongs to a branch.**
+>
+> **2. GENERIC TARGET-SCOPE LATTICE — RATIFIED (CRITICAL SECURITY INVARIANT).**
+> The architecture is **NOT** limited to `permission + branchId`. A protected
+> operation carries a **required permission `P`** and a **target resource scope
+> `S`**, where `S` is one of `TENANT`, `BRAND(id)`, `BRANCH(id)`. Coverage is
+> **directional downward only**:
+>
+> | Assignment scope | COVERS | DOES NOT COVER |
+> |---|---|---|
+> | **`TENANT`** | `TENANT`; **all** `BRAND` targets in that tenant; **all** `BRANCH` targets in that tenant | anything outside the tenant |
+> | **`BRAND X`** | `BRAND X`; `BRANCH` targets whose **parent brand = X** | `TENANT`; another brand; branches of another brand |
+> | **`BRANCH X`** | `BRANCH X` **only** | `TENANT`; `BRAND`; any other branch |
+>
+> Coverage never flows upward or sideways. A narrower assignment **never** satisfies
+> a broader target.
+>
+> **3. PERMISSION *AND* TARGET SCOPE — RATIFIED.**
+> Authorization SHALL be evaluated against **both** the required permission **and**
+> the resource target scope. **A permission code by itself is never sufficient where
+> the target scope is narrower than, or outside, the actor's authorized scope.**
+> This prevents a branch-scoped assignment holding a powerful permission from
+> becoming tenant-wide authority.
+> **The permission catalogue SHALL NOT be classified into tenant-only / branch-only
+> classes.** SRS **Appendix C is absent**, so any such classification would be
+> authored rather than derived. **Scope MUST be derived from the protected
+> RESOURCE / operation target, not from invented classifications of permission
+> codes.** This is the ratified architectural correction to the B1-1 §14 proposal.
+>
+> **4. SCOPE TYPES — RATIFIED: `TENANT`, `BRAND`, `BRANCH` — and no others.**
+> **`WAREHOUSE`, `CENTRAL_KITCHEN` and `LOCATION` are NOT authorised now.** A *"set
+> of branches"* (`FR-SEC-002`) is represented as **multiple `BRANCH`-scoped
+> role-assignment rows** — **not** an array inside one assignment, **not** a
+> polymorphic branch-set object, and **not** an invented branch-group surrogate.
+>
+> **5. `BRANCH_GROUP` — DEFERRED FROM B1-2, EXPLICITLY *NOT* REJECTED.**
+> `BRANCH_GROUP` is not authorised for B1-2 **only because the canonical
+> `BranchGroup` domain entity does not yet exist**. It is **not** rejected from the
+> Full SRS. **`FR-BRN-005`** [M] requires branch groups as *"a reporting and
+> **permission-scoping** dimension"*, so **`BRANCH_GROUP` permission scoping is a
+> MANDATORY FOLLOW-UP** once the canonical `BranchGroup` domain model is
+> implemented. **The B1-2 data model MUST remain additively extensible to a future
+> `BRANCH_GROUP` scope type without reinterpretation of existing scope semantics.**
+>
+> **6. POS SESSION NARROWING — RATIFIED.**
+> For a POS session targeting Branch `B`, authorization requires **all three**:
+> **(a)** the scoped role-assignment model authorizes permission `P` at Branch `B`;
+> **AND (b)** `B` equals `branch_of(session terminal)`; **AND (c)** the employee
+> associated with the POS session is permitted for `B` under the already-ratified
+> `EmployeeBranch` authentication-integrity model.
+> **A `TENANT`-scoped role MUST NOT let a POS session act on another terminal's
+> branch.** `EmployeeBranch` remains an **AND-only restriction, never a source of
+> authority.**
+>
+> **7. TOKEN STRATEGY — `T-4-LIVE` RATIFIED. The B1-1 report's `T-2` recommendation
+> is NOT ratified.**
+> The access token SHALL carry the SRS-required authorization snapshot — **subject,
+> tenant, scope set, permitted branch set** — plus an **authorization/scope version
+> or epoch** sufficient to detect a stale authorization snapshot. **Exact claim
+> names are NOT ratified here.**
+> **SECURITY RULE — TOKEN CLAIMS ARE NOT THE AUTHORITATIVE AUTHORIZATION SOURCE.**
+> Every request SHALL still resolve the current scoped assignments **server-side**,
+> and **the server-side database resolution is authoritative**. The token carries
+> the SRS-required snapshot and epoch; the server re-resolves live authorization on
+> every request and validates freshness. **If a role assignment changes, expires, is
+> revoked, or is re-scoped, the stale token MUST NOT retain authority**: the next
+> protected request MUST fail closed or require token renewal, per the B1-2
+> implementation design. **No authorization decision may rely solely on the claim.**
+>
+> **8. TOKEN SIZE / UNBOUNDED BRANCH SETS — RATIFIED INVARIANT.**
+> The SRS permits large multi-branch tenants (`FR-BRN-001` [M]), so the `T-4-LIVE`
+> token contract **MUST support the SRS-required permitted-branch set without
+> creating an unbounded unsafe header.** B1-2 MUST choose a **bounded,
+> deterministic** representation — a versioned compact or bounded encoding, or
+> another mechanism preserving the literal SRS-visible token contract while
+> **failing closed on overflow**. **No concrete encoding is ratified here.**
+> **SILENT TRUNCATION IS PROHIBITED.** If the required permitted-branch
+> representation cannot be carried safely: **fail closed; do not silently omit
+> authority; and never interpret omission as unrestricted.**
+>
+> **9. `FR-API-012` — DESIGN INTENT AND STATUS.**
+> Under `T-4-LIVE` the design intent is to satisfy **both** clauses: clause 1 (the
+> token carries subject, tenant, scope set and permitted branch set) and clause 2
+> (every request is authorised against permission **and** scope).
+> **`FR-API-012` MUST NOT be marked COMPLETE on the strength of this governance
+> choice.** Completion requires B1-2/B1-3 implementation **and** verification. Its
+> status as of this entry is **RATIFIED DESIGN — NOT YET IMPLEMENTED**.
+>
+> **10. DATA MODEL DIRECTION — RATIFIED.**
+> The B1-1 recommendation **against a single polymorphic `scope_id`** is ratified:
+> **a single untyped/polymorphic scope UUID that cannot carry a real foreign key is
+> NOT authorised**, because it would reintroduce the unenforced-UUID defect the
+> 2026-08-19 amendment (item 3) fixed on `Terminal.branch_id` and would break the
+> **ADR 0008 D-09** tenant-safe composite-FK posture. Authorization persistence
+> **MUST preserve referential integrity** and SHALL include: a **stable
+> role-assignment identity capable of multiple assignments for the same
+> membership/role at different scopes**; **local tenant identity** sufficient for
+> tenant-safe references; **scope type**; **typed scope references** where
+> necessary; **effective validity**; **constraints making inconsistent scope rows
+> impossible**; and a **tenant-safe composite FK posture consistent with existing
+> governance**. **Exact table names, column names, enum spellings and indexes remain
+> B1-2 implementation details and are NOT ratified here.**
+>
+> **11. `membership_roles` TABLE IDENTITY — MIGRATION AUTHORISED.**
+> The shipped `@@id([membershipId, roleId])` **cannot remain the effective identity
+> of scoped role assignments**: it prevents the same role at multiple branches,
+> prevents multiple scope assignments, and makes `FR-SEC-003`'s own worked example
+> class unrepresentable — as **ADR 0008 D-02** already recorded (*"a change to the
+> RBAC table's identity, not an additive column"*). **B1-2 is authorised to perform
+> the required table-identity migration.** It is a coordinated identity-schema
+> change and **MUST remain isolated from the concurrent `B2-5` and `F2-1`
+> migrations.**
+>
+> **12. `FR-SEC-005` / `UPDATE` RLS POLICY — CORRECTION AUTHORISED.**
+> The verified runtime inability to `UPDATE identity.membership_roles` under `FORCE`
+> RLS (the table carries `SELECT`/`INSERT`/`DELETE` policies only) **MUST be
+> corrected by B1-2**, which SHALL add the necessary **tenant-safe `UPDATE` policy
+> with fail-closed `USING` and `WITH CHECK` semantics.** This authorization is
+> **limited to making scoped and effective-dated assignments work. Tenant RLS MUST
+> NOT be weakened.**
+>
+> **13. MIGRATION POSTURE — `M-4+` RATIFIED.**
+>
+> **A.** Existing role assignments are backfilled as **`TENANT` scope**, because
+> that is the actual legacy behaviour.
+> **B.** Every migrated assignment MUST retain **provenance** distinguishing
+> **migration-originated inherited `TENANT` authority** from **a deliberately
+> granted `TENANT` scope**. The mechanism is an implementation detail.
+> **C.** **A tenant MUST NOT activate a second active branch while it still holds
+> unreviewed migration-originated `TENANT` assignments.** Fail closed, with an
+> actionable re-scope requirement.
+> **D. Already-multi-branch tenants.** Where migration encounters a tenant that
+> **already** has more than one active branch **and** unreviewed
+> migration-originated `TENANT` assignments: **DO NOT fail the entire migration**;
+> **DO NOT silently declare the tenant branch-RBAC-ready**; **preserve existing
+> behaviour during migration**; **mark or derive the tenant as requiring scope
+> review**; **the tenant MUST NOT be considered multi-branch authorization-ready**;
+> and **the Internal-MVP single-active-branch safety posture MUST NOT be retired for
+> that tenant** until its inherited assignments have been explicitly reviewed or
+> re-scoped. Exact persistence of the review-required state is an implementation
+> detail.
+> **E.** **Re-scoping is audited**, using the existing audit architecture and
+> permission semantics.
+> **Inherited access MUST NOT be silently widened when a tenant moves into
+> multi-branch operation.**
+>
+> **14. RLS BOUNDARY — RATIFIED AND UNCHANGED.**
+> **Tenant RLS continues to answer: *"does this database row belong to the
+> tenant?"*** **Application authorization answers: *"may this actor perform
+> permission `P` against target scope `S`?"*** Branch- and brand-scoped
+> authorization **stays in the application layer for B1-2 and B1-3**.
+> **Branch-aware RLS is NOT introduced by this decision.** A future branch-aware RLS
+> defence-in-depth layer **requires its own explicit ADR and governance review**.
+> **Tenant RLS MUST remain `ENABLE`d and `FORCE`d and MUST NOT be weakened.**
+>
+> **15. FAIL-CLOSED INVARIANTS — RATIFIED.**
+> The B1-1 report's rules **R-1 … R-13** are carried forward, **corrected to the
+> generic target-scope model** of clause 2. Additionally ratified: **unknown target
+> scope → deny**; **unsupported scope type → deny**; **missing required target
+> scope → deny**; **empty effective assignments → zero authority** (never
+> unrestricted); **expired or not-yet-valid assignment → deny**; **tenant mismatch →
+> preserve the tenant-safe non-enumeration posture** (a foreign id remains a
+> tenant-safe 404, never a 403); **stale token scope snapshot → deny or refresh,
+> never retain authority**; **permission present but outside the target scope →
+> deny**; **`BRAND` scope expands only to branches belonging to that brand**; **no
+> default to home branch**; **no default to the sole active branch**; **no fail-open
+> on resolver errors.**
+>
+> **16. B1-2 — RATIFIED IMPLEMENTATION AUTHORITY.**
+> B1-2 is authorised to own: **(1)** the `MembershipRole` persistence and
+> table-identity migration; **(2)** `TENANT`/`BRAND`/`BRANCH` scope persistence;
+> **(3)** tenant-safe scope FKs and integrity constraints; **(4)** `valid_from` /
+> `valid_to` semantics; **(5)** the `membership_roles` `UPDATE` RLS policy;
+> **(6)** the `M-4+` migration and backfill; **(7)** scope-aware authorization
+> resolution; **(8)** a **generic scope-authorization primitive keyed on permission
+> + target scope**; **(9)** a branch-specific specialisation of that primitive where
+> useful; **(10)** POS terminal branch derivation and AND-only `EmployeeBranch`
+> narrowing; **(11)** the `T-4-LIVE` token contract — scope snapshot, permitted
+> branch set, scope epoch/version, with **live server-side authorization remaining
+> authoritative**; **(12)** the assignment create/change/remove APIs required to
+> manage scoped assignments; **(13)** an **effective-scope read contract** for
+> authenticated clients; **(14)** audit events for role-assignment scope changes
+> using the existing audit architecture and permission semantics; **(15)** the
+> **superseding ADR required by ADR 0008 D-02** for the relevant parts of **ADR
+> 0002** and **ADR 0004**; and **(16)** B1-2-specific tests.
+> **B1-2 MUST NOT begin implementing branch enforcement across unrelated business
+> controllers and services — that is B1-3.**
+>
+> **17. B1-3 — RATIFIED IMPLEMENTATION AUTHORITY.**
+> B1-3 SHALL own: **(1)** applying scope enforcement across **every applicable
+> business operation — not merely routes containing `:branchId`** — covering
+> explicit branch path parameters, branch ids in request bodies, **resources whose
+> branch is implicit through the referenced entity**, **`BRAND`-target operations**,
+> and **`TENANT`-target operations where narrower assignments must not leak
+> upward**; **(2)** a **generated/enumerated authorization-coverage gate** so future
+> scoped surfaces cannot ship unprotected; **(3)** the cross-branch E2E matrix;
+> **(4)** preservation of cross-tenant isolation; **(5)** confirmation of the scope
+> lattice across `TENANT`, `BRAND` and `BRANCH`; **(6)** confirmation of POS branch
+> narrowing; **(7)** the **security review required by ADR 0008 D-02**; and
+> **(8)** explicit retirement of the Internal-MVP single-active-branch mask.
+>
+> **18. INTERNAL-MVP SINGLE-ACTIVE-BRANCH POSTURE — FINAL DISPOSITION.**
+> **The intended Full-SRS product is multi-branch. The single-active-branch posture
+> is a TEMPORARY SAFETY MASK, NOT a permanent product constraint**, and MUST NOT be
+> retained globally once real branch authorization is proven. It is retired only
+> when **all three** hold: **B1-2 is complete**; **B1-3 enforcement is complete**;
+> and **the `M-4+` migration scope-review conditions are satisfied for the tenant.**
+> **For tenants still blocked by `M-4+` review requirements, fail closed until the
+> review is complete.** This disposition concerns the **posture** recorded as an
+> implementation consequence under the **MINIMUM REPORTING** and **DAY CLOSE**
+> entries; **`RPT-R1 … RPT-R3` and `DC-R1 … DC-R3` are otherwise unchanged, and no
+> permission code is created, extended or re-scoped by this clause.**
+>
+> **19. FRONTEND CONTRACT.**
+> The frontend must eventually be able to determine **effective scope-qualified
+> authority**; **B1-2 owns that backend/shared contract**, and **no final route or
+> DTO is invented here.** The external frontend team **MUST NOT infer branch
+> authority from `EmployeeBranch` alone, from the home branch, from a role name, or
+> from a client-side permission list alone.** **Client-side permission checks remain
+> presentation only (`FR-SEC-045`).**
+>
+> **20. APPENDIX C DEFECT — UNRESOLVED, AND DELIBERATELY NOT DEPENDED UPON.**
+> **SRS Appendix C remains absent.** Therefore: **do NOT invent new permission
+> codes**; **do NOT classify current permission codes as branch-only or
+> tenant-only**; and **do NOT claim `FR-SEC-010` or any other Appendix-C-dependent
+> completion.** The generic target-scope model of clause 2 was chosen **specifically
+> so that branch authorization does not depend on reconstructing the missing
+> catalogue.**
+>
+> **21. ACCEPTANCE CORRECTION — `FR-SEC-028` IS `PARTIAL` GLOBALLY.**
+> An overclaim carried in prior evidence is corrected here. **`FR-SEC-028` MUST NOT
+> be described as COMPLETE.** The requirement reads: *"Terminals SHALL be
+> individually registered, and the System SHALL support revoking a terminal's
+> registration, **immediately invalidating its credentials and wiping its local data
+> on next contact**."* Distinguish:
+>
+> - **Server-side credential revocation** — **implemented and supported by existing
+>   evidence**: individual terminal registration, status transition to
+>   `disabled` / `revoked`, and immediate refusal of a non-`active` terminal on the
+>   authentication path.
+> - **Global `FR-SEC-028`** — **`PARTIAL`**, because the **device / local-data
+>   consequence on next contact** is not implemented.
+>
+> **No product code is changed to address that residual under this entry, and
+> `FR-SEC-028` MUST NOT be closed.**
+>
+> ---
+>
+> **STATUS OF THE REOPENED REQUIREMENTS AS OF THIS ENTRY — governance approval is
+> NOT implementation credit:**
+>
+> | Requirement | Status |
+> |---|---|
+> | **`FR-SEC-002`** [M] | **RATIFIED FOR IMPLEMENTATION — NOT IMPLEMENTED** |
+> | **`FR-SEC-003`** [M] | **RATIFIED FOR IMPLEMENTATION — NOT IMPLEMENTED** |
+> | **`FR-SEC-004`** [M] | **RATIFIED FOR IMPLEMENTATION — NOT IMPLEMENTED** |
+> | **`FR-SEC-005`** [S] | **RATIFIED FOR IMPLEMENTATION — NOT IMPLEMENTED** |
+> | **`FR-API-012`** [M] | **RATIFIED DESIGN — NOT YET COMPLETE** |
+> | **`FR-SEC-028`** [M] | **PARTIAL** (server-side revocation implemented; device local-data wipe on next contact not implemented) |
+>
+> **Defer REMAINS IN FORCE, and this amendment does NOT authorise:**
+>
+> - **`FR-SEC-032`** — the manager-PIN-for-**approvals** and push-notification
+>   portions remain **knowingly unmet**. **D-11** (notifications: strict none) is
+>   untouched, and no notification-system expansion is authorised.
+> - **MFA** — `FR-SEC-023` / `FR-SEC-024` (board `G4-2`).
+> - **API keys / machine clients** — `FR-API-011` / `FR-API-014` (board `B2-5`),
+>   which **MUST NOT** run concurrently with B1-2's identity migration.
+> - **The full missing Appendix C catalogue** — and therefore `FR-SEC-010` /
+>   `FR-SEC-012`.
+> - **Branch-aware RLS** — clause 14.
+> - **`BRANCH_GROUP` scope in B1-2** — clause 5 (deferred, mandatory follow-up, not
+>   rejected).
+> - **`WAREHOUSE` / `CENTRAL_KITCHEN` / `LOCATION` scope types** — clause 4.
+> - **Unrelated Workforce completion** — the wider `FR-HRM-*` domain and board
+>   `F2-1` stay deferred as before; **B1-2 requires nothing from them.**
+> - **Any other unrelated security-platform requirement.**
+>
+> **Unchanged by this amendment:** **D-16 OPEN · D-12 BLOCKED · D-3 RATIFIED IN PART
+> · P-1 · D-10 · D-17-05 · D-19 · D-20 · SB-1 / SB-2 / SB-3 unresolved portions ·
+> the P0, P1A, P1C, P1D, P1E, P1F and P1G carried items · `R-1(a) … R-6` ·
+> `KDS-R1 … KDS-R12` · `RPT-R1 … RPT-R3` · `DC-R1 … DC-R3`.** **No numbered decision
+> is created, amended or renumbered. No schema, migration, route, permission code or
+> token is created or changed by this entry, and no implementation is performed by
+> it.** **B1-2 is GOVERNANCE-UNBLOCKED and authorised to start; B1-3 follows B1-2.**
+
 ### Question
 Is the **synchronous** half of `FR-SEC-032` ("manager PIN on the terminal") in scope for the first Governance phase — which would pull in PIN authentication (`FR-SEC-021`, `FR-SEC-022`) and branch-scoped RBAC (`FR-SEC-002`, deferred by ADR 0008 D-02)?
 
@@ -7501,6 +7833,398 @@ channel is authorised by this entry.**
 **Status:** **RATIFIED — CLOSED.**
 
 ---
+## D1-1 — Offline / Sync Protocol Foundation Ratification — 2026-09-02
+
+> **RECORDED 2026-09-02 by explicit user governance action.**
+> **Explicitly approved during Full-SRS 4-Day execution after post-design
+> acceptance review.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **Fire Authorization**,
+> **P1F-2 Completion Economics**, **FIFO Exhaustion Carry-Forward**,
+> **Approval Runtime Minimum Resolution**, **P1G-1 Cash-Close Policy**, **R-6**,
+> **KDS MVP Operator Lifecycle**, **Minimum Operational Reporting**, **Day Close**
+> and **RCPT-R1** convention. The limb prefix — **GD-D1-01 … GD-D1-07** —
+> collision-checked against every existing series (`D-1…D-20`, `KDS-R1…R12`,
+> `RPT-R1…R3`, `DC-R1…R4`, `R-1…R-7`, `RCPT-R1`, `P-1…P-4`, `SB-1…SB-4`, `PL`)
+> and reuses no prefix.
+
+**Subject.** The `D1-1` offline/sync protocol design gate
+(`docs/reports/claude/full-srs-4day/2026-09-02_D1-1_offline-sync-design-gate.md`,
+commit `50b3706`) presented seven engineering proposals for ratification. This
+entry resolves all seven and records five architectural corrections identified
+during acceptance review.
+
+**Design gate status: ACCEPTED WITH CORRECTIONS.** The original report is
+retained as historical design evidence and is not rewritten; the authoritative
+implementation direction is this entry, with the reasoning recorded in
+`docs/reports/claude/full-srs-4day/2026-09-02_D1-1_offline-sync-ratification.md`.
+
+---
+
+### Decisions
+
+| Limb | Decision | Outcome |
+|---|---|---|
+| **GD-D1-01** | Identifier wire form | **RATIFIED** |
+| **GD-D1-02** | HLC canonical representation | **RATIFIED WITH CORRECTION** |
+| **GD-D1-03** | Bounded server HLC adoption | **DEFERRED** |
+| **GD-D1-04** | Fifth per-operation status `deferred` + proposed conflict rules | **RATIFIED** |
+| **GD-D1-05** | Reconciliation-exception ownership | **RATIFIED → `sync.revalidation_exceptions`** |
+| **GD-D1-06** | Versioning / limits / retention / watermark / tombstones / partitioning bundle | **RATIFIED WITH ARCHITECTURE CORRECTIONS** |
+| **GD-D1-07** | Revoked terminal → reject → unsynced backlog lost | **REJECTED** |
+
+**Replacement for GD-D1-07:** **lossless revoked-terminal recovery = HARD
+FOLLOW-UP GATE.**
+
+---
+
+**GD-D1-01 — RATIFIED.** Client-generated identifiers remain ULIDs
+(`FR-OFF-015` [M]). The permanent 128-bit identifier is rendered on the ROS
+wire/API as the repository-standard canonical UUID hexadecimal string. **The
+server SHALL NOT remap or reassign the identifier.** Crockford base32 remains an
+alternate textual representation of the same ULID, **not** the canonical ROS API
+representation. Follows ADR-009 ("or native UUID") and existing repository
+storage/API conventions (`src/common/ids.ts`, `UUID_PATTERN`, `@db.Uuid`), and
+avoids introducing two incompatible ID encodings into one API. **No product code
+change is authorised by this entry.**
+
+**GD-D1-02 — RATIFIED WITH CORRECTION.** The **semantic algorithm is EXACTLY the
+normative `FR-OFF-041` algorithm** and may not be varied on either side.
+Canonical wire/storage representation:
+`<physical_ms>.<logical>.<node>`, where `physical_ms` is **exactly 13**
+zero-padded decimal digits of Unix epoch **milliseconds** for the supported
+operational date range, `logical` is **exactly 5** zero-padded decimal digits,
+and `node` is **exactly 32** lowercase hexadecimal characters (the originating
+terminal UUID without dashes). Fixed width so lexical comparison is
+deterministic and matches component ordering. **Correction:** the original
+report's illustration printed a 16-digit physical segment; the corrected example
+is recorded in the ratification report §8.3. The semantic algorithm is unchanged
+by that correction, and **no alternative HLC algorithm is invented.** Final
+column width / database type is a **`D4-1` implementation detail** derived from
+the ratified representation and is **not** ratified here. The historical SRS
+inconsistency — **§7.4.1 `VARCHAR(40)` vs §25.2 `VARCHAR(48)`** — remains
+recorded as a **source defect**.
+
+**GD-D1-03 — DEFERRED (engineering hardening).** Not ratified. The normative SRS
+HLC algorithm and `CT-10` can be implemented and verified without changing
+clock-adoption semantics. Per-terminal HLC state and bounded adoption may be
+valuable defence-in-depth **but must not alter the normative shared algorithm
+without a separate design and conformance proof.** `D4-1` **may** design
+extension points for it but **MUST NOT** claim it as ratified behaviour.
+
+**GD-D1-04 — RATIFIED.** The fifth per-operation result **`deferred`** is
+ratified. `FR-OFF-022` [M] requires a causal-child operation whose parent is not
+yet applied to be **deferred rather than rejected**; `FR-OFF-024` [M] permits
+removal from the client outbox **only after a definitive response**. Therefore
+`accepted`, `duplicate`, `conflict` and `rejected` are **definitive**, and
+**`deferred` is NON-DEFINITIVE** — the client retains a deferred operation and
+retries after its causal dependency has been satisfied. The fifth state is a
+**protocol clarification needed to make the mandatory SRS clauses jointly
+implementable**, not a scope extension.
+Also ratified: the `D1-1` proposed conflict rules for the currently-supported
+domains — **order void vs payment**, **partitioned overpayment**,
+**overlapping/offline cash sessions**, and **KDS ticket state** — subject to
+later domain-specific tests. **This does NOT claim currently absent domains such
+as CRM/loyalty are implemented.** **Where a domain later defines stricter legal
+or fiscal semantics, the domain's ratified rule WINS and the sync conflict
+registry must be extended explicitly.**
+
+**GD-D1-05 — RATIFIED → `sync.revalidation_exceptions`.** Canonical persistence
+ownership for `FR-OFF-046` reconciliation exceptions belongs to **Sync**. A
+revalidation exception originates in the sync protocol and must not create a
+cross-lane persistence dependency on `governance.anomaly_flags`. Sync owns
+persistence, the relationship to `opId`, client-computed and server-computed
+values, `detected_at`, terminal/branch attribution, and the resolution state
+sync requires. Governance/Reporting **may consume** domain events, read
+contracts and alerts **without owning the underlying sync table.** Exact
+table/column names remain implementation details.
+
+**GD-D1-06 — RATIFIED WITH ARCHITECTURE CORRECTIONS.** Approved direction:
+explicit `protocolVersion`; per-operation `schemaVersion`; strict envelope
+compatibility; explicit payload/batch byte limits; **no silent unknown-field
+discard for financial operation envelopes**; reference-data change watermark;
+deletion/tombstone mechanism; bounded retention; partitioning for genuinely
+high-volume history; retention jobs/reapers. **Subject to:** (a) operation global
+uniqueness MUST use the corrected dedup architecture below; (b) final byte-cap
+values are **implementation-testable defaults, not immutable business
+semantics**; (c) the retention floor must satisfy every applicable SRS
+requirement; (d) **partitioning must not break idempotency correctness.**
+
+**GD-D1-07 — REJECTED.** The proposal *"revoked terminal → reject forever →
+unsynced committed sales may be lost"* is **NOT an acceptable Full-SRS /
+production architecture. The user explicitly rejects knowingly designing
+committed-sale loss into the system.**
+
+---
+
+### The five acceptance corrections
+
+**Correction 1 — partitioned history separated from global operation dedup.**
+The original design is **NOT ratified** where it simultaneously relied on RANGE
+partitioning of `sync_operations` by `received_at` **and** a global
+`UNIQUE (tenant_id, op_id)` on that same partitioned table. **PostgreSQL cannot
+provide both** — the constraint would necessarily become
+`(tenant_id, op_id, received_at)`, which is not global uniqueness, so the same
+`op_id` re-submitted across a partition boundary would insert cleanly and
+`NFR-REL-011` ("at-most-once financial effect") would fail in exactly the case
+it exists for. The design conflict is recorded explicitly. This repository
+already documents the underlying constraint at `prisma/schema.prisma:1767`:
+*"PostgreSQL requires the partition key inside every unique constraint."*
+**Ratified direction — the authoritative architecture SHALL separate:**
+**(A) a global operation dedup registry** — a small **non-time-partitioned**
+authoritative relation, conceptually `sync.operation_dedup`, owning the globally
+enforceable key `(tenant_id, op_id)`, containing enough immutable data to detect
+duplicate operation IDs, detect same-`opId`/different-fingerprint defects, return
+or locate the original per-operation result, preserve the minimum idempotency
+retention guarantee, and **prevent the same financial effect being applied
+twice**; exact table name and columns are `D4-1` implementation details — from
+**(B) `sync_operations` history** — a high-volume relation that **may** be
+time-partitioned for inspection, conflict analysis, audit linkage, operational
+history and retention management, and which **MUST NOT be treated as the sole
+global uniqueness mechanism** where partitioning prevents enforcing global
+`(tenant_id, op_id)` uniqueness.
+**Dedup atomicity invariant — RATIFIED.** The dedup registry MUST NOT become a
+second non-atomic write that can diverge from the business effect. For every
+accepted operation the authoritative operation result / dedup reservation and
+the business effect **must participate in a crash-safe protocol.** `D4-1` must
+prove a crash can never produce *business effect committed + no durable record
+that the `opId` was already applied* in a way that allows double application on
+retry; and must never externally acknowledge as `accepted` a case of *dedup says
+accepted + business effect never committed*. **Exact transactional
+implementation is `D4-1`'s design responsibility.**
+
+**Correction 2 — batch idempotency is crash-recoverable, not "unchanged".**
+`sync.idempotency_keys` / `IdempotencyService` **MAY** be reused as the
+**foundation** for batch-level idempotency, but the original phrase *"reused
+unchanged"* is **NOT ratified**, because `D4-1` requires crash-recoverable batch
+processing. The critical case: reservation enters `in_flight`; some operations
+commit; the process dies before `complete()` / response persistence; the client
+retries the exact batch. **The system MUST NOT leave that batch permanently
+trapped as `409 being processed` with no safe recovery path.**
+**Ratified required behaviour:** a batch in progress must have a
+reclaim/recovery mechanism. Conceptual states may include `in_flight` and
+`completed`, plus crash-ownership metadata such as lease / owner / attempt /
+`expires_at`; **exact schema is NOT ratified here.** Same `batchId` + same
+fingerprint + **live owner** → may report currently processing per
+implementation semantics. Same `batchId` + same fingerprint + **stale/dead owner
+or expired lease** → **safely reclaim/resume**; on resume, already-applied
+`opId`s return duplicate/original result and not-yet-applied `opId`s continue
+normally. Same `batchId` + **different fingerprint** → `409` client defect.
+**The client must never need to invent a new operation ID merely because the
+server process crashed.**
+**`FR-OFF-025` invariant — RATIFIED, and part of `D4-1` acceptance:** a server
+crash or connection loss during a batch SHALL NOT duplicate an already-applied
+operation, permanently strand a valid batch, require loss of acknowledged sales,
+require changing `opId`s, or make the outbox unrecoverable.
+
+**Correction 3 — per-operation failure isolation, not mandatory per-operation
+commit.** *"One PostgreSQL transaction per operation"* is **NOT ratified** as an
+SRS requirement. `FR-OFF-023` [M] requires that **failure of one operation does
+not fail the whole batch** — a statement about failure isolation, not commit
+granularity. **The ratified invariant is PER-OPERATION FAILURE ISOLATION, not
+PER-OPERATION PHYSICAL COMMIT**, and `D4-1` is **authorised to choose an
+implementation capable of meeting `NFR-PERF-032`.** `D4-1` **MAY** use: one
+pinned database connection per batch; transaction chunks; `SAVEPOINT` per
+operation; preloaded reference data; set-oriented reads; set-oriented writes
+where business invariants permit; and batched audit persistence **where
+compatible with the immutable hash-chain contract.** It **must preserve**, for
+each operation: independent semantic status; independent rollback/failure
+isolation; correct dedup result; correct business effect; and required
+audit/domain-event semantics. **One failed operation MUST NOT convert
+independent successful operations into failures.**
+**Accepted-operation durability — RATIFIED:** no operation may be returned as
+**`accepted`** until its business effect **and** authoritative dedup/result state
+are **durably committed**. Where several operations share a chunk transaction,
+their `accepted` statuses **cannot be externally final until that chunk
+commits**, and **a rollback means those operations are not accepted.**
+
+**Correction 4 — committed backlog loss is not accepted.** See **GD-D1-07 —
+REJECTED**, above. **Ratified security rule:** a normally revoked terminal
+**must lose ordinary interactive operating authority**, and revocation **MUST
+NOT** silently restore the terminal to ordinary trusted status merely because it
+claims to hold unsynced transactions; **at the same time, committed offline
+financial data must have a controlled, auditable, lossless-recovery path.**
+Security and durability are to be **reconciled explicitly rather than solved by
+sacrificing one.**
+**HARD FOLLOW-UP GATE — LOSSLESS REVOKED-TERMINAL RECOVERY.** A required
+follow-up design. Candidate implementations may include quarantine upload-only
+recovery, pre-revocation salvage, a recovery credential / one-shot drain, a
+replicated recovery spool, or another architecture preserving both properties;
+**the final mechanism is NOT ratified here.** **Hard invariants, all binding:**
+(1) a revoked terminal does not regain normal POS authority; (2) recovery is
+explicitly authorised; (3) recovery is auditable; (4) recovery cannot create new
+sales; (5) recovery cannot modify arbitrary server state; (6) operation
+idempotency remains enforced; (7) recovered financial operations receive
+enhanced provenance / review; (8) a lost/stolen terminal cannot use the recovery
+path to escalate authority; (9) legitimate committed transactions are not
+silently discarded.
+**`D4-1` CORE is authorised to start before the final recovery mechanism is
+implemented** and **may initially support active valid terminals only**, but
+**`D4-1` MUST NOT be declared FULLY COMPLETE for the revoked-terminal durability
+case** until the lossless recovery design is ratified and implemented. **Committed
+backlog loss must not be described as accepted behaviour.**
+
+**Correction 5 — the canonical Sync API is versioned `/v1`.** The original
+root-only endpoint is **NOT ratified** as the permanent Full-SRS contract. The
+canonical Full-SRS external contract for Sync is versioned:
+**`POST /v1/sync/batch`**, **`GET /v1/sync/changes`**, **`GET /v1/sync/status`**.
+The repository does not yet have a global `/v1` prefix (no `setGlobalPrefix`;
+`src/swagger.config.ts` documents the absence), and **Lane D MUST NOT
+independently retrofit the entire application routing structure.** **Ratified
+split:** `D4-1` owns the Sync controller and business protocol;
+**platform/API architecture owns or coordinates the repository-wide versioning
+mechanism** (Nest URI versioning, a coordinated `/v1` prefix, or another
+repository-wide mechanism — the mechanism is **not** ratified here). **The
+resulting external contract for Sync must expose the canonical v1 route. Do not
+permanently publish only `/sync/batch` and later claim Full-SRS route
+compliance.** Any temporary unversioned compatibility route needed during
+migration **must be explicitly temporary/deprecated and must not replace** the
+canonical versioned endpoint.
+
+---
+
+### Carried forward unchanged from `D1-1`
+
+**Operation envelope** — `opId` · `hlc` · `type` · `entityId` · `causedBy` ·
+`actorEmployeeId` · `occurredAt` · `schemaVersion` · `payload`; batch —
+`protocolVersion` · `deviceId` · `batchId` · `lastServerCursor` · `operations`.
+**No `tenantId` in the body**; tenant identity is derived from authenticated
+server context; **branch identity for a registered terminal is derived
+server-side, not trusted from arbitrary client body input.**
+**`clientSeq`** — no mandatory `clientSeq` is introduced in `D4-1` unless
+implementation evidence shows causal/idempotency correctness requires it;
+causality is represented by `causedBy` + HLC and idempotency by `opId` +
+`batchId`. **Sequence-gap semantics must not be added without a separate need.**
+**Batch HTTP semantics** — a well-formed authorised batch may return HTTP 200
+with independent per-operation results; one operation's rejection or conflict
+does not transform the whole batch into an HTTP error; envelope-level faults may
+still return the appropriate 4xx/5xx.
+**`FR-OFF-046` invariant — mandatory `D4-1` invariant:** a financially
+significant revalidation mismatch **MUST NOT reject a sale that already
+physically occurred.** The server accepts the transaction, records
+client-computed values, records server-computed values, persists a
+reconciliation exception, and escalates systematic mismatches per `FR-OFF-047`.
+
+**Retention — RATIFIED.** Operation idempotency retention SHALL be **at least
+the SRS-required minimum** and **must not be shorter than any client
+retry/outbox horizon that could legitimately replay an operation.** A 90-day hot
+operation-history target **may** be used as an initial engineering default but is
+**NOT** a reason to weaken statutory/financial/audit retention on the underlying
+business records. **Sync operation history is not a substitute for statutory
+business ledgers.** The retention mechanism **must be automated.** The currently
+**unpruned `sync.idempotency_keys` condition remains an implementation gap.**
+
+**Tombstones / delta watermark — MANDATORY for `D4-2`.** Reference-data delta
+sync cannot be correct if deletes cannot be represented or there is no
+monotonic/change watermark. `D4-2` requires a change-cursor/watermark mechanism,
+deletion tombstones or equivalent deletion events, and full checksum
+reconciliation. **Not implemented by this entry.**
+
+**Branch RBAC — Lane B governance is NOT altered by this entry.** `D-2` and its
+2026-08-19 amendment are untouched; no defer is lifted or reinterpreted.
+Branch-scoped authorization remains a **dependency to be consumed from Lane B's
+accepted implementation.** Sync MUST ultimately authorise operations against
+authenticated tenant, registered terminal, terminal branch, actor/session, and
+the required permission/scope **once branch RBAC lands**. **Do not recreate a
+parallel permission model inside Sync.**
+
+**Fiscal — unchanged.** The canonical `TaxDocument` / fiscal sequence behaviour
+is **NOT invented here**. `D4-3` remains dependent on **`C3-1` / `P7-FISCAL`**.
+The generic fiscal operation extension point is kept. **`CT-01`'s
+fiscal-sequence criterion remains ungradeable** until the fiscal model is
+ratified and implemented.
+
+**Conformance corpus — ratified principle.** Shared client/server algorithms are
+governed by a language-neutral conformance corpus; **`kitchen-kit/conformance/`
+is the precedent and must be extended rather than replaced.** `D4-1` owns server
+vectors for ids, HLC, envelope canonicalization, conflict rules and money where
+applicable; other domain owners contribute their own shared logic. Full
+`FR-OFF-050` / `FR-OFF-051` completion still requires a Dart/client runner,
+dual-suite CI and a release-blocking divergence gate — **none of which are
+claimed complete by this entry.**
+
+---
+
+### Measured release gates — RATIFIED, not "future optimization"
+
+**`P-D4-01` — `NFR-PERF-032`, 500 operations / 3 s p95.** Must be **measured
+during the earliest `D4-1` implementation iteration**; do not implement the
+entire protocol first and benchmark last. Required dimensions: 500 operations;
+realistic revalidation; audit writes; dedup writes; conflict checks; commit cost.
+**If naive operation-by-operation execution misses the budget, `D4-1` must
+optimize the architecture before expanding protocol surface.**
+
+**`P-D4-02` — per-tenant audit hash-chain contention during concurrent
+multi-terminal backlog drains.** `D4-1` acceptance must measure a one-terminal
+backlog, multiple terminals concurrently draining, audit-chain sequence
+contention, deadlock/retry behaviour, and `NFR-PERF-032` impact. **Do not weaken
+audit immutability to make the benchmark pass.**
+
+**Both are protocol architecture acceptance criteria.**
+
+---
+
+### Implementation consequence
+
+**`D4-1` CORE is AUTHORIZED.** It may implement: the global operation dedup
+registry; time-partitionable operation history if justified; sync batches /
+device state / conflict records; `sync.revalidation_exceptions`; the canonical
+v1 batch API coordinated with platform versioning; strict operation/batch
+envelope validation; the HLC algorithm and canonical representation;
+crash-recoverable batch reservation/resume; operation-level idempotency; causal
+ordering; `deferred` handling; per-operation failure isolation; conflict
+handling **for domains that actually exist**; `FR-OFF-045`/`FR-OFF-046`
+revalidation for available computation substrates; skew detection; `FR-OFF-044`
+audit writes; required conformance vectors; the early `NFR-PERF-032` benchmark;
+and the concurrent audit-contention benchmark.
+
+**`D4-1` must NOT implement:** fiscal sequence semantics; bootstrap / delta /
+checksum endpoints; WebSocket push; mDNS / LAN coordinator; the CRM/loyalty
+domain; the Dart client; branch RBAC itself; full revoked-terminal recovery
+unless separately designed and ratified; or **global repository API versioning
+unilaterally.**
+
+**`D4-2`** remains responsible for the full bootstrap snapshot, delta changes,
+cursors, watermarks, tombstones/deletions, entity-type checksums and reference
+reconciliation. **`D4-3`** remains responsible for fiscal/offline sequence
+integration after the canonical fiscal model is available.
+
+**`D4-1` may NOT be closed as FULLY COMPLETE until all three residual hard gates
+are satisfied:** lossless revoked-terminal recovery · **`P-D4-01`** ·
+**`P-D4-02`**.
+
+---
+
+### No implementation credit is created by this entry
+
+`FR-OFF` requirements are **DESIGN / RATIFICATION ONLY** as applicable and are
+**not** marked implementation-complete. **`NFR-PERF-032`: NOT YET VERIFIED.**
+**`FR-OFF-050` / `FR-OFF-051`: PARTIAL.** **`CT-01`: NOT PASSED.** **`CT-06`: NOT
+PASSED globally.** **`CT-10`: NOT PASSED** until executable conformance/tests
+exist. **Fiscal: unresolved** until `P7-FISCAL` / `D4-3`. **Revoked-terminal
+lossless recovery: unresolved hard gate.**
+
+**Nothing else is reopened:** **D-2 is not reopened** — no branch-scoped RBAC is
+introduced or lifted · **D-9** RLS/tenant-isolation discipline is relied upon
+and unchanged · **D-15** idempotency/concurrency is extended in the sync
+direction, not amended · **P-1**, **D-12**, **D-13**, **D-16**, **D-14 A-1**,
+**D-20**, **KDS-R1 … KDS-R12**, **RPT-R1 … RPT-R3**, **DC-R1 … DC-R4**,
+**R-1 … R-7**, **RCPT-R1**, **PL**, **SB-1 … SB-4** all unchanged. This entry
+**amends no numbered decision**, **creates no schema**, **authorizes no
+migration**, and **changes no product code**. All historical register text is
+preserved verbatim above and is not rewritten.
+
+**Evidence (non-authoritative):**
+`docs/reports/claude/full-srs-4day/2026-09-02_D1-1_offline-sync-design-gate.md`
+(design gate, retained as historical evidence, with an appended post-review
+acceptance note) and
+`docs/reports/claude/full-srs-4day/2026-09-02_D1-1_offline-sync-ratification.md`
+(this ratification's reasoning and verification).
+
+**Status:** **RATIFIED — D4-1 CORE AUTHORIZED; THREE RESIDUAL HARD GATES OPEN.**
+
+---
 ## Final Decision Matrix
 
 | ID | Decision | SRS-defined? | Existing conflict? | Recommendation | Ratification Required | Dependency | Status |
@@ -8061,5 +8785,143 @@ authority model**; D-5 settles its **structure** as single-step; D-4 settles its
 the remainder of **Tier 1** (**D-16**, **D-17**) is ratified, and until the two
 open data-model questions are resolved — the decision→parent linkage (exposed by D-5) and
 the storage of `rejected` (left open by D-4 clause 5).
+
+---
+
+## AUD-R1 — Audit Log Query/Export Permissions & Surface (FR-AUD-007/008)
+
+> **RATIFIED 2026-09-03, by explicit user governance action (AUD-1, Full-SRS
+> 4-Day execution — "production audit completion" slice).** This opens a NEW
+> `AUD-R<n>` series, verified unused anywhere in this register before this
+> entry, following the same pattern as `RPT-R1…R3`, `KDS-R1…R12`, `DC-R1…R4`.
+> No existing numbered decision (`D-1…D-20`) is renumbered, reinterpreted, or
+> silently amended by this entry except where clause 3 below states an
+> EXPLICIT, NARROW amendment.
+
+### RATIFIED — binding
+
+1. **Two permission codes are introduced:** **`audit.view`**, described as
+   *"Search and view audit log entries for the tenant"*, and
+   **`report.export`**, described as *"Export audit log entries the caller is
+   otherwise authorized to view (AUD-R1 — audit-export route only)"*. Both are
+   drawn **VERBATIM** from `FR-AUD-008` [M]: *"...and SHALL be exportable by
+   users with audit.view plus report.export."* No other code is invented;
+   §15.2's `module.action` dot-notation is followed exactly as RPT-R1 §4 did.
+2. **The routes authorised by these codes are exactly:**
+   **`GET /governance/audit/entries`** (search/filter — gated by `audit.view`
+   alone) and **`GET /governance/audit/entries/export`** (gated by **BOTH**
+   `audit.view` **AND** `report.export`, `mode: 'all'`, never OR). **No other
+   route is authorised by these codes.** This two-route split is what makes
+   FR-AUD-008's own text literal: it names `audit.view` for the log being
+   *"searchable and filterable"* and adds `report.export` specifically for
+   the *"exportable"* clause — a single route gated by both would blur that
+   distinction the requirement itself draws.
+3. **AMENDMENT — RPT-R1 clause 6 REOPENED IN PART, NARROWLY.** RPT-R1
+   (RATIFIED 2026-08-31) lists `report.export` among codes *"NOT authorized
+   and MUST NOT be created"* — a prohibition recorded because, at that time,
+   no route existed anywhere in the repository that needed it, and RPT-R1's
+   own route (`GET /reports/branches/{branchId}/daily-trading/{businessDay}`)
+   certainly did not. `FR-AUD-008` [M] now names `report.export` explicitly,
+   for an entirely different, new route in a different module
+   (`governance/audit`, not `reporting`). **This amendment authorizes
+   `report.export` for EXACTLY the audit-export route named in clause 2 above
+   and NO other.** RPT-R1 clauses 1, 2, 4, 5, 7, 8, 9, 10 are **UNCHANGED**;
+   clause 6's prohibition **REMAINS IN FORCE** for every `report.view.*` code,
+   and for attaching `report.export` to the daily-trading route or to any
+   other reporting-module route. `reporting/reporting.permissions.ts` is
+   **NOT** modified by this entry — `report.export` is defined and seeded
+   from `governance/audit/audit.permissions.ts` instead, and that file's own
+   comment records this amendment so a future reader of either file sees the
+   full picture. RPT-R1's *"FOURTH and FIFTH explicit user-authorized
+   exceptions"* count (clause 5) is unaffected by this entry — it describes
+   RPT-R1's own two codes, not a running tally this entry extends.
+4. **D-20 is NOT reopened, reinterpreted, or contradicted.** D-20 (RATIFIED
+   2026-08-18) governs read access to `governance.approval_requests` /
+   `governance.approval_decisions` **ONLY**, and its own ratification log
+   explicitly left `FR-AUD-007`/`FR-AUD-008` for a later, separate decision:
+   *"D-20 remains OPEN and must address FR-AUD-007/FR-AUD-008 audit-read
+   permissions where applicable"* (D-19's ratification log, and repeated
+   verbatim in D-20's own ratification log). **This entry IS that later
+   decision** — but it decides read/export access to `governance.
+   audit_entries`, a **DIFFERENT table** with its **OWN** pre-existing
+   fail-closed RLS boundary (ADR 0007, migration `20260812175712`,
+   `FR-AUD-003`). It creates **no** `approval_requests`/`approval_decisions`
+   read endpoint, invents **no** permission code for either table, and does
+   not touch D-20's own scope in any way. D-20's *"no new Governance HTTP
+   read surface"* clause is unaffected: `governance/audit/` is a sibling
+   module to the Approval mechanism's own `governance.module.ts` (which still
+   has **zero** controllers, D-14 A-1 unchanged), not an extension of it.
+5. **D-19 (audit hash coverage) is unchanged.** The query/export routes read
+   `entry_hash`/`previous_hash` as **opaque persisted bytes** (hex-encoded on
+   the wire) and compute nothing. `AuditQueryService` never calls
+   `computeEntryHash`; it cannot alter what is hashed, how it is hashed, or
+   the digest of any existing or future entry. D-19's *"no additional
+   approval-specific hash coverage"* holding, and every one of its 18 clauses,
+   are untouched.
+6. **Scope: TENANT by default, narrowed to BRANCH when the caller supplies
+   `branchId`.** Both routes use `branchFromQueryOrTenant('branchId')`
+   (ADR 0009 D-03's `branchOrTenant` target kind) — omitting `branchId`
+   authorizes against the TENANT (requires a tenant-scope grant of the
+   required code(s)); supplying it authorizes against exactly that BRANCH
+   (requires a branch-scope grant covering it). This is the SAME mechanism
+   every other tenant-wide collection read in this repository already uses;
+   it is not a new authorization primitive. **No cross-tenant read is
+   authorized under any circumstance** — `audit_entries`' FORCE-RLS policy
+   (unchanged) is the actual boundary regardless of what a caller supplies,
+   exactly as D-9/ADR 0007 already establish. `branchId` filtering is
+   currently of LIMITED practical effect: `governance.audit_entries.
+   branch_id` is a pre-existing, previously-unpopulated column (no producer in
+   this repository writes it — a PRE-EXISTING gap this entry does not
+   introduce and does not attempt to backfill across every audited call site,
+   which is out of this slice's scope). This is recorded here so the gap is
+   not silently discovered later; the accompanying implementation report
+   states it again in FR-AUD-008's own classification.
+7. **No standard-role seeding is performed by this entry** (mirrors RPT-R1
+   §"Future standard-role intent" and KDS-R11 §4.3). Likely holders of BOTH
+   codes: **Auditor** (the SRS-mandated role `FR-SEC-010`/`FR-SEC-011`
+   presuppose but which remains otherwise unexpressible pending Appendix C,
+   per D-20 clause/GAP-9), **Owner**, **Operations Director**. **NOT resolved
+   by this entry, and deliberately left open:** every other role. `FR-SEC-010`
+   standard-role seeding is **NOT authorized** by this entry — no role row,
+   `role_permission` row, or role semantic is created or modified.
+8. **Binding constraints on implementation (mirroring RPT-R1/KDS-R11):** permission-based
+   authorization only — **no hardcoded role-name string** (D-3). Codes added
+   **code-driven, not migration-driven**: entries in the owning module's own
+   `governance/audit/audit.permissions.ts`, seeded through the existing
+   `PermissionsService.upsertMany`, **seeded only by the slice that creates
+   the route** (this one). **No migration, no schema change, no RLS change**
+   is authorized by THIS clause for the permission codes or the query/export
+   routes themselves — both read `governance.audit_entries`' existing columns
+   only. (This does not constrain AUD-1's SEPARATE, already-existing
+   `platform.job_occurrences`/`platform.job_findings` schema, which SCHED-1
+   already ratified and migrated, and which FR-AUD-005's scheduled
+   verification job — recorded alongside this entry in the AUD-1 report —
+   reuses without any further schema change.)
+9. **`FR-AUD-007`** (*"Audit log access SHALL itself be audited"*) **is
+   satisfied by this entry's implementation** emitting an `AUDIT_LOG_QUERIED` /
+   `AUDIT_LOG_EXPORTED` audit entry — through the EXISTING `AuditService.
+   record`, the EXISTING hash chain, the EXISTING per-tenant advisory lock —
+   for **every** call to either route, success or refusal-before-the-read
+   alike is NOT separately audited (a 401/403 never reaches the handler; an
+   export refused for exceeding the record-count bound is refused BEFORE the
+   access is recorded, since a request this repository never serves is not
+   "audit log access" in FR-AUD-008's sense). No new audit-writing mechanism
+   of any kind is introduced.
+10. **`FR-AUD-009`** (retention) and **`FR-AUD-010`** (impersonation) are
+    **NOT addressed by this entry** and remain exactly as classified before
+    it. Nothing in this entry should be read as closing, narrowing, or
+    otherwise deciding either requirement — see the AUD-1 implementation
+    report for their literal, unchanged classification.
+
+### Evidence (non-authoritative)
+
+`docs/reports/claude/full-srs-4day/2026-09-03_AUD-1_audit-production-completion.md`.
+This register entry is the authoritative outcome; where the report's own
+narrative differs from the clauses above, THESE CLAUSES GOVERN.
+
+**Status:** **RATIFIED — AUD-R1 clauses 1-10 above are binding. RPT-R1 is
+amended ONLY as clause 3 states; D-19 and D-20 are unchanged; no other
+numbered or lettered decision in this register is reopened, reinterpreted, or
+amended by this entry.**
 
 **The Design Gate has NOT been created. Implementation is NOT authorized.**

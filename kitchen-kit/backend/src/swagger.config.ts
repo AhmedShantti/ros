@@ -27,14 +27,23 @@ import { DocumentBuilder } from '@nestjs/swagger';
  * correction is applied separately as a document post-process, see
  * `src/common/openapi/oas31.util.ts`.
  *
- * `addServer('/', ...)` — SRS §26.1 specifies `/v1` URL versioning, but no
- * `/v1` prefix exists anywhere in this application (no `setGlobalPrefix`
- * call) and no deployment/proxy configuration exists in this repository
- * (`docker-compose.yml` defines only the local Postgres container) to
- * confirm whether an external layer adds one — see
- * `docs/reports/claude/2026-08-23_API1A_openapi31-basepath-error-contract.md`
- * §F. The server entry below documents the actually-verified base
- * (relative root, no prefix) rather than guessing at `/v1`.
+ * `addServer('/', ...)` — the server entry documents the actually-verified
+ * base (relative root), never a guess. No deployment/proxy configuration
+ * exists in this repository (`docker-compose.yml` defines only the local
+ * Postgres container) to confirm whether an external layer adds a prefix —
+ * see `docs/reports/claude/2026-08-23_API1A_openapi31-basepath-error-contract.md`
+ * §F.
+ *
+ * VERSIONING, as of D4-1A: there is still no `setGlobalPrefix`, so every
+ * pre-existing route remains at its unversioned path. What DOES exist is Nest
+ * URI versioning with `defaultVersion: VERSION_NEUTRAL`
+ * (`common/http/api-versioning.ts`), under which a controller only moves under
+ * `/v1` if it explicitly asks — today exactly one does, the Sync controller,
+ * whose canonical contract Correction 5 of the D1-1 ratification fixes at
+ * `/v1/sync/batch`. So paths in this document are a MIX by design, and that is
+ * accurate rather than untidy: repository-wide versioning is a Platform
+ * decision that Lane D was explicitly forbidden to make unilaterally. When it
+ * lands, flipping `defaultVersion` to `'1'` versions everything at once.
  */
 export function buildSwaggerConfig(apiVersion: string) {
   return new DocumentBuilder()
@@ -50,12 +59,15 @@ export function buildSwaggerConfig(apiVersion: string) {
     .setOpenAPIVersion('3.1.0')
     .addServer(
       '/',
-      'Current application root — no path prefix. SRS §26.1 specifies /v1 ' +
-        'URL versioning; this is NOT implemented by the application (no ' +
-        'global prefix registered) and no deployment/proxy configuration ' +
-        'exists in this repository to confirm whether an external layer ' +
-        'adds one. Confirm the real deployed base URL with deployment/ops ' +
-        'before treating any prefix as authoritative.',
+      'Current application root. There is no global path prefix: routes ' +
+        'appear here at the exact paths the application serves. Most are ' +
+        'unversioned; the Sync routes are versioned under /v1 because their ' +
+        'canonical contract requires it, using Nest URI versioning with a ' +
+        'VERSION_NEUTRAL default so no other route was moved. ' +
+        'Repository-wide /v1 versioning (SRS §26.1) is a Platform decision ' +
+        'and is not yet made. No deployment/proxy configuration exists in ' +
+        'this repository, so confirm the real deployed base URL with ' +
+        'deployment/ops before treating any prefix as authoritative.',
     )
     .addBearerAuth({
       type: 'http',

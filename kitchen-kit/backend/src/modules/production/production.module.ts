@@ -12,6 +12,8 @@ import { ProductionController } from './production.controller';
 import { RecipesService } from './recipes/recipes.service';
 import { SubstituteGroupsService } from './substitute-groups/substitute-groups.service';
 import { RecipeVersionsService } from './versions/recipe-versions.service';
+import { RecipeTargetResolver } from './recipes/scope-target.resolver';
+import { PRODUCTION_RECIPE_TARGET_RESOLVER } from './contract';
 
 /**
  * Production Spec bounded context (D-17-02 … D-17-08, GAP-1, GAP-2).
@@ -30,6 +32,11 @@ import { RecipeVersionsService } from './versions/recipe-versions.service';
   imports: [IdentityModule, AuditModule],
   controllers: [ProductionController],
   providers: [
+    RecipeTargetResolver,
+    {
+      provide: PRODUCTION_RECIPE_TARGET_RESOLVER,
+      useExisting: RecipeTargetResolver,
+    },
     RecipesService,
     RecipeVersionsService,
     SubstituteGroupsService,
@@ -49,6 +56,7 @@ import { RecipeVersionsService } from './versions/recipe-versions.service';
     },
   ],
   exports: [
+    PRODUCTION_RECIPE_TARGET_RESOLVER,
     RecipesService,
     RecipeVersionsService,
     SubstituteGroupsService,
