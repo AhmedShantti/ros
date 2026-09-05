@@ -250,7 +250,7 @@ export class TenantContextService {
 }
 
 /** Map a persisted assignment row onto the pure `AssignmentScope` union. */
-function toAssignmentScope(row: {
+export function toAssignmentScope(row: {
   scopeType: string;
   scopeBrandId: string | null;
   scopeBranchId: string | null;

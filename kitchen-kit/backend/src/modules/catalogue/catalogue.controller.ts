@@ -65,6 +65,20 @@ import { MenuItemsService } from './menu-items/menu-items.service';
 import { MenusService } from './menus/menus.service';
 import { ModifierGroupsService } from './modifier-groups/modifier-groups.service';
 import { PriceListsService } from './price-lists/price-lists.service';
+import {
+  AuthorizationTarget,
+  branchFromBody,
+  branchFromBodyOrTenant,
+  branchFromParam,
+  declaredScopeFromBody,
+  fromParam,
+  resourceTarget,
+  tenantTarget,
+} from '../identity/contract';
+import {
+  CATALOGUE_AVAILABILITY_RULE_TARGET_RESOLVER,
+  CATALOGUE_PRICE_LIST_TARGET_RESOLVER,
+} from './contract';
 
 /**
  * Catalogue API (Phase 16).
@@ -281,6 +295,11 @@ export class CatalogueController {
 
   // ----------------------------------------------------------------- menus --
   @Post('menus')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created menu.',
@@ -294,6 +313,11 @@ export class CatalogueController {
   }
 
   @Get('menus')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description: 'All menus for this tenant.',
@@ -304,6 +328,11 @@ export class CatalogueController {
   }
 
   @Get('menus/:menuId')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({ description: 'The menu.', schema: menuSchema })
   @ApiNotFoundResponse({ description: 'Menu not found.' })
@@ -315,6 +344,11 @@ export class CatalogueController {
   }
 
   @Patch('menus/:menuId')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOkResponse({ description: 'The updated menu.', schema: menuSchema })
   @ApiNotFoundResponse({ description: 'Menu not found.' })
@@ -327,6 +361,11 @@ export class CatalogueController {
   }
 
   @Post('menus/:menuId/status')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOperation({
     summary: 'Activate/deactivate a menu (C-09 explicit, audited lifecycle).',
@@ -343,6 +382,7 @@ export class CatalogueController {
 
   // C-01 — FR-MNU-002 branch assignment
   @Post('menus/:menuId/branches')
+  @AuthorizationTarget(branchFromBody('branchId'))
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOperation({ summary: 'Assign a menu to a branch (C-01).' })
@@ -360,6 +400,7 @@ export class CatalogueController {
   }
 
   @Delete('menus/:menuId/branches/:branchId')
+  @AuthorizationTarget(branchFromParam('branchId'))
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiNoContentResponse({ description: 'Unassigned.' })
@@ -373,6 +414,11 @@ export class CatalogueController {
   }
 
   @Get('menus/:menuId/branches')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists every branch a tenant-owned menu is assigned to; the answer spans the tenant.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description: 'Branch ids this menu is assigned to.',
@@ -387,6 +433,13 @@ export class CatalogueController {
 
   /** FR-MNU-003: priority-ordered resolution with an ambiguity warning. */
   @Get('branches/:branchId/menus')
+  @ApiNotFoundResponse({
+    description:
+      'The named branch is not visible in this tenant — unknown, or another ' +
+      "tenant's. Byte-identical for both, so a caller cannot learn that a " +
+      'foreign branch exists.',
+  })
+  @AuthorizationTarget(branchFromParam('branchId'))
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description:
@@ -416,6 +469,11 @@ export class CatalogueController {
 
   // ------------------------------------------------------------ categories --
   @Post('menus/:menuId/categories')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created category.',
@@ -431,6 +489,11 @@ export class CatalogueController {
   }
 
   @Get('menus/:menuId/categories')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description: 'Categories on this menu, sort order.',
@@ -445,6 +508,11 @@ export class CatalogueController {
   }
 
   @Patch('categories/:categoryId')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOkResponse({
     description: 'The updated category.',
@@ -463,6 +531,11 @@ export class CatalogueController {
 
   // ------------------------------------------------------------ menu items --
   @Post('items')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created menu item.',
@@ -476,6 +549,11 @@ export class CatalogueController {
   }
 
   @Get('items')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description: 'All menu items for this tenant.',
@@ -486,6 +564,11 @@ export class CatalogueController {
   }
 
   @Get('items/:itemId')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({ description: 'The menu item.', schema: menuItemSchema })
   @ApiNotFoundResponse({ description: 'Menu item not found.' })
@@ -497,6 +580,11 @@ export class CatalogueController {
   }
 
   @Patch('items/:itemId')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOkResponse({
     description: 'The updated menu item.',
@@ -512,6 +600,11 @@ export class CatalogueController {
   }
 
   @Post('items/:itemId/status')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOperation({
     summary:
@@ -532,6 +625,11 @@ export class CatalogueController {
 
   // C-02 — placement, so one item may appear on many menus
   @Post('items/:itemId/placements')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOperation({
@@ -552,6 +650,11 @@ export class CatalogueController {
   }
 
   @Delete('items/:itemId/placements/:categoryId')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiNoContentResponse({ description: 'Unplaced.' })
@@ -565,6 +668,11 @@ export class CatalogueController {
   }
 
   @Get('items/:itemId/placements')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description: 'Categories (and their menus) this item is placed in.',
@@ -585,6 +693,11 @@ export class CatalogueController {
   }
 
   @Post('items/:itemId/variants')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created variant.',
@@ -604,6 +717,11 @@ export class CatalogueController {
   }
 
   @Get('items/:itemId/variants')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description: 'Variants of this item, sort order.',
@@ -618,6 +736,11 @@ export class CatalogueController {
   }
 
   @Post('variants/:variantId/status')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOperation({
     summary:
@@ -641,6 +764,11 @@ export class CatalogueController {
   }
 
   @Post('items/:itemId/modifier-groups')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOperation({
@@ -670,6 +798,11 @@ export class CatalogueController {
 
   // ------------------------------------------------------- modifier groups --
   @Post('modifier-groups')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created modifier group.',
@@ -686,6 +819,11 @@ export class CatalogueController {
   }
 
   @Get('modifier-groups')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description: 'All modifier groups for this tenant.',
@@ -696,6 +834,11 @@ export class CatalogueController {
   }
 
   @Patch('modifier-groups/:groupId')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiOkResponse({
     description: 'The updated modifier group.',
@@ -714,6 +857,11 @@ export class CatalogueController {
   }
 
   @Post('modifier-groups/:groupId/modifiers')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_MANAGE)
   @ApiCreatedResponse({
     description: 'The newly created modifier.',
@@ -732,6 +880,11 @@ export class CatalogueController {
   }
 
   @Get('modifier-groups/:groupId/modifiers')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Menu/catalogue master data is tenant-owned: `catalogue.menus`, `menu_items`, `menu_item_variants`, `menu_categories` and `modifier_groups` carry no branch column. Applicability to a branch is expressed by the SEPARATE menu-branch assignment, which is branch-targeted in its own right.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description: 'Modifiers in this group, sort order.',
@@ -747,6 +900,7 @@ export class CatalogueController {
 
   // ------------------------------------------------------------ price list --
   @Post('price-lists')
+  @AuthorizationTarget(declaredScopeFromBody('scopeType', 'scopeId', 'scopeId'))
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_CHANGE)
   @ApiCreatedResponse({
     description: 'The newly created price list.',
@@ -770,6 +924,9 @@ export class CatalogueController {
   }
 
   @Get('price-lists')
+  @AuthorizationTarget(
+    tenantTarget('Lists every price list in the tenant, at every scope.'),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_READ)
   @ApiOkResponse({
     description: 'All price lists for this tenant, priority descending.',
@@ -780,6 +937,14 @@ export class CatalogueController {
   }
 
   @Get('price-lists/:priceListId')
+  @AuthorizationTarget(
+    resourceTarget(
+      CATALOGUE_PRICE_LIST_TARGET_RESOLVER,
+      { priceListId: fromParam('priceListId') },
+      'catalogue.price_lists carries its own scope_type + scope_id.',
+      'Price list not found.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_READ)
   @ApiOkResponse({ description: 'The price list.', schema: priceListSchema })
   @ApiNotFoundResponse({ description: 'Price list not found.' })
@@ -791,6 +956,14 @@ export class CatalogueController {
   }
 
   @Post('price-lists/:priceListId/entries')
+  @AuthorizationTarget(
+    resourceTarget(
+      CATALOGUE_PRICE_LIST_TARGET_RESOLVER,
+      { priceListId: fromParam('priceListId') },
+      'catalogue.price_lists carries its own scope_type + scope_id.',
+      'Price list not found.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_CHANGE)
   @ApiOperation({
     summary:
@@ -813,6 +986,14 @@ export class CatalogueController {
   }
 
   @Get('price-lists/:priceListId/entries')
+  @AuthorizationTarget(
+    resourceTarget(
+      CATALOGUE_PRICE_LIST_TARGET_RESOLVER,
+      { priceListId: fromParam('priceListId') },
+      'catalogue.price_lists carries its own scope_type + scope_id.',
+      'Price list not found.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.PRICE_READ)
   @ApiOkResponse({
     description: 'Price entries in this list.',
@@ -828,6 +1009,7 @@ export class CatalogueController {
 
   // ----------------------------------------------------------- availability --
   @Post('availability-rules')
+  @AuthorizationTarget(branchFromBodyOrTenant('branchId'))
   @RequirePermission(CATALOGUE_PERMISSIONS.AVAILABILITY_TOGGLE)
   @ApiCreatedResponse({
     description: 'The newly created availability rule.',
@@ -847,6 +1029,11 @@ export class CatalogueController {
   }
 
   @Get('availability-rules')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Lists availability rules across the tenant; the only filter is menuItemId, which carries no scope.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.AVAILABILITY_READ)
   @ApiOkResponse({
     description: 'Availability rules, optionally filtered to one menu item.',
@@ -861,6 +1048,14 @@ export class CatalogueController {
 
   /** FR-MNU-030/032: manual 86 and authorised override, both audited. */
   @Post('availability-rules/:ruleId/86')
+  @AuthorizationTarget(
+    resourceTarget(
+      CATALOGUE_AVAILABILITY_RULE_TARGET_RESOLVER,
+      { ruleId: fromParam('ruleId') },
+      "The rule's own branch_id; NULL means every branch, which is a TENANT target (FR-MNU-030).",
+      'Availability rule not found.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.AVAILABILITY_TOGGLE)
   @ApiCreatedResponse({
     description: 'The updated availability rule.',
@@ -885,6 +1080,11 @@ export class CatalogueController {
   // ------------------------------------------------------------ C-11 report --
   /** Validated business invariant, reported — never a hard write-time block. */
   @Get('completeness')
+  @AuthorizationTarget(
+    tenantTarget(
+      'A tenant-wide catalogue completeness report over tenant-owned master data.',
+    ),
+  )
   @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
   @ApiOkResponse({
     description:

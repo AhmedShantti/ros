@@ -250,9 +250,47 @@ export class CountsService {
           );
         }
 
+        // A1-4 (deadlock matrix, §11): deterministic stockItemId ASC order —
+        // the SAME global lock order Completion (`SaleDepletionService`) and
+        // `WasteService` use — so a multi-item count posting can never
+        // invert against a concurrent multi-item writer touching the same
+        // two items and deadlock.
         const lines = await tx.countLine.findMany({
           where: { countSessionId: sessionId, countedQuantity: { not: null } },
+          orderBy: { stockItemId: 'asc' },
         });
+
+        // FR-INV-044 / CT-08: `line.variance` (written in `recordCount`) is
+        // counted vs the quantity FROZEN at session open — it does not yet
+        // know about movements that happened DURING the count window, so
+        // using it as-is would report a concurrent sale as false shrinkage.
+        // The genuine variance the posted movement must carry is:
+        //   expected_at_post = expected_at_open + movements_during_window
+        //   true_variance     = counted_quantity - expected_at_post
+        //                      = line.variance   - movements_during_window
+        // "movements during the window" = every `stock_movements` row for
+        // this (item, location) with `occurred_at` after `session.startedAt`
+        // (the immutable open-time cutoff) and committed by the time THIS
+        // query runs — exactly the boundary FR-INV-044 already uses below
+        // for the audit-only count, now also driving the posted amount.
+        // `Prisma.groupBy._sum` is exact (Prisma.Decimal / decimal.js), so
+        // no Number()/parseFloat() touches a value that determines the
+        // persisted `count_adjustment` quantity.
+        const windowSums = await tx.stockMovement.groupBy({
+          by: ['stockItemId'],
+          where: {
+            locationId: session.locationId,
+            stockItemId: { in: lines.map((l) => l.stockItemId) },
+            occurredAt: { gt: session.startedAt },
+          },
+          _sum: { quantity: true },
+        });
+        const windowByItem = new Map(
+          windowSums.map((w) => [
+            w.stockItemId,
+            w._sum.quantity ?? new Prisma.Decimal(0),
+          ]),
+        );
 
         // FR-INV-044: movements during the count window are reported, not folded
         // into the variance — the expected quantity was frozen at open.
@@ -268,22 +306,37 @@ export class CountsService {
           // Exact: `line.variance` is already a Prisma.Decimal (written
           // exactly in `recordCount` above) — no Number()/parseFloat() on the
           // value that determines this movement's persisted quantity.
-          const varianceExact = line.variance ?? new Prisma.Decimal(0);
-          if (varianceExact.isZero()) continue;
+          const rawVariance = line.variance ?? new Prisma.Decimal(0);
+          const movementsDuringWindow =
+            windowByItem.get(line.stockItemId) ?? new Prisma.Decimal(0);
+          const trueVariance = rawVariance.minus(movementsDuringWindow);
+          // Persist the CORRECTED (window-adjusted) variance onto the line
+          // itself, even when it nets to zero — otherwise the line would go
+          // on displaying the raw counted-vs-opening-baseline figure via
+          // `lines()`, silently disagreeing with what was actually posted
+          // (or not posted) to the ledger. Not a ledger row — updating it is
+          // not an append-only/BR-INV-001 concern.
+          await tx.countLine.update({
+            where: { id: line.id },
+            data: { variance: trueVariance },
+          });
+          if (trueVariance.isZero()) continue;
           await this.movements.post(tx, tenantId, actorId, {
             locationId: session.locationId,
             stockItemId: line.stockItemId,
             movementType: 'count_adjustment',
-            quantity: varianceExact.toFixed(6),
+            quantity: trueVariance.toFixed(6),
             referenceType: 'count',
             referenceId: sessionId,
           });
           // Transport-boundary conversion only (postCountResultSchema
           // documents `variance` as a JS number) — the movement above is
-          // already posted from the exact value.
+          // already posted from the exact value, and this reports the
+          // GENUINE (window-adjusted) variance actually posted, not the raw
+          // counted-vs-opening-baseline figure still held on the line.
           adjustments.push({
             stockItemId: line.stockItemId,
-            variance: varianceExact.toNumber(),
+            variance: trueVariance.toNumber(),
           });
         }
 

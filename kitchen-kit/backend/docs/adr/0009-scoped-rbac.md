@@ -194,11 +194,33 @@ snapshot therefore carries the SYMBOL that produced the authority:
 - `BRANCH B` → one unit per explicit branch.
 
 `all: false` with empty lists means **zero** permitted branches. **Omission never
-means unrestricted.** A budget (128 units) guards against pathological assignment
-data — not against branch count, which the representation has removed from the
-equation. **Overflow FAILS CLOSED: the token is refused, never truncated**, with
-an actionable message. Silent truncation would issue a token understating
-authority and would train readers to treat an incomplete set as complete.
+means unrestricted.** A budget (**64 units**) guards against pathological
+assignment data — not against branch count, which the representation has removed
+from the equation. **Overflow FAILS CLOSED: the token is refused, never
+truncated**, with an actionable message. Silent truncation would issue a token
+understating authority and would train readers to treat an incomplete set as
+complete.
+
+> **Amended 2026-09-02 (B1-3 acceptance correction): the budget is 64, was 128.**
+> The 128 figure was an ESTIMATE — *"roughly 45 bytes per rendered entry ... near
+> 6 KB, comfortably inside the ~8 KB header budget of common reverse proxies"*.
+> B1-3 measured it. A worst-allowed 128-unit token serialises to **15,037 bytes**
+> — a **15,061-byte `Authorization` header**, **113.3 bytes per unit** — because
+> an explicit branch id is carried **twice** (as a `branch:<uuid>` scope-set
+> entry *and* as a raw uuid in `pbr.branches`) and the payload is then base64url
+> encoded, expanding it by a further 4/3. That does **not** fit the DEFAULT
+> per-header limit of nginx (`large_client_header_buffers` 8k) or Apache
+> (`LimitRequestFieldSize` 8190). The measured break-even is **67 units**, which
+> is an edge rather than a budget; **64** is the nearest power of two below it
+> and leaves real margin (measured: **7,780-byte header**).
+>
+> **This is an implementation detail, not a change of contract.** The ratified
+> amendment fixed no concrete number: clause 8 requires a *bounded,
+> deterministic* representation with *fail-closed overflow* and *no truncation*,
+> and all three are unchanged. The `FR-API-012` token **shape** is untouched —
+> `scp`, `pbr` and `epo` keep their meanings and their encodings. Only how many
+> units may be carried before the token is refused has moved, and it moved to
+> match a measurement rather than an estimate.
 
 ### D-09 — Branch authorization is an APPLICATION layer; RLS stays tenant-only
 

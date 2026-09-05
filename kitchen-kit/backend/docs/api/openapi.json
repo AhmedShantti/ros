@@ -1319,6 +1319,29 @@
         ],
         "type": "object"
       },
+      "IssueRecoveryGrantDto": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
+          },
+          "ttlMinutes": {
+            "description": "Default and cap enforced server-side in `SyncRecoveryService`.",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "terminalId",
+          "reason"
+        ],
+        "type": "object"
+      },
       "LinkModifierGroupDto": {
         "properties": {
           "defaultSelectionOverride": {
@@ -5606,7 +5629,7 @@
                 }
               }
             },
-            "description": "Missing the required permission."
+            "description": "The required permission is not held by a single role assignment whose scope COVERS this branch (FR-SEC-004); the branch is not active; or the tenant still holds unreviewed role assignments inherited from the scoped-RBAC migration (scopeReviewRequired). The Internal-MVP single-active-branch restriction is retired: a tenant may have any number of active branches."
           },
           "404": {
             "content": {
@@ -6161,7 +6184,7 @@
                 }
               }
             },
-            "description": "Missing the required permission."
+            "description": "The required permission is not held by a single role assignment whose scope COVERS this branch (FR-SEC-004); the branch is not active; or the tenant still holds unreviewed role assignments inherited from the scoped-RBAC migration (scopeReviewRequired). The Internal-MVP single-active-branch restriction is retired: a tenant may have any number of active branches."
           },
           "404": {
             "content": {
@@ -7813,6 +7836,16 @@
               }
             },
             "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named branch is not visible in this tenant — unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists."
           }
         },
         "security": [
@@ -11549,6 +11582,606 @@
         ]
       }
     },
+    "/governance/audit/entries": {
+      "get": {
+        "description": "Filters: actorId, entityType, entityId, action, dateFrom/dateTo, branchId, correlationId — the exact FR-AUD-008 filter set. Ordered by sequenceNo DESC (most recent first); keyset-paginated via `cursor` (the last sequenceNo already seen) — never OFFSET, so no page can skip or duplicate a row. `limit` defaults to 50, max 200. Every call records its own AUDIT_LOG_QUERIED audit entry (FR-AUD-007).",
+        "operationId": "AuditQueryController_search",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "dateFrom",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dateTo",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque continuation token: the `sequenceNo` of the last row already seen.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actorId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entityType",
+            "required": false,
+            "schema": {
+              "maxLength": 48,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entityId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "correlationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "entries": {
+                      "items": {
+                        "properties": {
+                          "action": {
+                            "type": "string"
+                          },
+                          "actorId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "actorType": {
+                            "enum": [
+                              "user",
+                              "anonymous",
+                              "system",
+                              "terminal"
+                            ],
+                            "type": "string"
+                          },
+                          "afterState": {
+                            "type": "null"
+                          },
+                          "approvalId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "approverId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "beforeState": {
+                            "type": "null"
+                          },
+                          "branchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "causationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "correlationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "entityId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "entityType": {
+                            "type": "string"
+                          },
+                          "entryHash": {
+                            "description": "Hex-encoded SHA-256 tamper-evidence hash (FR-AUD-004).",
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "impersonatedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "ipAddress": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "occurredAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "previousHash": {
+                            "description": "Hex-encoded; null for a chain's first entry.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonCode": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonText": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "recordedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "sequenceNo": {
+                            "description": "Per-tenant hash-chain position (BigInt on the wire).",
+                            "type": "string"
+                          },
+                          "tenantId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "terminalId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "userAgent": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A page of audit entries, most recent first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A filter value is malformed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No active tenant context, audit.view is not held, or (when branchId is supplied) no held grant covers that branch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Search/filter the tenant audit log (FR-AUD-008). Requires audit.view.",
+        "tags": [
+          "governance"
+        ]
+      }
+    },
+    "/governance/audit/entries/export": {
+      "get": {
+        "description": "Same six filters as search; dateFrom/dateTo are REQUIRED so every export is bounded. Refused (400) if more than 10,000 records would match — narrow the date range and retry. Not paginated: a bounded, complete result for the requested range in one response, preserving every canonical audit fact and hash-chain field (entryHash, previousHash) verbatim — nothing is re-derived, re-signed, or modified. Every call records its own AUDIT_LOG_EXPORTED audit entry (FR-AUD-007).",
+        "operationId": "AuditQueryController_exportEntries",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "dateFrom",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dateTo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actorId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entityType",
+            "required": false,
+            "schema": {
+              "maxLength": 48,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entityId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "correlationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "entries": {
+                      "items": {
+                        "properties": {
+                          "action": {
+                            "type": "string"
+                          },
+                          "actorId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "actorType": {
+                            "enum": [
+                              "user",
+                              "anonymous",
+                              "system",
+                              "terminal"
+                            ],
+                            "type": "string"
+                          },
+                          "afterState": {
+                            "type": "null"
+                          },
+                          "approvalId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "approverId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "beforeState": {
+                            "type": "null"
+                          },
+                          "branchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "causationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "correlationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "entityId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "entityType": {
+                            "type": "string"
+                          },
+                          "entryHash": {
+                            "description": "Hex-encoded SHA-256 tamper-evidence hash (FR-AUD-004).",
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "impersonatedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "ipAddress": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "occurredAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "previousHash": {
+                            "description": "Hex-encoded; null for a chain's first entry.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonCode": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonText": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "recordedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "sequenceNo": {
+                            "description": "Per-tenant hash-chain position (BigInt on the wire).",
+                            "type": "string"
+                          },
+                          "tenantId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "terminalId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "userAgent": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The complete, bounded set of matching audit entries."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A filter value is malformed, dateFrom/dateTo is missing, or the match count exceeds the 10,000-record export bound."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No active tenant context, audit.view and report.export are not BOTH held, or (when branchId is supplied) no held grant covers that branch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Export the tenant audit log (FR-AUD-008). Requires audit.view AND report.export.",
+        "tags": [
+          "governance"
+        ]
+      }
+    },
     "/health": {
       "get": {
         "operationId": "HealthController_check",
@@ -12814,6 +13447,16 @@
               }
             },
             "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both."
           }
         },
         "security": [
@@ -13018,6 +13661,16 @@
               }
             },
             "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both."
           }
         },
         "security": [
@@ -16550,7 +17203,7 @@
                 }
               }
             },
-            "description": "Unknown or cross-tenant resource."
+            "description": "The named branch is not visible in this tenant — unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists."
           }
         },
         "security": [
@@ -25139,7 +25792,7 @@
     },
     "/reports/branches/{branchId}/daily-trading/{businessDay}": {
       "get": {
-        "description": "Financially-correct, read-only, query-time aggregation over the transactional primary — NOT a read replica, NOT a rollup, NOT a cache (FR-RPT-001/002/003/005 remain NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial (AND). Refused (403) unless the caller's tenant has EXACTLY ONE active branch and the supplied branchId equals it. A future businessDay is 400, never an all-zeros OPEN report. Cash Reconciliation is WHOLE_SESSION scope and PARTIAL (zero-payment/movement-only sessions are not attributable to a business day and are not listed; no day-level variance/expected/counted/movement total is ever emitted). Tax is broken down by class only, never by rate. Money is a decimal (minor-unit) string on the wire, never a JSON number. tenderTotals.completedExcessCapturedTotal (acceptance correction, 2026-08-31) is captured payment value above a completed order’s grand total — P1F-2 permits paidTotal > grandTotal on completion; this term is reconciliation-only, with no revenue/tax/tip/discount/ refund/rounding/variance disposition inferred, and it makes tenderGrandTotal === grossSales + unsettledCapturedTotal + completedExcessCapturedTotal hold exactly.",
+        "description": "Financially-correct, read-only, query-time aggregation over the transactional primary — NOT a read replica, NOT a rollup, NOT a cache (FR-RPT-001/002/003/005 remain NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial (AND), held by a single role assignment whose scope COVERS this branch (FR-SEC-004). The Internal-MVP single-active-branch restriction is retired: a tenant may have any number of active branches. Refused (403) if the branch is not active, or if the tenant still holds unreviewed role assignments inherited from the scoped-RBAC migration. A future businessDay is 400, never an all-zeros OPEN report. Cash Reconciliation is WHOLE_SESSION scope and PARTIAL (zero-payment/movement-only sessions are not attributable to a business day and are not listed; no day-level variance/expected/counted/movement total is ever emitted). Tax is broken down by class only, never by rate. Money is a decimal (minor-unit) string on the wire, never a JSON number. tenderTotals.completedExcessCapturedTotal (acceptance correction, 2026-08-31) is captured payment value above a completed order’s grand total — P1F-2 permits paidTotal > grandTotal on completion; this term is reconciliation-only, with no revenue/tax/tip/discount/ refund/rounding/variance disposition inferred, and it makes tenderGrandTotal === grossSales + unsettledCapturedTotal + completedExcessCapturedTotal hold exactly.",
         "operationId": "ReportingController_getDailyTradingReport",
         "parameters": [
           {
@@ -25614,7 +26267,7 @@
                 }
               }
             },
-            "description": "A PIN/POS session; no active tenant context; missing either report.view.sales or report.view.financial; the tenant has zero or more than one active branch; or branchId is visible in the tenant but is not that single active branch."
+            "description": "A PIN/POS session; no active tenant context; report.view.sales and report.view.financial are not both held by one assignment covering this branch; the branch is not active; or the tenant still holds unreviewed migration-inherited role assignments (scopeReviewRequired)."
           },
           "404": {
             "content": {
@@ -25642,7 +26295,7 @@
             "bearer": []
           }
         ],
-        "summary": "Branch daily-trading report (Internal-MVP: dashboard-only, one tenant, exactly one active branch).",
+        "summary": "Branch daily-trading report (dashboard-only; authorized against the branch it names).",
         "tags": [
           "reporting"
         ]
@@ -26123,6 +26776,366 @@
           }
         ],
         "summary": "Upload a batch of offline operations",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/v1/sync/recovery/grants": {
+      "post": {
+        "operationId": "SyncRecoveryController_issueGrant_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueRecoveryGrantDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "issuedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "pending"
+                      ],
+                      "type": "string"
+                    },
+                    "terminalId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recovery grant."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid ttlMinutes."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Terminal not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Terminal is active, or a pending grant already exists for it."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Authorize a bounded, one-shot recovery upload window for a disabled or revoked terminal's committed offline backlog (D1-1 GD-D1-07).",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/v1/sync/recovery/{grantId}/batch": {
+      "post": {
+        "operationId": "SyncRecoveryController_uploadRecoveryBatch_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "grantId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncBatchDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "batchId": {
+                      "description": "The batch id the client supplied, echoed unchanged.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "clockSkewExceededThreshold": {
+                      "description": "True when the skew exceeded the configured threshold (default 5 minutes). The skew is recorded and an alert raised; the operations are still accepted and their original timestamps preserved.",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "clockSkewMs": {
+                      "description": "Largest observed |device HLC physical clock − server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042).",
+                      "example": 1200,
+                      "type": "integer"
+                    },
+                    "counts": {
+                      "description": "Per-status totals for this batch.",
+                      "properties": {
+                        "accepted": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "conflict": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "deferred": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "duplicate": {
+                          "example": 0,
+                          "type": "integer"
+                        },
+                        "rejected": {
+                          "example": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "accepted",
+                        "duplicate",
+                        "conflict",
+                        "rejected",
+                        "deferred"
+                      ],
+                      "type": "object"
+                    },
+                    "protocolVersion": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "receivedAt": {
+                      "description": "The server's own receipt instant.",
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "description": "True when this batch had already been completed and the stored response was replayed verbatim. Nothing was re-applied (FR-OFF-025).",
+                      "example": false,
+                      "type": "boolean"
+                    },
+                    "results": {
+                      "description": "One result per submitted operation, in submission order.",
+                      "items": {
+                        "properties": {
+                          "conflictId": {
+                            "description": "The sync.conflict_records row raised for this operation, when status is conflict.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "definitive": {
+                            "description": "True exactly when the client may delete this operation from its outbox. Restated as a field so a client never has to hard-code the status vocabulary to decide.",
+                            "example": true,
+                            "type": "boolean"
+                          },
+                          "detail": {
+                            "description": "Handler-supplied result detail, echoed to the client.",
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          },
+                          "opId": {
+                            "description": "The client-generated operation id, echoed back UNCHANGED — FR-OFF-015: the server never reassigns an identifier.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "reasonCode": {
+                            "description": "Machine-readable reason. Always present on rejected, conflict and deferred, so a client can decide between dead-lettering, fixing and resending, or waiting for a causal parent.",
+                            "example": "causal_parent_missing",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reasonDetail": {
+                            "description": "Human-readable explanation.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "description": "accepted | duplicate | conflict | rejected are DEFINITIVE — the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024).",
+                            "enum": [
+                              "accepted",
+                              "duplicate",
+                              "conflict",
+                              "rejected",
+                              "deferred"
+                            ],
+                            "example": "accepted",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "opId",
+                          "status",
+                          "definitive"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "batchId",
+                    "receivedAt",
+                    "protocolVersion",
+                    "replayed",
+                    "counts",
+                    "clockSkewMs",
+                    "clockSkewExceededThreshold",
+                    "results"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-operation results — identical shape to ordinary sync."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed envelope, oversized batch, or deviceId mismatch."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Caller lacks identity.terminal.manage at the grant’s branch."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Recovery grant not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Grant expired, revoked, or already consumed for a different batch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload one batch of a revoked terminal's committed offline backlog, authenticated as the admin who holds (or was granted) recovery authority for it — never as the terminal itself (see the service docblock for why).",
         "tags": [
           "sync"
         ]

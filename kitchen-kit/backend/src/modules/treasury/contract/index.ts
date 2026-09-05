@@ -10,3 +10,4 @@ export * from './cash-movement-totals.query';
 export * from './daily-cash-reconciliation.query';
 export * from './day-close-state.query';
 export * from './events';
+export * from './scope-target.resolvers';

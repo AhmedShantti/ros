@@ -20,6 +20,7 @@ import { WorkforceModule } from './modules/workforce/workforce.module';
 import { ReportingModule } from './modules/reporting/reporting.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SyncModule } from './modules/sync/sync.module';
+import { PlatformModule } from './modules/platform/platform.module';
 
 @Module({
   imports: [
@@ -83,6 +84,16 @@ import { SyncModule } from './modules/sync/sync.module';
     // isolation. Ships ZERO domain operation handlers by design; domains attach
     // in D4-1B via `@SyncOperationHandlerFor`.
     SyncModule,
+    // Platform bounded context (SCHED-1, migration 39) — durable scheduled job
+    // execution: `platform.job_schedules` / `job_occurrences` / `job_findings`,
+    // a multi-instance-safe claim lease, bounded retry, and the tick that
+    // drives them. Ships ZERO job handlers by design; domains attach by
+    // declaring a provider carrying `@ScheduledJobHandlerFor` in their own
+    // module. Imported after the domains so their handlers are already
+    // constructed when the registry scans the container at `onModuleInit`
+    // (Nest constructs every provider app-wide before any lifecycle hook, so
+    // this is documentation of intent rather than a load-order dependency).
+    PlatformModule,
   ],
 })
 export class AppModule {}

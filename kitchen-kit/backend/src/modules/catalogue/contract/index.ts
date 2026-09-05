@@ -9,3 +9,4 @@
  * — see `module-boundaries.spec.ts`.
  */
 export * from './fire-facts.query';
+export * from './scope-target.resolvers';

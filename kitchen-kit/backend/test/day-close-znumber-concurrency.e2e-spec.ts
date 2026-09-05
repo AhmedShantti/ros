@@ -11,10 +11,10 @@ import {
 } from './../src/modules/sales/contract';
 import { DayCloseSalesFactsQueryService } from './../src/modules/sales/orders/day-close-sales-facts.query.service';
 import { DayCloseService } from './../src/modules/treasury/day-close/day-close.service';
-import { TREASURY_PERMISSIONS } from './../src/modules/treasury/treasury.permissions';
 import { Prisma } from './../src/generated/prisma/client';
 import { createMigratorClient } from './rls-admin';
 import {
+  dayCloseAuthorization,
   activatePastEpoch,
   branchBusinessDay,
   createDayCloseFixture,
@@ -109,8 +109,6 @@ describe('DayClose — Z-number concurrency (e2e)', () => {
   let seedN = 0;
   const seed = () => `${stamp}${(seedN++).toString(36)}`;
 
-  const DAY_CLOSE_PERMISSIONS = new Set([TREASURY_PERMISSIONS.CASH_DAY_CLOSE]);
-
   async function mkFx(): Promise<{
     fx: DayCloseFixture;
     dayD: Date;
@@ -134,7 +132,7 @@ describe('DayClose — Z-number concurrency (e2e)', () => {
       fx.tenantId,
       fx.employeeUserId,
       { employeeId: fx.employeeId, terminalId: fx.terminalId },
-      DAY_CLOSE_PERMISSIONS,
+      dayCloseAuthorization(fx),
       { branchId: fx.branchId, businessDay },
     );
   }

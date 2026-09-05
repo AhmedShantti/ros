@@ -529,14 +529,68 @@ describe('Catalogue (e2e)', () => {
         .expect(409);
     });
 
-    it('an unassigned branch resolves to no menus (no implicit global menu)', async () => {
+    it('a REAL branch with no assignment resolves to no menus (no implicit global menu)', async () => {
+      // C-01's actual claim: menus are never implicitly global, so a branch that
+      // exists in this tenant and has nothing assigned resolves to nothing.
+      // B1-3 correction: this must be asserted against a REAL branch — a
+      // non-existent id is now a tenant-safe 404 (next test), so using one here
+      // would have stopped testing C-01 at all.
+      const brand = await admin.brand.create({
+        data: { id: newId(), tenantId: tenantAId, name: `Brand E${stamp}` },
+      });
+      const empty = await admin.branch.create({
+        data: {
+          id: newId(),
+          tenantId: tenantAId,
+          brandId: brand.id,
+          code: `CE${stamp % 10000}`,
+          name: 'Empty',
+          timezone: 'Africa/Cairo',
+          baseCurrency: 'EGP',
+          countryCode: 'EG',
+        },
+      });
+      await admin.location.create({
+        data: {
+          id: newId(),
+          tenantId: tenantAId,
+          locationType: 'branch',
+          refId: empty.id,
+          branchId: empty.id,
+        },
+      });
+
       const res = (
         await request(http)
-          .get(`/catalogue/branches/${newId()}/menus`)
+          .get(`/catalogue/branches/${empty.id}/menus`)
           .set(auth(tokenA))
           .expect(200)
       ).body as { menus: unknown[] };
       expect(res.menus).toHaveLength(0);
+    });
+
+    /**
+     * B1-3 ACCEPTANCE CORRECTION. This route previously answered `200 []` for a
+     * branch that does not exist — the business operation ran with no scope
+     * decision, because the guard deferred whenever a target could not be
+     * resolved. An unresolvable target now terminates BEFORE the handler, with
+     * the repository's ordinary tenant-safe 404, byte-identical for a branch
+     * that belongs to another tenant and one that belongs to nobody.
+     */
+    it('an UNKNOWN branch is a tenant-safe 404, not an empty page', async () => {
+      const absent = await request(http)
+        .get(`/catalogue/branches/${newId()}/menus`)
+        .set(auth(tokenA));
+      expect(absent.status).toBe(404);
+      expect(absent.body).not.toHaveProperty('menus');
+
+      const foreign = await request(http)
+        .get(`/catalogue/branches/${branchB}/menus`)
+        .set(auth(tokenA));
+      expect(foreign.status).toBe(404);
+      expect((foreign.body as { message: string }).message).toBe(
+        (absent.body as { message: string }).message,
+      );
     });
   });
 

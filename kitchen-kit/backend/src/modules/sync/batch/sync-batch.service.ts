@@ -2,10 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import type {
-  SyncOperationContext,
-  SyncOperationHandler,
-  SyncOperationOutcome,
+import { ActorResolutionCache } from '../auth/actor-resolution.cache';
+import {
+  SyncOperationRejectedError,
+  type SyncOperationContext,
+  type SyncOperationHandler,
+  type SyncOperationOutcome,
 } from '../contract/sync-operation-handler';
 import { DeviceStateService } from '../device/device-state.service';
 import { parseHlc } from '../hlc/hlc';
@@ -59,6 +61,15 @@ interface ChunkBase {
   readonly prepared: readonly PreparedOperation[];
   readonly dedup: ReadonlyMap<string, DedupRow>;
   readonly settledInBatch: Map<string, SyncOperationStatus>;
+  /**
+   * D4-1B ACCEPTANCE CORRECTION — `NFR-PERF-032`. Constructed ONCE per
+   * `run()` call (one `POST /v1/sync/batch` request) below, and threaded
+   * unchanged into every chunk of this batch, fast-path attempt and
+   * safe-path fallback alike — see `actor-resolution.cache.ts` for why that
+   * reuse is sound. Never constructed anywhere else, so it can never survive
+   * past this one batch.
+   */
+  readonly actorCache: ActorResolutionCache;
 }
 
 interface DedupRow {
@@ -251,9 +262,15 @@ export class SyncBatchService {
     const parentSettlement = (opId: string): ParentSettlement => {
       const row = dedup.get(opId);
       if (!row) return 'unknown';
-      // `accepted` means applied. `conflict`/`rejected` are settled definitively
-      // WITHOUT being applied, so a child of one can never become applicable.
-      return row.status === 'accepted' ? 'applied' : 'not-applied';
+      // `accepted` means applied. `rejected` is settled definitively WITHOUT
+      // being applied and structurally never can be — see `operation-
+      // scheduler.ts`'s docblock for why `conflict` is classified separately
+      // (D4-1B review of D4-1A's own flagged §15 concern): a conflict may
+      // still be resolved in the parent's favour outside this batch, so its
+      // children are retried, not permanently dead-lettered.
+      if (row.status === 'accepted') return 'applied';
+      if (row.status === 'rejected') return 'not-applied';
+      return 'conflicted';
     };
 
     const schedule = scheduleOperations(
@@ -295,6 +312,11 @@ export class SyncBatchService {
     const expiresAt = new Date(
       receivedAt.getTime() + SYNC_DEDUP_RETENTION_DAYS * 24 * 60 * 60 * 1000,
     );
+    // D4-1B ACCEPTANCE CORRECTION — `NFR-PERF-032`: ONE cache for the WHOLE
+    // batch (every chunk, fast path and any safe-path fallback), never
+    // reconstructed per chunk and never reused across a different `run()`
+    // call. See `ChunkBase.actorCache` and `actor-resolution.cache.ts`.
+    const actorCache = new ActorResolutionCache();
     const order = [...schedule.order];
     for (
       let start = 0;
@@ -312,6 +334,7 @@ export class SyncBatchService {
         prepared,
         dedup,
         settledInBatch,
+        actorCache,
       };
       // Snapshot, so a fast-path abort cannot leave half of the chunk's
       // statuses recorded before the safe re-run recomputes them.
@@ -534,11 +557,22 @@ export class SyncBatchService {
     this.logger.warn(
       `Operation ${prepared.dto.opId} (${prepared.dto.type}) rejected: ${message}`,
     );
-    const rejected = this.rejectedResult(
-      prepared.dto.opId,
-      SYNC_REASON.HANDLER_ERROR,
-      message,
-    );
+    // A handler that threw `SyncOperationRejectedError` gets ITS reasonCode —
+    // e.g. `authorization_denied`, `resource_not_found` — instead of the
+    // generic `handler_error` bucket, so the CONFLICT CONTRACT (§14) stays
+    // machine-readable for a production rejection, not just a kernel fault.
+    const rejected =
+      attempt.error instanceof SyncOperationRejectedError
+        ? this.rejectedResult(
+            prepared.dto.opId,
+            attempt.error.reasonCode,
+            attempt.error.message,
+          )
+        : this.rejectedResult(
+            prepared.dto.opId,
+            SYNC_REASON.HANDLER_ERROR,
+            message,
+          );
     // Recorded in its OWN savepoint, so a collision here cannot abort the chunk
     // and take its successful siblings down with it.
     const settleName = `sync_sp_${(this.savepointCounter += 1)}`;
@@ -606,6 +640,14 @@ export class SyncBatchService {
     // The scheduler ordered parents first, but a parent's OUTCOME is only known
     // once it has run. A child of a parent that did not end up applied must not
     // be applied either.
+    //
+    // D4-1B — a parent that settled `conflict` gets the SAME treatment here as
+    // `parentSettlement()` above gives a parent already in the dedup registry
+    // (see that closure's comment, and operation-scheduler.ts's "WHY A
+    // CONFLICTED PARENT DEFERS, NOT REJECTS"): `conflict` is not proof the
+    // parent's effect can never apply, so its child is DEFERRED — retryable —
+    // rather than definitively REJECTED. Only `rejected` (and the scheduler's
+    // own pre-computed `deferred`) get their prior treatment unchanged.
     if (dto.causedBy) {
       const parentStatus = base.settledInBatch.get(dto.causedBy);
       if (
@@ -613,19 +655,24 @@ export class SyncBatchService {
         parentStatus !== SYNC_OPERATION_STATUS.ACCEPTED &&
         parentStatus !== SYNC_OPERATION_STATUS.DUPLICATE
       ) {
-        const deferred = parentStatus === SYNC_OPERATION_STATUS.DEFERRED;
+        const nonDefinitive =
+          parentStatus === SYNC_OPERATION_STATUS.DEFERRED ||
+          parentStatus === SYNC_OPERATION_STATUS.CONFLICT;
         return {
           kind: 'result',
           settle: false,
           result: {
             opId: dto.opId,
-            status: deferred
+            status: nonDefinitive
               ? SYNC_OPERATION_STATUS.DEFERRED
               : SYNC_OPERATION_STATUS.REJECTED,
-            definitive: !deferred,
-            reasonCode: deferred
-              ? SYNC_REASON.CAUSAL_PARENT_MISSING
-              : SYNC_REASON.CAUSAL_PARENT_REJECTED,
+            definitive: !nonDefinitive,
+            reasonCode:
+              parentStatus === SYNC_OPERATION_STATUS.CONFLICT
+                ? SYNC_REASON.CAUSAL_PARENT_CONFLICTED
+                : parentStatus === SYNC_OPERATION_STATUS.DEFERRED
+                  ? SYNC_REASON.CAUSAL_PARENT_MISSING
+                  : SYNC_REASON.CAUSAL_PARENT_REJECTED,
             reasonDetail: `Causal parent ${dto.causedBy} resolved as ${parentStatus}.`,
           },
         };
@@ -697,6 +744,7 @@ export class SyncBatchService {
       occurredAt: new Date(dto.occurredAt),
       schemaVersion: dto.schemaVersion,
       payload: dto.payload,
+      actorCache: base.actorCache,
     };
   }
 

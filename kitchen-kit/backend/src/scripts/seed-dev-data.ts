@@ -54,6 +54,10 @@ import {
   REPORTING_PERMISSIONS,
   REPORTING_PERMISSION_DEFS,
 } from '../modules/reporting/reporting.permissions';
+import {
+  AUDIT_PERMISSIONS,
+  AUDIT_PERMISSION_DEFS,
+} from '../modules/governance/audit/audit.permissions';
 
 /**
  * One-shot local-dev data seeder — NOT wired to any HTTP route, run manually:
@@ -111,6 +115,7 @@ async function main(): Promise<void> {
     ...TREASURY_PERMISSION_DEFS,
     ...KDS_PERMISSION_DEFS,
     ...REPORTING_PERMISSION_DEFS,
+    ...AUDIT_PERMISSION_DEFS,
   ]);
 
   // ---------------------------------------------------------------- tenant --
@@ -159,6 +164,7 @@ async function main(): Promise<void> {
     ...Object.values(TREASURY_PERMISSIONS),
     ...Object.values(KDS_PERMISSIONS),
     ...Object.values(REPORTING_PERMISSIONS),
+    ...Object.values(AUDIT_PERMISSIONS),
   ]);
   // B1-2: scope is MANDATORY and never defaulted. The dev seed grants
   // TENANT scope explicitly, which is what these bootstrap roles mean.

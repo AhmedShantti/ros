@@ -20,7 +20,6 @@ import {
 import { createMigratorClient } from './rls-admin';
 import {
   branchBusinessDay,
-  createActiveBranch,
   createCashSession,
   createReportingFixture,
   dashboardToken,
@@ -89,8 +88,21 @@ describe('Reporting — Snapshot consistency (e2e)', () => {
       tx: Prisma.TransactionClient,
       input: BranchReportingScopeQueryInput,
     ) {
-      if (this.gate) await this.gate.pauseHere();
       return realBranchScope.operativeBranches(tx, input);
+    }
+    /**
+     * B1-3 retired the single-active-branch mask; what the report still asserts
+     * in-transaction is that THIS branch is operative. The gate moved with the
+     * assertion, so this suite still proves the same property — the report's
+     * branch fact is read inside its own RepeatableRead snapshot — about the
+     * check that actually exists now.
+     */
+    async isOperativeBranch(
+      tx: Prisma.TransactionClient,
+      input: { tenantId: string; branchId: string },
+    ) {
+      if (this.gate) await this.gate.pauseHere();
+      return realBranchScope.isOperativeBranch(tx, input);
     }
   }
   const branchScopeStub = new GatedBranchReportingScope();
@@ -146,7 +158,7 @@ describe('Reporting — Snapshot consistency (e2e)', () => {
     salesQueryStub.gate = null;
   });
 
-  it("a branch activated concurrently mid-transaction never changes THIS report's own single-active-branch shape (one RR snapshot for the whole request)", async () => {
+  it("a branch DEACTIVATED concurrently mid-transaction never changes THIS report's own operative-branch answer (one RR snapshot for the whole request)", async () => {
     const fx = await createReportingFixture(app, admin, `${stamp}a`);
     const businessDay = branchBusinessDay(new Date());
     const token = await dashboardToken(http, fx.dashboardEmail, fx.tenantId);
@@ -172,29 +184,32 @@ describe('Reporting — Snapshot consistency (e2e)', () => {
     // AT the single-active-branch read, mid-transaction.
     await gate.waitUntilPaused();
 
-    // Concurrently activate a SECOND branch — a genuinely committed write
-    // from an INDEPENDENT connection, landing strictly after this report's
-    // snapshot was taken.
-    const secondBranchId = await createActiveBranch(
-      admin,
-      fx.tenantId,
-      fx.brandId,
-      `${stamp}a2`,
-    );
+    // Concurrently DEACTIVATE the very branch being reported on — a genuinely
+    // committed write from an INDEPENDENT connection, landing strictly after
+    // this report's snapshot was taken. Before B1-3 the equivalent probe was
+    // activating a SECOND branch; that no longer changes any answer, because the
+    // tenant's branch COUNT stopped being an input when the Internal-MVP mask
+    // was retired. Deactivating THIS branch is the write that would flip the
+    // surviving assertion, so it is the one worth racing.
+    await admin.branch.update({
+      where: { id: fx.branchId },
+      data: { status: 'inactive' },
+    });
     await admin.$queryRaw`SELECT 1`; // force a round-trip so the write is durably visible to any NEW snapshot
 
     gate.release();
     const res = await reportPromise;
 
-    // The report's own snapshot was fixed BEFORE the second branch existed —
-    // it must see the tenant exactly as it was: one active branch, 200.
+    // The report's own snapshot was fixed BEFORE the deactivation committed —
+    // it must see the branch exactly as it was: active, 200.
     expect(res.status).toBe(200);
     expect((res.body as ReportResponseBody).branchId).toBe(fx.branchId);
 
-    // Cleanup: deactivate the second branch so it cannot affect other tests
-    // sharing this dev database (each fixture uses its own fresh tenant, so
-    // this is a courtesy, not a correctness requirement).
-    void secondBranchId;
+    // Restore, so the fixture's branch is left as this suite found it.
+    await admin.branch.update({
+      where: { id: fx.branchId },
+      data: { status: 'active' },
+    });
   });
 
   it("a payment captured concurrently mid-transaction never appears in THIS report's own totals", async () => {
@@ -293,13 +308,13 @@ describe('Reporting — Snapshot consistency (e2e)', () => {
     const token = await dashboardToken(http, fx.dashboardEmail, fx.tenantId);
 
     const seenTx: unknown[] = [];
-    const originalBranchScope = branchScopeStub.operativeBranches.bind(
+    const originalBranchScope = branchScopeStub.isOperativeBranch.bind(
       branchScopeStub,
-    ) as BranchReportingScopeQuery['operativeBranches'];
+    ) as BranchReportingScopeQuery['isOperativeBranch'];
     const originalSalesFacts = salesQueryStub.facts.bind(
       salesQueryStub,
     ) as DailyTradingSalesQuery['facts'];
-    branchScopeStub.operativeBranches = (tx, input) => {
+    branchScopeStub.isOperativeBranch = (tx, input) => {
       seenTx.push(tx);
       return originalBranchScope(tx, input);
     };
@@ -318,7 +333,7 @@ describe('Reporting — Snapshot consistency (e2e)', () => {
       expect(seenTx).toHaveLength(2);
       expect(seenTx[0]).toBe(seenTx[1]);
     } finally {
-      branchScopeStub.operativeBranches = originalBranchScope;
+      branchScopeStub.isOperativeBranch = originalBranchScope;
       salesQueryStub.facts = originalSalesFacts;
     }
   });

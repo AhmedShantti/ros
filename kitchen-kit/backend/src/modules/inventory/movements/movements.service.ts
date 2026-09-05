@@ -33,6 +33,7 @@ import {
   fromExactDecimal,
   isNegative,
   isZero,
+  subtract,
 } from '../../../common/money/rational';
 import { parseExactDecimal } from '../../../common/money/rounding';
 
@@ -145,30 +146,15 @@ export class MovementsService {
       throw new NotFoundException('Location not found.');
     }
 
-    // Pre-read used ONLY for valuation (weighted-average cost input) — never
-    // for the persisted quantity projection, which is computed atomically
-    // below. A concurrent receipt racing this read can still produce a
-    // slightly stale `averageCost`; that valuation-axis race is tracked as a
-    // residual risk (A1-4), same as `SaleDepletionService` never needing to
-    // touch `averageCost` at all.
-    const level = await tx.stockLevel.findUnique({
-      where: {
-        stockItemId_locationId: {
-          stockItemId: input.stockItemId,
-          locationId: input.locationId,
-        },
-      },
-    });
-    const currentQty = level ? Number(level.quantityOnHand) : 0;
-    const currentAvg = level ? level.averageCost : 0n;
-
     // ---- batch selection (outbound only) --------------------------------
     // P1F-2: batch access is routed through the SAME private fifo-cost-ledger
     // kernel `SaleDepletionService` uses, so this path and Completion take
     // compatible FOR UPDATE locks in the SAME deterministic order and can
     // never double-consume or skip a layer on either axis. This is COUNTER
     // MAINTENANCE AND LOCKING ONLY — `valuationUnitCost` below is UNCHANGED,
-    // and how transfers/waste/counts are VALUED is UNCHANGED.
+    // and how transfers/waste/counts are VALUED is UNCHANGED. Batch locks
+    // are taken BEFORE the stock_levels lock below, same relative order as
+    // pre-A1-4 (A1-4 §11: this ordering is preserved unchanged).
     let consumed: { batchId: string; quantity: number; unitCost: bigint }[] =
       [];
     let lockedLayers: LockedBatchLayer[] = [];
@@ -192,6 +178,59 @@ export class MovementsService {
       consumed = selectBatches(lots, qtyAbsNumber, item.batchStrategy).consumed;
     }
 
+    const occurredAt = input.occurredAt ?? new Date();
+
+    // ---- projection (BR-INV-003, ATOMIC, same transaction) ---------------
+    // The additive delta is applied by PostgreSQL itself — never read-then-
+    // absolute-write — so two concurrent movements on the same (item,
+    // location) can never lose an update (CG-01), and `balanceAfter` below
+    // is the database's own returned value, not a JS-computed guess. Mirrors
+    // the already-accepted `SaleDepletionService.writeAllocation` pattern.
+    //
+    // A1-4 (FR-INV-012/BR-INV-003): this is ALSO now the ONE lock-acquisition
+    // point this service uses for `average_cost`. `average_cost` is read
+    // back in the SAME statement that applies this movement's own quantity
+    // delta and holds the row lock — never an earlier, unprotected pre-read
+    // — so the value used to compute a NEW average (inbound) or re-affirmed
+    // on write-back (outbound, which never changes it) is always the
+    // truthful state as of THIS movement's own lock acquisition. A
+    // concurrent writer on the same row genuinely BLOCKS on this statement
+    // (a real PostgreSQL row lock) until it commits — never "both read
+    // stale, one wins" — including the very first receipt ever posted:
+    // the INSERT branch IS the row's creation-and-lock point, so two
+    // concurrent first receipts cannot both believe they created the row
+    // (§10). Previously `average_cost` was read via an EARLIER, unlocked
+    // `stockLevel.findUnique` and later overwritten by an absolute UPDATE —
+    // a lost-update race between two concurrent receipts (and, more subtly,
+    // between a receipt and any concurrent outbound movement on the same
+    // row, whose write-back could silently erase the receipt's committed
+    // average). Batch locking (if any) already happened above, so this
+    // change does not alter this path's lock order.
+    const deltaText = toSignedDecimal6(qty);
+    const projected = await tx.$queryRaw<
+      { quantityOnHand: string; averageCost: bigint }[]
+    >`
+      INSERT INTO "inventory"."stock_levels"
+        ("tenant_id", "stock_item_id", "location_id", "quantity_on_hand")
+      VALUES (${tenantId}::uuid, ${input.stockItemId}::uuid, ${input.locationId}::uuid,
+              ${deltaText}::numeric)
+      ON CONFLICT ("stock_item_id", "location_id") DO UPDATE
+        SET "quantity_on_hand" = "inventory"."stock_levels"."quantity_on_hand" + EXCLUDED."quantity_on_hand"
+      RETURNING "quantity_on_hand"::text AS "quantityOnHand", "average_cost" AS "averageCost"
+    `;
+    const balanceAfter = projected[0].quantityOnHand;
+    // Pre-THIS-movement (quantity, average), derived from the LOCKED
+    // post-upsert row state. `currentAvg` is exact (bigint, straight off
+    // the row); `currentQty` subtracts this movement's own exact delta from
+    // the returned new total using the same Rational arithmetic as the rest
+    // of this file, converting to `Number` only at this existing JS-facing
+    // boundary (mirrors `qtyAbsNumber` above) — not a new float path, and
+    // `weightedAverageCost`'s own arithmetic/rounding contract is untouched.
+    const currentAvg = projected[0].averageCost;
+    const currentQty = Number(
+      toSignedDecimal6(subtract(exact(balanceAfter), qty)),
+    );
+
     // ---- valuation -------------------------------------------------------
     const unitCost = outbound
       ? valuationUnitCost({
@@ -202,26 +241,6 @@ export class MovementsService {
           consumed,
         })
       : (input.unitCost ?? currentAvg);
-
-    const occurredAt = input.occurredAt ?? new Date();
-
-    // ---- projection (BR-INV-003, ATOMIC, same transaction) ---------------
-    // The additive delta is applied by PostgreSQL itself — never read-then-
-    // absolute-write — so two concurrent movements on the same (item,
-    // location) can never lose an update (CG-01), and `balanceAfter` below
-    // is the database's own returned value, not a JS-computed guess. Mirrors
-    // the already-accepted `SaleDepletionService.writeAllocation` pattern.
-    const deltaText = toSignedDecimal6(qty);
-    const projected = await tx.$queryRaw<{ quantityOnHand: string }[]>`
-      INSERT INTO "inventory"."stock_levels"
-        ("tenant_id", "stock_item_id", "location_id", "quantity_on_hand")
-      VALUES (${tenantId}::uuid, ${input.stockItemId}::uuid, ${input.locationId}::uuid,
-              ${deltaText}::numeric)
-      ON CONFLICT ("stock_item_id", "location_id") DO UPDATE
-        SET "quantity_on_hand" = "inventory"."stock_levels"."quantity_on_hand" + EXCLUDED."quantity_on_hand"
-      RETURNING "quantity_on_hand"::text AS "quantityOnHand"
-    `;
-    const balanceAfter = projected[0].quantityOnHand;
 
     const movement = await tx.stockMovement.create({
       data: {
@@ -250,8 +269,11 @@ export class MovementsService {
 
     // ---- valuation pointer (average cost + last-movement, same tx) -------
     // `quantity_on_hand` is NOT written here — it was already applied
-    // atomically above. `averageCost` retains its pre-existing (unlocked,
-    // out-of-scope-for-A1-1) concurrent-receipt race; see comment above.
+    // atomically above. `averageCost` is sourced from the SAME locked read
+    // as the projection above (A1-4): inbound recomputes the weighted
+    // average from it (FR-INV-012), outbound re-affirms it unchanged — both
+    // write back the truthful state, never a value staled by a concurrent
+    // writer that ran between an earlier pre-read and this write.
     const nextAvg = outbound
       ? currentAvg
       : weightedAverageCost(

@@ -673,6 +673,49 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
     expect(violations.filter((v) => v.importer === 'kitchen')).toEqual([]);
   });
 
+  /**
+   * D4-1B ACCEPTANCE CORRECTION — module boundary direction.
+   *
+   * Kitchen no longer imports ANYTHING from `modules/sync` (no
+   * `SyncOperationHandlerFor`, no `SyncOperationContext`, no
+   * `SYNC_AUTHORIZATION_PORT` — all removed from `kitchen/tickets/sync/`,
+   * which no longer exists). The integration handler lives on the OTHER
+   * side of the seam, in `modules/sync/integration/`, and reaches Kitchen
+   * ONLY through `kitchen/contract` (`KDS_OFFLINE_TICKET_OPERATIONS`,
+   * `KDS_PERMISSIONS`) — never a private `kitchen/tickets/...` path. Both
+   * directions therefore add ZERO `KNOWN_DEVIATIONS` entries — the strict
+   * form of "no new module-boundary deviation" this correction requires.
+   */
+  it('Kitchen never imports Sync, and Sync reaches Kitchen only through kitchen/contract — zero new KNOWN_DEVIATIONS either direction', () => {
+    expect(KNOWN_DEVIATIONS['kitchen->sync']).toBeUndefined();
+    expect(KNOWN_DEVIATIONS['sync->kitchen']).toBeUndefined();
+    expect(
+      violations.filter(
+        (v) => v.importer === 'kitchen' && v.imported === 'sync',
+      ),
+    ).toEqual([]);
+    expect(
+      violations.filter(
+        (v) => v.importer === 'sync' && v.imported === 'kitchen',
+      ),
+    ).toEqual([]);
+
+    const bumpLineHandler = readFileSync(
+      join(
+        MODULES_ROOT,
+        'sync/integration/kds-ticket-bump-line.sync-handler.ts',
+      ),
+      'utf8',
+    );
+    expect(bumpLineHandler).toContain("from '../../kitchen/contract'");
+    const importLines = bumpLineHandler
+      .split('\n')
+      .filter((line) => /^\s*import\b/.test(line));
+    expect(importLines.some((line) => line.includes('kitchen/tickets'))).toBe(
+      false,
+    );
+  });
+
   it('Identity publishes the cross-cutting HTTP/auth surface through contract/http, and Kitchen consumes only that contract', () => {
     const contract = readFileSync(
       join(MODULES_ROOT, 'identity/contract/index.ts'),
@@ -827,13 +870,30 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
    * `@Injectable()` decorator, or a Prisma query-method CALL
    * (`.findMany(`, `.findUnique(`, etc. — an actual query, not a type name).
    */
+  /**
+   * Comments are PROSE, not behaviour, and this detector is about behaviour.
+   *
+   * Stripping them first is what lets a contract file explain itself. Before
+   * B1-3 the raw-source scan fired on any docblock containing the words "class"
+   * followed by another word — "on a controller class when every route ..." was
+   * enough — which pushed contract authors towards writing less explanation in
+   * exactly the files that most need it. Stripping cannot HIDE a violation: a
+   * `class` declaration inside a comment is not a class.
+   */
+  function stripComments(source: string): string {
+    return source
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  }
+
   function containsPersistenceImplementation(source: string): boolean {
+    const code = stripComments(source);
     const QUERY_CALL_RE =
       /\.\s*(findMany|findFirst|findUnique|create|createMany|update|updateMany|upsert|delete|deleteMany|count|aggregate|groupBy)\s*\(/;
     return (
-      /@Injectable\s*\(/.test(source) ||
-      /\bclass\s+\w/.test(source) ||
-      QUERY_CALL_RE.test(source)
+      /@Injectable\s*\(/.test(code) ||
+      /\bclass\s+\w/.test(code) ||
+      QUERY_CALL_RE.test(code)
     );
   }
 
@@ -860,6 +920,29 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
       }
     `;
     expect(containsPersistenceImplementation(cleanContractFixture)).toBe(false);
+
+    // B1-3: prose is not behaviour. A contract that EXPLAINS itself — including
+    // the words the detector's own regexes look for — must stay clean, or the
+    // rule quietly penalises documentation.
+    const cleanContractWithProse = `
+      /**
+       * Placed on a handler, or on a controller class when every route in it
+       * shares one target shape. Do not create(  ) anything here.
+       */
+      // @Injectable() would be a violation — naming it in a comment is not.
+      export const AUTHORIZATION_TARGET = Symbol('AUTHORIZATION_TARGET');
+      export interface Spec { readonly kind: 'tenant'; }
+    `;
+    expect(containsPersistenceImplementation(cleanContractWithProse)).toBe(
+      false,
+    );
+
+    // ...and a violation hiding BELOW a comment is still caught.
+    const badContractBelowProse = `
+      // a perfectly innocent comment
+      export class Sneaky {}
+    `;
+    expect(containsPersistenceImplementation(badContractBelowProse)).toBe(true);
   });
 
   it('Organisation contract/ contains interface/types only — no persistence implementation', () => {

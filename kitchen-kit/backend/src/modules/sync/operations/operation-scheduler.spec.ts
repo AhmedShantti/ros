@@ -73,6 +73,20 @@ describe('FR-OFF-022 causal scheduling', () => {
     expect(block?.reasonCode).toBe(SYNC_REASON.CAUSAL_PARENT_REJECTED);
   });
 
+  it('D4-1B: defers — does not reject — a child whose parent settled as a conflict', () => {
+    // A `conflict` parent may still be resolved manually in the parent's
+    // favour (`sync.conflict_records.resolution === 'manual_pending'`),
+    // unlike a `rejected` parent which structurally can never apply. See
+    // operation-scheduler.ts's "WHY A CONFLICTED PARENT DEFERS, NOT REJECTS".
+    const ops = [op('child', 100, 'conflicted-parent')];
+    const schedule = scheduleOperations(ops, (id) =>
+      id === 'conflicted-parent' ? 'conflicted' : 'unknown',
+    );
+    const block = schedule.blocked.get(0);
+    expect(block?.status).toBe(SYNC_OPERATION_STATUS.DEFERRED);
+    expect(block?.reasonCode).toBe(SYNC_REASON.CAUSAL_PARENT_CONFLICTED);
+  });
+
   it('cascades a block down a chain, and does not schedule the descendants', () => {
     const ops = [op('a', 100, 'absent'), op('b', 200, 'a'), op('c', 300, 'b')];
     const schedule = scheduleOperations(ops, noParents);

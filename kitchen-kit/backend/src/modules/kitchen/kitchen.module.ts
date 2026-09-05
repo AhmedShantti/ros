@@ -5,10 +5,16 @@ import { KdsStationGuard } from './auth/kds-station.guard';
 import { KitchenController } from './kitchen.controller';
 import { OrderLineFiredHandler } from './tickets/order-line-fired.handler';
 import { KdsOperationsService } from './tickets/kds-operations.service';
+import { KdsOfflineTicketOperationsService } from './tickets/kds-offline-ticket-operations.service';
 import { TicketPersistenceService } from './tickets/ticket-persistence.service';
 import { TicketProjectionService } from './tickets/ticket-projection.service';
 import { TicketReaderService } from './tickets/ticket-reader.service';
 import { RoutingResolverService } from './routing/routing-resolver.service';
+import { TicketTargetResolver } from './tickets/scope-target.resolver';
+import {
+  KDS_OFFLINE_TICKET_OPERATIONS,
+  KDS_TICKET_TARGET_RESOLVER,
+} from './contract';
 
 /**
  * Kitchen Ops bounded context (P1E-3, P1E-5, KDS operator lifecycle).
@@ -41,11 +47,24 @@ import { RoutingResolverService } from './routing/routing-resolver.service';
  * P1E-5: registered in `app.module.ts` so the handler is actually discovered
  * at bootstrap (P1E-3/P1E-4 deliberately left this module out, since nothing
  * called `RoutingResolverService` yet — that caller now exists).
+ *
+ * ── D4-1B ACCEPTANCE CORRECTION — MODULE BOUNDARY ──────────────────────────
+ * Kitchen no longer imports `SyncModule`, and no `@SyncOperationHandlerFor`
+ * provider lives here. Kitchen publishes `KDS_OFFLINE_TICKET_OPERATIONS`
+ * (`contract/offline-ticket-operations.ts`) — a plain, tx-scoped domain
+ * operation with no Sync vocabulary in it — and `modules/sync/integration/`
+ * is the ONLY place that imports it to register the actual sync handler.
+ * This inverts the first implementation's dependency direction: the
+ * INTEGRATION layer now depends on Kitchen's published contract, not Kitchen
+ * depending on Sync's registration/authorization internals. See that
+ * contract file's docblock for the full correction rationale.
  */
 @Module({
   imports: [IdentityModule, OrganisationModule],
   controllers: [KitchenController],
   providers: [
+    TicketTargetResolver,
+    { provide: KDS_TICKET_TARGET_RESOLVER, useExisting: TicketTargetResolver },
     RoutingResolverService,
     TicketPersistenceService,
     TicketProjectionService,
@@ -53,7 +72,17 @@ import { RoutingResolverService } from './routing/routing-resolver.service';
     OrderLineFiredHandler,
     KdsOperationsService,
     KdsStationGuard,
+    KdsOfflineTicketOperationsService,
+    {
+      provide: KDS_OFFLINE_TICKET_OPERATIONS,
+      useExisting: KdsOfflineTicketOperationsService,
+    },
   ],
-  exports: [RoutingResolverService, TicketReaderService],
+  exports: [
+    KDS_TICKET_TARGET_RESOLVER,
+    RoutingResolverService,
+    TicketReaderService,
+    KDS_OFFLINE_TICKET_OPERATIONS,
+  ],
 })
 export class KitchenModule {}
