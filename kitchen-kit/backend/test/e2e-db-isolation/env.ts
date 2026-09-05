@@ -17,27 +17,36 @@ import 'dotenv/config';
 export interface HarnessBaseEnv {
   migratorBaseUrl: string;
   appBaseUrl: string;
+  partitionAdminBaseUrl: string;
   migratorRoleName: string;
   appRoleName: string;
   appRolePassword: string;
+  partitionAdminRoleName: string;
+  partitionAdminPassword: string;
 }
 
 export function loadHarnessBaseEnv(): HarnessBaseEnv {
   const migratorBaseUrl = process.env.DATABASE_URL;
   const appBaseUrl = process.env.APP_DATABASE_URL;
-  if (!migratorBaseUrl || !appBaseUrl) {
+  const partitionAdminBaseUrl = process.env.PARTITION_ADMIN_DATABASE_URL;
+  if (!migratorBaseUrl || !appBaseUrl || !partitionAdminBaseUrl) {
     throw new Error(
-      'e2e-db-isolation: DATABASE_URL and APP_DATABASE_URL must both be set ' +
-        '(directly, or via .env) before running the e2e suite.',
+      'e2e-db-isolation: DATABASE_URL, APP_DATABASE_URL and ' +
+        'PARTITION_ADMIN_DATABASE_URL must all be set (directly, or via ' +
+        '.env) before running the e2e suite.',
     );
   }
   const migratorUrl = new URL(migratorBaseUrl);
   const appUrl = new URL(appBaseUrl);
+  const partitionAdminUrl = new URL(partitionAdminBaseUrl);
   return {
     migratorBaseUrl,
     appBaseUrl,
+    partitionAdminBaseUrl,
     migratorRoleName: decodeURIComponent(migratorUrl.username),
     appRoleName: decodeURIComponent(appUrl.username),
     appRolePassword: decodeURIComponent(appUrl.password),
+    partitionAdminRoleName: decodeURIComponent(partitionAdminUrl.username),
+    partitionAdminPassword: decodeURIComponent(partitionAdminUrl.password),
   };
 }

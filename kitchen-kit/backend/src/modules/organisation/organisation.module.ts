@@ -54,7 +54,15 @@ import { WarehousesService } from './warehouses/warehouses.service';
   // BRANCH_BRAND_QUERY for the brand->branch limb of the scope lattice. Both
   // sides use `forwardRef()`, exactly as sales <-> treasury already do. No
   // private path is imported in either direction.
-  imports: [forwardRef(() => IdentityModule), AuditModule],
+  //
+  // AUD-1: AuditModule now ALSO imports IdentityModule (for its own new
+  // `AuditQueryController`'s guard chain, the same reason every other
+  // controller-bearing module imports it), which closes a real cycle through
+  // this edge (AuditModule -> IdentityModule -> OrganisationModule ->
+  // AuditModule). `AuditModule` is wrapped in `forwardRef()` here for exactly
+  // the reason `IdentityModule` already is on this same line — no behaviour
+  // changes, only WHEN the reference is resolved.
+  imports: [forwardRef(() => IdentityModule), forwardRef(() => AuditModule)],
   controllers: [OrganisationController],
   providers: [
     LocationsService,

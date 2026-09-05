@@ -36,8 +36,10 @@ export interface E2eDbRuntimeState {
   runId: string;
   migratorBaseUrl: string;
   appBaseUrl: string;
+  partitionAdminBaseUrl: string;
   migratorRoleName: string;
   appRoleName: string;
+  partitionAdminRoleName: string;
   templateDatabaseName: string;
 }
 
