@@ -32,6 +32,7 @@ import { PermissionGuard } from '../../identity/authz/guards/permission.guard';
 import { CurrentTenantContext } from '../../identity/context/current-tenant-context.decorator';
 import type { TenantContext } from '../../identity/context/tenant-context';
 import { TenantContextGuard } from '../../identity/context/tenant-context.guard';
+import { PinService } from '../../identity/employees/pin.service';
 import { WORKFORCE_EMPLOYEE_TARGET_RESOLVER } from '../contract';
 import { WORKFORCE_PERMISSIONS } from '../workforce.permissions';
 import {
@@ -44,6 +45,7 @@ import {
   CreateEmployeeDto,
   DeactivateEmployeeDto,
   SetCompensationDto,
+  SetEmployeePinDto,
   UpdateEmployeeDto,
 } from './employees.dto';
 import { WorkforceEmployeesService } from './employees.service';
@@ -61,7 +63,10 @@ const employeeResourceTarget = () =>
 @UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
 @Controller('workforce/employees')
 export class EmployeesController {
-  constructor(private readonly employees: WorkforceEmployeesService) {}
+  constructor(
+    private readonly employees: WorkforceEmployeesService,
+    private readonly pin: PinService,
+  ) {}
 
   /** FR-HRM-001/002/005 — create a full employee record. */
   @Post()
@@ -191,6 +196,25 @@ export class EmployeesController {
       employeeId,
       dto.branchId,
     );
+  }
+
+  /**
+   * LIVE-DEMO-HOTFIX-1 — set/rotate this employee's POS PIN through the real
+   * Workforce Employees surface. Thin passthrough to the existing
+   * `PinService.setPin` (identity/employees) — no logic duplicated here, and
+   * `PinService.authenticate`'s verification path is completely untouched.
+   */
+  @Post(':employeeId/pin')
+  @AuthorizationTarget(employeeResourceTarget())
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Idempotent()
+  @RequirePermission(WORKFORCE_PERMISSIONS.EMPLOYEE_MANAGE)
+  async setPin(
+    @CurrentTenantContext() context: TenantContext,
+    @Param('employeeId') employeeId: string,
+    @Body() dto: SetEmployeePinDto,
+  ): Promise<void> {
+    await this.pin.setPin(context.tenantId, context.userId, employeeId, dto.pin);
   }
 
   /**

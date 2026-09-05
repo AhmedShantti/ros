@@ -56,6 +56,9 @@ const PUBLIC_ROUTES = new Set([
   'POST /auth/refresh',
   'POST /auth/password/forgot',
   'POST /auth/password/reset',
+  // SIGNUP-1 (FR-PLT-020) — public tenant self-service signup, rate-limited
+  // by a plain IP-keyed `ThrottlerGuard`, not authenticated.
+  'POST /auth/registrations',
 ]);
 
 interface SchemaNode {
@@ -594,6 +597,10 @@ describe('OpenAPI document (e2e)', () => {
     'DELETE /catalogue/items/{itemId}/placements/{categoryId} 204',
     'POST /catalogue/menus/{menuId}/branches 204',
     'DELETE /catalogue/menus/{menuId}/branches/{branchId} 204',
+    // LIVE-DEMO-HOTFIX-1 — thin passthrough to `PinService.setPin`, which
+    // itself returns `Promise<void>`; the controller method's return type is
+    // `Promise<void>` too.
+    'POST /workforce/employees/{employeeId}/pin 204',
   ]);
 
   function isEmptySchema(schema: SchemaNode | undefined): boolean {

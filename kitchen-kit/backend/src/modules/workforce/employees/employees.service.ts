@@ -57,6 +57,26 @@ export interface CreateEmployeeInput {
   department?: string;
 }
 
+/**
+ * LIVE-DEMO-HOTFIX-1 — permission codes for the auto-provisioned "Cashier"
+ * role granted to a brand-new POS employee (no pre-existing `userId`
+ * supplied). Declared as plain string literals, NOT imported from
+ * `sales.permissions`/`catalogue.permissions`, to avoid two new
+ * `workforce->sales`/`workforce->catalogue` module-boundary edges for six
+ * permission codes — the exact `workforce->organisation` literal-code
+ * precedent already used by `attendance.service.ts`'s own
+ * `settings.branch.manage` reference. These six codes are verbatim the same
+ * ones `seed-dev-data.ts` grants its own seeded Cashier role.
+ */
+const AUTO_CASHIER_PERMISSION_CODES = [
+  'pos.order.create',
+  'pos.order.fire',
+  'pos.order.void_line_prefire',
+  'menu.item.read',
+  'menu.price.read',
+  'menu.availability.read',
+] as const;
+
 export interface UpdateEmployeeInput {
   displayName?: string;
   employmentType?: EmploymentType;
@@ -123,12 +143,36 @@ export class WorkforceEmployeesService {
     }
   }
 
-  /** FR-HRM-001/002/005. */
+  /**
+   * FR-HRM-001/002/005.
+   *
+   * LIVE-DEMO-HOTFIX-1: when the caller does NOT supply an existing `userId`
+   * (the common case — a brand-new POS-only hire with no prior account), this
+   * method ALSO auto-provisions, inline on this SAME transaction (mirroring
+   * `RegistrationsService.register()`'s own inline-`tx` composition, since
+   * `withAuthContext` cannot nest): a minimal internal `User` (a real email is
+   * required by the schema and this employee has none — see
+   * `SYNTHETIC_EMAIL_SUFFIX` below — and NO password credential, since a PIN,
+   * set separately via `POST /workforce/employees/:employeeId/pin`, is this
+   * user's only ever credential), an ACTIVE `Membership`, and a tenant-owned
+   * "Cashier" `Role` (reused by name if one already exists) holding the same
+   * minimal POS permission set `seed-dev-data.ts`'s own seeded Cashier role
+   * gets, assigned at BRANCH scope on `homeBranchId` only (least privilege for
+   * a single-branch hire). Without this, an employee created through the real
+   * UI could never pass `POST /auth/pin` (no `userId` ⇒ `PinService.
+   * authenticate` fails at its very first employee check) — see the
+   * LIVE-DEMO-HOTFIX-1 report for the full root-cause trace.
+   *
+   * The pre-existing `userId`-supplied path (linking an already-provisioned
+   * user) is completely unchanged.
+   */
   async create(tenantId: string, actorId: string, input: CreateEmployeeInput) {
     return this.prisma.withAuthContext(
       { userId: actorId, tenantId },
       async (tx) => {
         await this.assertBranch(tx, input.homeBranchId);
+
+        let linkedUserId: string | undefined = input.userId;
 
         if (input.userId !== undefined) {
           const user = await tx.user.findUnique({
@@ -149,19 +193,48 @@ export class WorkforceEmployeesService {
           }
         }
 
+        const employeeId = newId();
+        let autoProvisioned = false;
+        if (linkedUserId === undefined) {
+          autoProvisioned = true;
+          linkedUserId = newId();
+          // The schema requires a globally-unique, non-null email; a POS-only
+          // employee has none. This is a technical necessity of `users.email
+          // NOT NULL UNIQUE`, not a business feature — the address is never
+          // shown anywhere and can never be used to sign in with a password
+          // (no password credential is ever created for this user).
+          const syntheticEmail = `pos-employee-${employeeId}@employees.ros.internal`;
+          await tx.user.create({
+            data: {
+              id: linkedUserId,
+              email: syntheticEmail,
+              displayName: input.displayName,
+              preferredLocale: 'ar',
+            },
+          });
+          await tx.membership.create({
+            data: {
+              id: newId(),
+              userId: linkedUserId,
+              tenantId,
+              status: 'active',
+            },
+          });
+        }
+
         let employee: Prisma.EmployeeGetPayload<{
           select: typeof EMPLOYEE_SELECT;
         }>;
         try {
           employee = await tx.employee.create({
             data: {
-              id: newId(),
+              id: employeeId,
               tenantId,
               code: input.code,
               displayName: input.displayName,
               homeBranchId: input.homeBranchId,
               employmentType: input.employmentType,
-              ...(input.userId !== undefined ? { userId: input.userId } : {}),
+              ...(linkedUserId !== undefined ? { userId: linkedUserId } : {}),
               ...(input.namesLocalized !== undefined
                 ? {
                     namesLocalized: input.namesLocalized,
@@ -222,6 +295,16 @@ export class WorkforceEmployeesService {
           });
         }
 
+        if (autoProvisioned && linkedUserId !== undefined) {
+          await this.grantAutoCashierRole(
+            tx,
+            tenantId,
+            actorId,
+            linkedUserId,
+            input.homeBranchId,
+          );
+        }
+
         await this.audit.record(tx, {
           tenantId,
           action: AUDIT_ACTION.EMPLOYEE_CREATED,
@@ -234,13 +317,100 @@ export class WorkforceEmployeesService {
             employmentType: employee.employmentType,
             homeBranchId: employee.homeBranchId,
             permittedBranchCount: permitted.size,
-            linkedUser: input.userId !== undefined,
+            linkedUser: linkedUserId !== undefined,
+            autoProvisionedIdentity: autoProvisioned,
           },
         });
 
         return { ...employee, permittedBranchIds: [...permitted] };
       },
     );
+  }
+
+  /**
+   * LIVE-DEMO-HOTFIX-1 — grant the minimal POS "Cashier" role, at BRANCH
+   * scope, to a freshly auto-provisioned employee's membership. Reuses (by
+   * name) a "Cashier" role already created for a previous auto-provisioned
+   * employee in this tenant rather than duplicating it. Mirrors
+   * `MembershipRolesService.create`'s exact write shape (assignment insert +
+   * epoch bump + audit, all atomic with the caller's transaction) and
+   * `RegistrationsService.register()`'s own inline-`tx` role-grant pattern.
+   */
+  private async grantAutoCashierRole(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    actorId: string,
+    userId: string,
+    homeBranchId: string,
+  ): Promise<void> {
+    let role = await tx.role.findFirst({
+      where: { tenantId, name: 'Cashier', isSystem: false },
+      select: { id: true },
+    });
+    if (!role) {
+      role = await tx.role.create({
+        data: {
+          id: newId(),
+          tenantId,
+          name: 'Cashier',
+          description:
+            'Minimal POS order-capture role — auto-provisioned for employees created without an existing user.',
+          isSystem: false,
+        },
+        select: { id: true },
+      });
+      for (const code of AUTO_CASHIER_PERMISSION_CODES) {
+        const permission = await tx.permission.findUnique({ where: { code } });
+        if (!permission) continue; // defensive: catalog bootstrap should have run at signup
+        await tx.rolePermission.upsert({
+          where: {
+            roleId_permissionId: { roleId: role.id, permissionId: permission.id },
+          },
+          update: {},
+          create: { roleId: role.id, permissionId: permission.id },
+        });
+      }
+    }
+
+    const membership = await tx.membership.findUnique({
+      where: { userId_tenantId: { userId, tenantId } },
+      select: { id: true },
+    });
+    if (!membership) return; // unreachable: this method only runs right after creating it
+
+    const membershipRoleId = newId();
+    await tx.membershipRole.create({
+      data: {
+        id: membershipRoleId,
+        tenantId,
+        membershipId: membership.id,
+        roleId: role.id,
+        scopeType: 'branch',
+        scopeBrandId: null,
+        scopeBranchId: homeBranchId,
+        origin: 'explicit',
+      },
+    });
+    await tx.membership.update({
+      where: { id: membership.id },
+      data: { authzEpoch: { increment: 1 } },
+    });
+    await this.audit.record(tx, {
+      tenantId,
+      action: AUDIT_ACTION.ROLE_ASSIGNED,
+      entityType: AUDIT_ENTITY.ROLE_ASSIGNMENT,
+      actorType: 'user',
+      actorId,
+      entityId: membershipRoleId,
+      metadata: {
+        membershipId: membership.id,
+        roleId: role.id,
+        scopeType: 'branch',
+        scopeBrandId: null,
+        scopeBranchId: homeBranchId,
+        origin: 'explicit',
+      },
+    });
   }
 
   /** FR-HRM-001 record maintenance. Never touches `code`/`homeBranchId`/`status`. */

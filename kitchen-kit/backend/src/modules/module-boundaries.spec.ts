@@ -173,6 +173,12 @@ const KNOWN_DEVIATIONS: Readonly<Record<string, readonly string[]>> = {
     'context/current-tenant-context.decorator',
     'context/tenant-context',
     'context/tenant-context.guard',
+    // LIVE-DEMO-HOTFIX-1 — the real Workforce Employees surface is the only
+    // production write path for a POS employee's identity, so setting its PIN
+    // reuses `PinService.setPin` directly (the sole existing writer of a
+    // `pin`-type Credential) rather than duplicating its FR-SEC-022
+    // branch-uniqueness/lockout logic here.
+    'employees/pin.service',
   ],
 };
 

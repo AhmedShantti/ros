@@ -153,6 +153,14 @@ export class AddPermittedBranchDto {
   branchId!: string;
 }
 
+/** LIVE-DEMO-HOTFIX-1 — set/rotate a POS employee's PIN via the real
+ *  Workforce Employees surface. Wraps the existing `PinService.setPin`. */
+export class SetEmployeePinDto {
+  /** FR-SEC-020 — 4 to 8 digits. Never logged. */
+  @Matches(/^\d{4,8}$/, { message: 'PIN must be 4 to 8 digits.' })
+  pin!: string;
+}
+
 export class SetCompensationDto {
   @IsIn(['hourly', 'monthly_salary', 'per_shift'] as const)
   basis!: 'hourly' | 'monthly_salary' | 'per_shift';

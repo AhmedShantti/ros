@@ -2047,6 +2047,64 @@
         ],
         "type": "object"
       },
+      "RegisterTenantDto": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "employeeCode": {
+            "description": "POS/KDS sign-on. Accepted for frontend contract parity; unused for the\n owner path (owner is not a terminal role in this slice).",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "fullName": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "organisation": {
+            "description": "New tenant's legal/business name.",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "password": {
+            "description": "FR-SEC-025 — signup requires a minimum of 10 characters.",
+            "maxLength": 128,
+            "minLength": 10,
+            "type": "string"
+          },
+          "phone": {
+            "pattern": "^\\+?[\\d\\s()-]{7,20}$",
+            "type": "string"
+          },
+          "pin": {
+            "pattern": "^\\d{4,8}$",
+            "type": "string"
+          },
+          "roleKey": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scopeName": {
+            "description": "First branch name. Optional — defaults to \"Main\" when omitted.",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "fullName",
+          "email",
+          "roleKey",
+          "organisation",
+          "password"
+        ],
+        "type": "object"
+      },
       "RegisterTerminalDto": {
         "properties": {
           "appVersion": {
@@ -2229,6 +2287,19 @@
           "basis",
           "amountMinorUnits",
           "currency"
+        ],
+        "type": "object"
+      },
+      "SetEmployeePinDto": {
+        "properties": {
+          "pin": {
+            "description": "FR-SEC-020 — 4 to 8 digits. Never logged.",
+            "pattern": "^\\d{4,8}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pin"
         ],
         "type": "object"
       },
@@ -3986,6 +4057,188 @@
           }
         },
         "summary": "Rotate a refresh token for a new access + refresh token pair.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/registrations": {
+      "post": {
+        "operationId": "RegistrationsController_register",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterTenantDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "auth": {
+                      "properties": {
+                        "accessToken": {
+                          "type": "string"
+                        },
+                        "expiresIn": {
+                          "type": "integer"
+                        },
+                        "refreshToken": {
+                          "type": "string"
+                        },
+                        "tokenType": {
+                          "enum": [
+                            "Bearer"
+                          ],
+                          "type": "string"
+                        },
+                        "user": {
+                          "properties": {
+                            "createdAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "email": {
+                              "format": "email",
+                              "type": "string"
+                            },
+                            "id": {
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "lastLoginAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "phone": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "preferredLocale": {
+                              "example": "ar",
+                              "type": "string"
+                            },
+                            "status": {
+                              "enum": [
+                                "active",
+                                "disabled",
+                                "locked"
+                              ],
+                              "type": "string"
+                            },
+                            "updatedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "email": {
+                      "format": "email",
+                      "type": "string"
+                    },
+                    "membership": {
+                      "properties": {
+                        "membershipId": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "active"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "status": {
+                      "enum": [
+                        "created"
+                      ],
+                      "type": "string"
+                    },
+                    "tenant": {
+                      "properties": {
+                        "defaultCurrency": {
+                          "example": "EGP",
+                          "type": "string"
+                        },
+                        "defaultLocale": {
+                          "example": "ar",
+                          "type": "string"
+                        },
+                        "id": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "legalName": {
+                          "type": "string"
+                        },
+                        "slug": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "active",
+                            "suspended",
+                            "closed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tenant created; tenant-scoped access token issued."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Email already registered."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded."
+          }
+        },
+        "summary": "Tenant self-service signup (FR-PLT-020). Creates a first user, a tenant, a working branch, and an Owner role with the full permission catalog, atomically. Returns a tenant-scoped auth result so the caller can enter the dashboard immediately. Supports roleKey \"owner\" only in this slice.",
         "tags": [
           "auth"
         ]
@@ -33576,6 +33829,45 @@
           }
         ],
         "summary": "FR-HRM-006 — deactivate, never hard-delete.",
+        "tags": [
+          "workforce-employees"
+        ]
+      }
+    },
+    "/workforce/employees/{employeeId}/pin": {
+      "post": {
+        "operationId": "EmployeesController_setPin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "employeeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetEmployeePinDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "LIVE-DEMO-HOTFIX-1 — set/rotate this employee's POS PIN through the real\nWorkforce Employees surface. Thin passthrough to the existing\n`PinService.setPin` (identity/employees) — no logic duplicated here, and\n`PinService.authenticate`'s verification path is completely untouched.",
         "tags": [
           "workforce-employees"
         ]
