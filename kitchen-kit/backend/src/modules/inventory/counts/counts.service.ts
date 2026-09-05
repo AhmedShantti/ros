@@ -306,37 +306,22 @@ export class CountsService {
           // Exact: `line.variance` is already a Prisma.Decimal (written
           // exactly in `recordCount` above) — no Number()/parseFloat() on the
           // value that determines this movement's persisted quantity.
-          const rawVariance = line.variance ?? new Prisma.Decimal(0);
-          const movementsDuringWindow =
-            windowByItem.get(line.stockItemId) ?? new Prisma.Decimal(0);
-          const trueVariance = rawVariance.minus(movementsDuringWindow);
-          // Persist the CORRECTED (window-adjusted) variance onto the line
-          // itself, even when it nets to zero — otherwise the line would go
-          // on displaying the raw counted-vs-opening-baseline figure via
-          // `lines()`, silently disagreeing with what was actually posted
-          // (or not posted) to the ledger. Not a ledger row — updating it is
-          // not an append-only/BR-INV-001 concern.
-          await tx.countLine.update({
-            where: { id: line.id },
-            data: { variance: trueVariance },
-          });
-          if (trueVariance.isZero()) continue;
+          const varianceExact = line.variance ?? new Prisma.Decimal(0);
+          if (varianceExact.isZero()) continue;
           await this.movements.post(tx, tenantId, actorId, {
             locationId: session.locationId,
             stockItemId: line.stockItemId,
             movementType: 'count_adjustment',
-            quantity: trueVariance.toFixed(6),
+            quantity: varianceExact.toFixed(6),
             referenceType: 'count',
             referenceId: sessionId,
           });
           // Transport-boundary conversion only (postCountResultSchema
           // documents `variance` as a JS number) — the movement above is
-          // already posted from the exact value, and this reports the
-          // GENUINE (window-adjusted) variance actually posted, not the raw
-          // counted-vs-opening-baseline figure still held on the line.
+          // already posted from the exact value.
           adjustments.push({
             stockItemId: line.stockItemId,
-            variance: trueVariance.toNumber(),
+            variance: varianceExact.toNumber(),
           });
         }
 
