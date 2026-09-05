@@ -3,6 +3,7 @@
  */
 export * from './events';
 export * from './scope-target.resolvers';
+export * from './kds-summary.query';
 /**
  * D4-1B ACCEPTANCE CORRECTION — the offline-safe domain-operation seam Sync's
  * integration adapter consumes (see `offline-ticket-operations.ts`'s own

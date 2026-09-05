@@ -510,7 +510,8 @@ function assembleView(input: {
       ).length,
     },
     scope: {
-      salesPopulation: "orders.state = 'completed'",
+      salesPopulation:
+        "orders.state IN ('completed', 'partially_refunded', 'refunded') — a refund never removes its original order from this population (CR-04/BR-POS-001: posted totals are not rewritten); see refunds below.",
       lineExclusions: ['voided', 'comped'],
       tenderPopulation:
         'All order_payments for this branch-day, any order state.',
@@ -518,7 +519,7 @@ function assembleView(input: {
       notes: [
         'FR-RPT-001/002/003/005 NOT IMPLEMENTED — query-time aggregation over the transactional primary (Internal MVP).',
         'Tax by rate NOT IMPLEMENTED — the FR-FIN-032 component breakdown is not persisted.',
-        'Discounts and refunds are structurally zero — no mechanism exists at this release.',
+        'Discounts reflect line-level and order-level discounts/comps applied to this business day’s completed orders (POS-FIN-1); refunds reflect refunds ISSUED on this business day (by their own refund date, not the original sale’s business day) for this branch, and are excluded from tenderTotals — see the completedExcessCapturedTotal note below.',
         'Cash reconciliation covers only sessions that captured a payment on this business day; zero-payment and movement-only sessions are not attributable to a business day and are not listed.',
         'Session close facts (expected/counted/variance) and movement totals are WHOLE-SESSION figures, not business-day figures; check businessDayCount before attributing them to this day.',
         'currency is the currency the day’s transactions were actually recorded in, not the branch’s present-day configured currency.',

@@ -42,14 +42,7 @@ import {
 } from '@nestjs/common';
 import { UUID_PATTERN, newId } from '../../../common/ids';
 import { Money } from '../../../common/money/money';
-import {
-  Rational,
-  add,
-  fromExactDecimal,
-  multiply,
-  rational,
-  toMinorUnits,
-} from '../../../common/money/rational';
+import { Rational, toMinorUnits } from '../../../common/money/rational';
 import {
   RoundingMode,
   parseExactDecimal,
@@ -80,6 +73,7 @@ import {
   assertMayAddLine,
   assertVersion,
 } from './order-state';
+import { recomputeOrderTotals } from './order-totals';
 
 /** Quantity is DECIMAL(12,3): fractional sales are real (0.5 kg of meat). */
 const QUANTITY_SCALE = 3;
@@ -444,8 +438,9 @@ export class OrderLinesService {
           });
         }
 
-        const totals = await this.recomputeOrderTotals(
+        const totals = await recomputeOrderTotals(
           tx,
+          tenantId,
           order.id,
           businessDay,
           order.currency,
@@ -577,8 +572,9 @@ export class OrderLinesService {
           },
         });
 
-        const totals = await this.recomputeOrderTotals(
+        const totals = await recomputeOrderTotals(
           tx,
+          tenantId,
           order.id,
           businessDay,
           order.currency,
@@ -904,71 +900,5 @@ export class OrderLinesService {
       throw new ConflictException('This order has too many lines.');
     }
     return next;
-  }
-
-  /**
-   * FR-FIN-034 — the order's tax is the SUM of its line taxes, never a
-   * computation on the order total.
-   *
-   * Voided and comped lines are excluded from the money: a voided line is
-   * evidence, not revenue.
-   */
-  private async recomputeOrderTotals(
-    tx: Prisma.TransactionClient,
-    orderId: string,
-    businessDay: Date,
-    currency: string,
-  ): Promise<{
-    subtotal: bigint;
-    taxTotal: bigint;
-    grandTotal: bigint;
-    cogsTotal: bigint | null;
-  }> {
-    const lines = await tx.orderLine.findMany({
-      where: {
-        orderId,
-        businessDay,
-        state: { notIn: ['voided', 'comped'] },
-      },
-      select: {
-        lineSubtotal: true,
-        taxAmount: true,
-        lineTotal: true,
-        unitCostSnapshot: true,
-        quantity: true,
-      },
-    });
-
-    let subtotal = 0n;
-    let taxTotal = 0n;
-    let grandTotal = 0n;
-    // P1F-2 in-scope micro-fix: COGS is unitCostSnapshot x quantity, not the
-    // bare per-unit snapshot — a qty=3 line must contribute 3x, not 1x. Exact
-    // rational arithmetic, ONE HALF_UP rounding per line (BR-FIN-001).
-    let cogsExact: Rational | null = null;
-    for (const line of lines) {
-      subtotal += line.lineSubtotal;
-      taxTotal += line.taxAmount;
-      grandTotal += line.lineTotal;
-      if (line.unitCostSnapshot !== null) {
-        const lineCogs = multiply(
-          rational(line.unitCostSnapshot),
-          fromExactDecimal(parseExactDecimal(line.quantity.toFixed(3))),
-        );
-        cogsExact = cogsExact ? add(cogsExact, lineCogs) : lineCogs;
-      }
-    }
-    const cogs = cogsExact
-      ? toMinorUnits(cogsExact, RoundingMode.HALF_UP)
-      : null;
-    // Named only to make the currency explicit at the boundary; the arithmetic
-    // above is already exact bigint minor units.
-    void Money.of(grandTotal, currency);
-
-    // NOTE: `discountTotal`, `serviceChargeTotal` and `roundingAdjustment` are
-    // NOT recomputed here — discounts (BR-FIN-003), service charge and cash
-    // rounding (BR-FIN-004) are not implemented, so this slice must not pretend
-    // to maintain them. They stay at their defaults of 0.
-    return { subtotal, taxTotal, grandTotal, cogsTotal: cogs };
   }
 }

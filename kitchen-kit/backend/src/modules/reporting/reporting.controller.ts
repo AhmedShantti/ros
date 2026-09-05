@@ -20,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import {
   businessDaySchema,
+  decimalStringSchema,
   isoDateTimeSchema,
   moneyStringSchema,
   nullable,
@@ -34,9 +35,12 @@ import {
 } from '../identity/contract';
 import type { TenantContext } from '../identity/contract';
 import { DailyTradingReportService } from './daily-trading-report.service';
+import { OperationalOverviewService } from './operational-overview.service';
 import {
   DailyTradingReportParamsDto,
   DailyTradingReportQueryDto,
+  OperationalOverviewParamsDto,
+  OperationalOverviewQueryDto,
 } from './reporting.dto';
 import { REPORTING_PERMISSIONS } from './reporting.permissions';
 import { AuthorizationTarget, branchFromParam } from '../identity/contract';
@@ -181,11 +185,146 @@ const dailyTradingReportSchema = {
 };
 
 /**
+ * Operational Analytics / Reporting Demo Pack (RPT-DEMO-1) — sections:
+ * sales, cash, inventory, workforce, kds. Same shape family as
+ * `dailyTradingReportSchema` for sales/cash (bigint-as-decimal-string money,
+ * nullable via `nullable()`), plus the three new sections. Verified against
+ * `OperationalOverviewService`'s `OperationalOverviewView`, not against the
+ * Prisma schema or the SRS.
+ */
+const operationalOverviewSchema = {
+  type: 'object',
+  properties: {
+    branchId: uuidSchema(),
+    businessDay: businessDaySchema(),
+    currency: {
+      type: 'string',
+      description: 'ISO 4217 currency code.',
+      example: 'AED',
+    },
+    currencySource: {
+      type: 'string',
+      enum: ['TRANSACTION', 'BRANCH_FALLBACK'],
+    },
+    dataAsOf: isoDateTimeSchema(),
+    periodStatus: { type: 'string', enum: ['OPEN', 'UNSEALED', 'SETTLED'] },
+    branchCurrentBusinessDay: businessDaySchema(),
+    sales: {
+      type: 'object',
+      properties: {
+        grossSales: moneyStringSchema(),
+        netSales: moneyStringSchema(),
+        discounts: moneyStringSchema(),
+        refunds: moneyStringSchema(),
+        taxTotal: moneyStringSchema(),
+        completedOrderCount: { type: 'integer' },
+        openOrderCount: { type: 'integer' },
+        averageOrderValue: nullable(moneyStringSchema()),
+        tenderTotals: {
+          type: 'object',
+          properties: {
+            cash: tenderFamilyTotalsSchema,
+            manualExternalCard: tenderFamilyTotalsSchema,
+            tenderGrandTotal: moneyStringSchema(),
+            cashDrawerContribution: moneyStringSchema(),
+            paymentCount: { type: 'integer' },
+            completedExcessCapturedTotal: moneyStringSchema(),
+            unsettledCapturedTotal: moneyStringSchema(),
+          },
+        },
+      },
+    },
+    cash: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string', enum: ['WHOLE_SESSION'] },
+        sessions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              cashSessionId: uuidSchema(),
+              status: { type: 'string', enum: ['open', 'closing', 'closed'] },
+              currency: { type: 'string', example: 'AED' },
+              openingFloat: moneyStringSchema(),
+              expectedCash: nullable(moneyStringSchema()),
+              countedCash: nullable(moneyStringSchema()),
+              variance: nullable(moneyStringSchema()),
+              payInTotal: moneyStringSchema(),
+              payOutTotal: moneyStringSchema(),
+              safeDropTotal: moneyStringSchema(),
+              isFinalised: { type: 'boolean' },
+            },
+          },
+        },
+        contributingSessionCount: { type: 'integer' },
+        closedSessionCount: { type: 'integer' },
+        unclosedSessionCount: { type: 'integer' },
+      },
+    },
+    inventory: {
+      type: 'object',
+      properties: {
+        lowStockItemCount: { type: 'integer' },
+        waste: {
+          type: 'object',
+          properties: {
+            windowFrom: isoDateTimeSchema(),
+            windowTo: isoDateTimeSchema(),
+            recordCount: { type: 'integer' },
+            quantityTotal: decimalStringSchema(),
+            valueTotal: moneyStringSchema(),
+          },
+        },
+        notes: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    workforce: {
+      type: 'object',
+      properties: {
+        windowFrom: isoDateTimeSchema(),
+        windowTo: isoDateTimeSchema(),
+        clockedInCount: { type: 'integer' },
+        attendanceRecordCount: { type: 'integer' },
+        lateArrivalCount: { type: 'integer' },
+        earlyDepartureCount: { type: 'integer' },
+        unscheduledCount: { type: 'integer' },
+        outsideGeofenceCount: { type: 'integer' },
+        missingClockOutCount: { type: 'integer' },
+        notes: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    kds: {
+      type: 'object',
+      properties: {
+        ticketCount: { type: 'integer' },
+        statusCounts: {
+          type: 'object',
+          additionalProperties: { type: 'integer' },
+        },
+        measuredPrepDurationCount: { type: 'integer' },
+        averagePrepDurationSeconds: nullable({ type: 'number' }),
+        notes: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    scope: {
+      type: 'object',
+      properties: { notes: { type: 'array', items: { type: 'string' } } },
+    },
+  },
+};
+
+/**
  * Minimum Operational Reporting — Internal-MVP branch daily-trading read
  * surface (RPT-R1/R2/R3, governance register "Minimum Operational Reporting
- * Ratification — 2026-08-31"). Reporting's FIRST and ONLY route:
+ * Ratification — 2026-08-31"). Reporting's FIRST route:
  *
  *   GET /reports/branches/{branchId}/daily-trading/{businessDay}
+ *
+ * A SECOND route, `GET /reports/branches/{branchId}/overview`
+ * (RPT-DEMO-1, Operational Analytics / Reporting Demo Pack), reuses this
+ * same guard chain and these same two permissions — see
+ * `getOperationalOverview` below and `OperationalOverviewService`.
  *
  * Dashboard-only (no `@AllowPosSession` — a PIN/POS session is refused by
  * `JwtAuthGuard`'s existing default), read-only, ZERO query parameters, no
@@ -216,7 +355,10 @@ const dailyTradingReportSchema = {
 )
 @Controller('reports')
 export class ReportingController {
-  constructor(private readonly reportService: DailyTradingReportService) {}
+  constructor(
+    private readonly reportService: DailyTradingReportService,
+    private readonly overviewService: OperationalOverviewService,
+  ) {}
 
   @Get('branches/:branchId/daily-trading/:businessDay')
   @AuthorizationTarget(branchFromParam('branchId'))
@@ -294,6 +436,76 @@ export class ReportingController {
       userId: context.userId,
       branchId: params.branchId,
       businessDay: parseBusinessDay(params.businessDay),
+    });
+  }
+
+  @Get('branches/:branchId/overview')
+  @AuthorizationTarget(branchFromParam('branchId'))
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary:
+      'Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names).',
+    description:
+      'Operational Analytics / Reporting Demo Pack (RPT-DEMO-1). Read-only, ' +
+      'query-time aggregation over the transactional primary — NOT a read ' +
+      'replica, NOT a rollup, NOT a cache. Requires BOTH report.view.sales ' +
+      'and report.view.financial (AND), held by a single role assignment ' +
+      'whose scope COVERS this branch, exactly like daily-trading — no new ' +
+      'permission code is introduced. sales/cash reuse daily-trading’s exact ' +
+      'population/formulas and gates (branch existence, unreviewed-migration ' +
+      'scope review, operative-branch, future-day 400). inventory/workforce ' +
+      'use a CALENDAR-day window (not the POS business day — neither carries ' +
+      'a business-day column); kds uses the SAME business day as sales/cash ' +
+      '(kitchen.tickets does carry one). Every section’s `notes` discloses ' +
+      'its own time model and any metric deliberately omitted for lack of ' +
+      'real source data (e.g. KDS fulfilment/serving time — servedAt is ' +
+      'never populated by any write path).',
+  })
+  @ApiOkResponse({
+    description:
+      'The operational overview: sales, cash (WHOLE_SESSION scope, ' +
+      'unchanged from daily-trading), inventory (branch-scoped low-stock ' +
+      'count + calendar-day waste), workforce (branch-scoped calendar-day ' +
+      'attendance summary), kds (business-day ticket counts + real prep ' +
+      'duration where measurable), and a scope block disclosing exactly ' +
+      'what this Demo/Operational slice does and does not cover.',
+    schema: operationalOverviewSchema,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Malformed branchId/businessDay, any other query parameter, or ' +
+      "businessDay is after the branch's current business day.",
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid bearer token.' })
+  @ApiForbiddenResponse({
+    description:
+      'A PIN/POS session; no active tenant context; report.view.sales and ' +
+      'report.view.financial are not both held by one assignment covering ' +
+      'this branch; the branch is not active; or the tenant still holds ' +
+      'unreviewed migration-inherited role assignments (scopeReviewRequired).',
+  })
+  @ApiNotFoundResponse({
+    description:
+      'branchId is unknown or belongs to another tenant — byte-identical ' +
+      'response for both, so a caller cannot learn a foreign branch exists.',
+  })
+  @ApiConflictResponse({
+    description:
+      'More than one transaction currency was observed for this business ' +
+      "day, a contributing cash session's currency disagrees with the " +
+      'report’s currency, or an internal cash-reconciliation invariant was ' +
+      'violated. No partial financial total is ever returned on a 409.',
+  })
+  async getOperationalOverview(
+    @Param() params: OperationalOverviewParamsDto,
+    @Query() query: OperationalOverviewQueryDto,
+    @CurrentTenantContext() context: TenantContext,
+  ) {
+    return this.overviewService.build({
+      tenantId: context.tenantId,
+      userId: context.userId,
+      branchId: params.branchId,
+      businessDay: parseBusinessDay(query.businessDay),
     });
   }
 }

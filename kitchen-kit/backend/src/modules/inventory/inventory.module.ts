@@ -3,15 +3,19 @@ import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { ProductionModule } from '../production/production.module';
 import { SALE_DEPLETION_COMMAND } from './contract/sale-depletion.contract';
+import { POST_FIRE_VOID_DISPOSITION_COMMAND } from './contract/post-fire-void-disposition.contract';
+import { BRANCH_INVENTORY_SNAPSHOT_QUERY } from './contract/branch-inventory-snapshot.query';
 import { CountsService } from './counts/counts.service';
 import { InventoryController } from './inventory.controller';
 import { MovementsService } from './movements/movements.service';
 import { TransfersService } from './movements/transfers.service';
 import { InventoryDailyReconciliationJob } from './reconciliation/daily-reconciliation.job';
 import { ReconciliationService } from './reconciliation/reconciliation.service';
+import { BranchInventorySnapshotQueryService } from './reconciliation/branch-inventory-snapshot.query.service';
 import { SaleDepletionService } from './sale-depletion/sale-depletion.service';
 import { StockItemsService } from './stock-items/stock-items.service';
 import { WasteService } from './waste/waste.service';
+import { PostFireVoidDispositionService } from './waste/post-fire-void-disposition.service';
 import {
   CountLineTargetResolver,
   CountSessionTargetResolver,
@@ -76,6 +80,20 @@ import { PlatformModule } from '../platform/platform.module';
     // P1F-2 — the SALE_DEPLETION_COMMAND public contract (Order Completion).
     SaleDepletionService,
     { provide: SALE_DEPLETION_COMMAND, useExisting: SaleDepletionService },
+    // POS-FIN-1 — the POST_FIRE_VOID_DISPOSITION_COMMAND public contract
+    // (FR-POS-071 wasted/given-to-staff disposition).
+    PostFireVoidDispositionService,
+    {
+      provide: POST_FIRE_VOID_DISPOSITION_COMMAND,
+      useExisting: PostFireVoidDispositionService,
+    },
+    // RPT-DEMO-1 — the branch-scoped low-stock/waste snapshot the Reporting
+    // overview needs. Read-only; invents no valuation/COGS logic.
+    BranchInventorySnapshotQueryService,
+    {
+      provide: BRANCH_INVENTORY_SNAPSHOT_QUERY,
+      useExisting: BranchInventorySnapshotQueryService,
+    },
   ],
   exports: [
     StockItemsService,
@@ -86,6 +104,8 @@ import { PlatformModule } from '../platform/platform.module';
     ReconciliationService,
     InventoryDailyReconciliationJob,
     SALE_DEPLETION_COMMAND,
+    POST_FIRE_VOID_DISPOSITION_COMMAND,
+    BRANCH_INVENTORY_SNAPSHOT_QUERY,
   ],
 })
 export class InventoryModule {}
