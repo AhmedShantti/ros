@@ -7,5 +7,4 @@
  */
 export * from './commands';
 export * from './types';
-export * from './attendance-summary.query';
 export * from './scope-target.resolvers';

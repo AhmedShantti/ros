@@ -235,25 +235,6 @@ export const AUDIT_ACTION = {
   AUDIT_LOG_QUERIED: 'AUDIT_LOG_QUERIED',
   AUDIT_LOG_EXPORTED: 'AUDIT_LOG_EXPORTED',
 
-  // POS-FIN-1 — discounts/comps, post-fire void disposition, refunds
-  // (FR-AUD-006 "discounts, comps, voids, refunds"). Same
-  // <ENTITY>_<PAST_TENSE> convention. DISCOUNT_APPLIED covers both
-  // percentage and fixed (the value type is metadata, not a different
-  // action, mirroring CASH_MOVEMENT_RECORDED's own convention); COMP_APPLIED
-  // is its own verb because FR-POS-050 requires a comp be economically
-  // distinct from a discount, not merely a 100% one.
-  DISCOUNT_APPLIED: 'DISCOUNT_APPLIED',
-  COMP_APPLIED: 'COMP_APPLIED',
-  ORDER_LINE_VOIDED_POSTFIRE: 'ORDER_LINE_VOIDED_POSTFIRE',
-  REFUND_ISSUED: 'REFUND_ISSUED',
-  // POS-FIN-1 acceptance correction (2026-09-04) — FR-POS-071's Inventory-
-  // owned disposition record, written for ALL THREE classifications
-  // (previously only WASTE_RECORDED, and only for wasted/given_to_staff).
-  // A distinct verb, not a reuse of WASTE_RECORDED: "returned_to_stock" is
-  // not waste, and conflating them would misdescribe two-thirds of what
-  // this event now covers.
-  POST_FIRE_VOID_DISPOSITION_RECORDED: 'POST_FIRE_VOID_DISPOSITION_RECORDED',
-
   // HR-1 — Workforce Core (FR-HRM-001..025). Same <ENTITY>_<PAST_TENSE>
   // convention as every other verb in this file.
   EMPLOYEE_UPDATED: 'EMPLOYEE_UPDATED',
@@ -353,11 +334,6 @@ export const AUDIT_ENTITY = {
 
   // AUD-1 — the audit log itself, as the object of an access (FR-AUD-007).
   AUDIT_LOG: 'audit_log',
-
-  // POS-FIN-1 entities.
-  DISCOUNT: 'discount',
-  POST_FIRE_VOID_RECORD: 'post_fire_void_record',
-  REFUND: 'refund',
 
   // HR-1 — Workforce Core entities.
   EMPLOYEE_COMPENSATION: 'employee_compensation',

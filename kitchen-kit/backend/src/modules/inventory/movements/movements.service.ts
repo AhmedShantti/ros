@@ -33,7 +33,6 @@ import {
   fromExactDecimal,
   isNegative,
   isZero,
-  subtract,
 } from '../../../common/money/rational';
 import { parseExactDecimal } from '../../../common/money/rounding';
 
@@ -146,6 +145,23 @@ export class MovementsService {
       throw new NotFoundException('Location not found.');
     }
 
+    // Pre-read used ONLY for valuation (weighted-average cost input) — never
+    // for the persisted quantity projection, which is computed atomically
+    // below. A concurrent receipt racing this read can still produce a
+    // slightly stale `averageCost`; that valuation-axis race is tracked as a
+    // residual risk (A1-4), same as `SaleDepletionService` never needing to
+    // touch `averageCost` at all.
+    const level = await tx.stockLevel.findUnique({
+      where: {
+        stockItemId_locationId: {
+          stockItemId: input.stockItemId,
+          locationId: input.locationId,
+        },
+      },
+    });
+    const currentQty = level ? Number(level.quantityOnHand) : 0;
+    const currentAvg = level ? level.averageCost : 0n;
+
     // ---- batch selection (outbound only) --------------------------------
     // P1F-2: batch access is routed through the SAME private fifo-cost-ledger
     // kernel `SaleDepletionService` uses, so this path and Completion take
@@ -242,6 +258,26 @@ export class MovementsService {
         })
       : (input.unitCost ?? currentAvg);
 
+    const occurredAt = input.occurredAt ?? new Date();
+
+    // ---- projection (BR-INV-003, ATOMIC, same transaction) ---------------
+    // The additive delta is applied by PostgreSQL itself — never read-then-
+    // absolute-write — so two concurrent movements on the same (item,
+    // location) can never lose an update (CG-01), and `balanceAfter` below
+    // is the database's own returned value, not a JS-computed guess. Mirrors
+    // the already-accepted `SaleDepletionService.writeAllocation` pattern.
+    const deltaText = toSignedDecimal6(qty);
+    const projected = await tx.$queryRaw<{ quantityOnHand: string }[]>`
+      INSERT INTO "inventory"."stock_levels"
+        ("tenant_id", "stock_item_id", "location_id", "quantity_on_hand")
+      VALUES (${tenantId}::uuid, ${input.stockItemId}::uuid, ${input.locationId}::uuid,
+              ${deltaText}::numeric)
+      ON CONFLICT ("stock_item_id", "location_id") DO UPDATE
+        SET "quantity_on_hand" = "inventory"."stock_levels"."quantity_on_hand" + EXCLUDED."quantity_on_hand"
+      RETURNING "quantity_on_hand"::text AS "quantityOnHand"
+    `;
+    const balanceAfter = projected[0].quantityOnHand;
+
     const movement = await tx.stockMovement.create({
       data: {
         id: newId(),
@@ -269,11 +305,8 @@ export class MovementsService {
 
     // ---- valuation pointer (average cost + last-movement, same tx) -------
     // `quantity_on_hand` is NOT written here — it was already applied
-    // atomically above. `averageCost` is sourced from the SAME locked read
-    // as the projection above (A1-4): inbound recomputes the weighted
-    // average from it (FR-INV-012), outbound re-affirms it unchanged — both
-    // write back the truthful state, never a value staled by a concurrent
-    // writer that ran between an earlier pre-read and this write.
+    // atomically above. `averageCost` retains its pre-existing (unlocked,
+    // out-of-scope-for-A1-1) concurrent-receipt race; see comment above.
     const nextAvg = outbound
       ? currentAvg
       : weightedAverageCost(

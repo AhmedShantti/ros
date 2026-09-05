@@ -48,13 +48,6 @@ const KNOWN_METRICS = [
   'http_request_duration_seconds_bucket',
   'http_request_duration_seconds_sum',
   'http_request_duration_seconds_count',
-  // SCHED-1 scheduled-job telemetry (see `metrics.service.ts`).
-  'scheduled_job_occurrences_total',
-  'scheduled_job_findings_total',
-  'scheduled_job_duration_seconds_bucket',
-  'scheduled_job_duration_seconds_count',
-  'scheduled_job_lag_seconds_bucket',
-  'scheduled_job_lag_seconds_count',
   'up', // Prometheus's own scrape-health metric — not emitted by this app
 ];
 
