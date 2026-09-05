@@ -89,6 +89,12 @@ export const AUDIT_ACTION = {
   LOGOUT: 'LOGOUT',
   REFRESH_REUSE_DETECTED: 'REFRESH_REUSE_DETECTED',
   TENANT_SELECTED: 'TENANT_SELECTED',
+  /**
+   * SIGNUP-1 (FR-PLT-020) — a tenant was created via public self-service
+   * signup. Written inside the SAME transaction that creates the tenant, its
+   * first user, membership, owner role and branch (all-or-nothing).
+   */
+  TENANT_CREATED: 'TENANT_CREATED',
   ROLE_ASSIGNED: 'ROLE_ASSIGNED',
   // B1-2 scoped RBAC (FR-AUD-006 "role changes"). The pre-B1-2 world had one
   // shape of role change — assigned/removed — so `ROLE_ASSIGNED` sufficed. A

@@ -11,3 +11,9 @@ export * from './daily-cash-reconciliation.query';
 export * from './day-close-state.query';
 export * from './events';
 export * from './scope-target.resolvers';
+/**
+ * SIGNUP-1 — thin re-export of the existing Treasury permission catalog,
+ * mirroring Kitchen's `KDS_PERMISSIONS` re-export pattern. Consumed by
+ * Identity's production-safe permission-catalog aggregator.
+ */
+export { TREASURY_PERMISSIONS, TREASURY_PERMISSION_DEFS } from '../treasury.permissions';

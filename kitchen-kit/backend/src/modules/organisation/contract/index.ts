@@ -20,3 +20,9 @@ export * from './branch-reporting-scope.query';
 export * from './branch-brand.query';
 export * from './branch-locations.query';
 export * from './scope-target.resolvers';
+/**
+ * SIGNUP-1 — thin re-export of the existing Organisation permission catalog,
+ * mirroring Kitchen's `KDS_PERMISSIONS` re-export pattern. Consumed by
+ * Identity's production-safe permission-catalog aggregator.
+ */
+export { ORGANISATION_PERMISSIONS, ORGANISATION_PERMISSION_DEFS } from '../organisation.permissions';

@@ -7,3 +7,9 @@ export * from './consumption-gap.errors';
 export { RECIPE_COST_RECOMPUTER } from '../costing/recipe-cost.port';
 export type { RecipeCostRecomputer } from '../costing/recipe-cost.port';
 export * from './scope-target.resolvers';
+/**
+ * SIGNUP-1 — thin re-export of the existing Production permission catalog,
+ * mirroring Kitchen's `KDS_PERMISSIONS` re-export pattern. Consumed by
+ * Identity's production-safe permission-catalog aggregator.
+ */
+export { PRODUCTION_PERMISSIONS, PRODUCTION_PERMISSION_DEFS } from '../production.permissions';

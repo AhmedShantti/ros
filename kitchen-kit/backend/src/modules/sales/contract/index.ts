@@ -15,3 +15,9 @@ export * from './cash-session-tender-totals.query';
 export * from './daily-trading-sales.query';
 export * from './day-close-sales-facts.query';
 export * from './scope-target.resolvers';
+/**
+ * SIGNUP-1 — thin re-export of the existing Sales permission catalog, mirroring
+ * Kitchen's `KDS_PERMISSIONS` re-export pattern. Consumed by Identity's
+ * production-safe permission-catalog aggregator.
+ */
+export { SALES_PERMISSIONS, SALES_PERMISSION_DEFS } from '../sales.permissions';
