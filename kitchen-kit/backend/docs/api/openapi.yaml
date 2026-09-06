@@ -23598,6 +23598,224 @@ paths:
         `PinService.authenticate`'s verification path is completely untouched.
       tags:
         - workforce-employees
+  /workforce/employees/{employeeId}/role-assignments:
+    get:
+      operationId: EmployeesController_listRoleAssignments
+      parameters:
+        - in: path
+          name: employeeId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  properties:
+                    createdAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    id:
+                      description: Stable assignment identity (FR-SEC-003).
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    membershipId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    origin:
+                      enum:
+                        - explicit
+                        - migration
+                      type: string
+                    reviewedAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type:
+                        - string
+                        - 'null'
+                    roleId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    roleName:
+                      type:
+                        - string
+                        - 'null'
+                    scopeBranchId:
+                      description: Set iff scopeType = branch.
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type:
+                        - string
+                        - 'null'
+                    scopeBrandId:
+                      description: Set iff scopeType = brand.
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type:
+                        - string
+                        - 'null'
+                    scopeType:
+                      enum:
+                        - tenant
+                        - brand
+                        - branch
+                      type: string
+                    validFrom:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    validTo:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type:
+                        - string
+                        - 'null'
+                  type: object
+                type: array
+          description: This employee's assignments, oldest first.
+      security:
+        - bearer: []
+      summary: |-
+        DEMO-EMPLOYEE-RBAC-1 — this employee's scoped role assignments. A thin
+        facade: the Employees UI knows only `employeeId`, never the raw
+        `membershipId` `POST /auth/memberships/{membershipId}/roles` addresses —
+        `WorkforceEmployeesService.listRoleAssignments` resolves that link and
+        delegates entirely to the existing `MembershipRolesService`.
+      tags:
+        - workforce-employees
+    post:
+      operationId: EmployeesController_assignRole
+      parameters:
+        - in: path
+          name: employeeId
+          required: true
+          schema:
+            type: string
+        - description: Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.
+          in: header
+          name: idempotency-key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRoleDto'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                properties:
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  id:
+                    description: Stable assignment identity (FR-SEC-003).
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  membershipId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  origin:
+                    enum:
+                      - explicit
+                      - migration
+                    type: string
+                  reviewedAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type:
+                      - string
+                      - 'null'
+                  roleId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  roleName:
+                    type:
+                      - string
+                      - 'null'
+                  scopeBranchId:
+                    description: Set iff scopeType = branch.
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                  scopeBrandId:
+                    description: Set iff scopeType = brand.
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                  scopeType:
+                    enum:
+                      - tenant
+                      - brand
+                      - branch
+                    type: string
+                  validFrom:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  validTo:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type:
+                      - string
+                      - 'null'
+                type: object
+          description: The created assignment.
+      security:
+        - bearer: []
+      summary: |-
+        DEMO-EMPLOYEE-RBAC-1 — assign a role to this employee at an EXPLICIT
+        scope. Same `AssignRoleDto`/`AssignmentScopeDto` shape
+        `POST /auth/memberships/{membershipId}/roles` already accepts — no
+        parallel contract. Delegates to `MembershipRolesService.create`, which
+        performs the atomic scoped-assignment insert + `authzEpoch` bump + audit
+        write; nothing is reimplemented here.
+      tags:
+        - workforce-employees
+  /workforce/employees/{employeeId}/role-assignments/{assignmentId}:
+    delete:
+      operationId: EmployeesController_removeRoleAssignment
+      parameters:
+        - in: path
+          name: employeeId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: assignmentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: ''
+      security:
+        - bearer: []
+      summary: |-
+        DEMO-EMPLOYEE-RBAC-1 — remove ONE of this employee's role assignments.
+        `WorkforceEmployeesService.removeRoleAssignment` confirms the assignment
+        actually belongs to this employee before delegating to
+        `MembershipRolesService.remove`.
+      tags:
+        - workforce-employees
   /workforce/schedules:
     post:
       operationId: ScheduleController_create

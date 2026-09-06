@@ -601,6 +601,10 @@ describe('OpenAPI document (e2e)', () => {
     // itself returns `Promise<void>`; the controller method's return type is
     // `Promise<void>` too.
     'POST /workforce/employees/{employeeId}/pin 204',
+    // DEMO-EMPLOYEE-RBAC-1 — thin passthrough to
+    // `MembershipRolesService.remove`, mirroring the existing
+    // `DELETE /auth/role-assignments/{assignmentId} 204` entry above.
+    'DELETE /workforce/employees/{employeeId}/role-assignments/{assignmentId} 204',
   ]);
 
   function isEmptySchema(schema: SchemaNode | undefined): boolean {

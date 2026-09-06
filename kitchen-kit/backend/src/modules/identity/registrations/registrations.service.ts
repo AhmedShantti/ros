@@ -18,6 +18,11 @@ import {
   ALL_PERMISSION_CODES,
   ALL_PERMISSION_DEFS,
 } from '../authz/permission-catalog';
+import {
+  CANONICAL_ROLE_TEMPLATES,
+  CanonicalRoleTemplateKey,
+  ensureCanonicalRole,
+} from '../authz/canonical-role-templates';
 import { PermissionsService } from '../authz/permissions.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import {
@@ -235,6 +240,16 @@ export class RegistrationsService {
               update: {},
               create: { roleId, permissionId: permission.id },
             });
+          }
+
+          // DEMO-EMPLOYEE-RBAC-1 — seed the canonical demo role templates
+          // (Cashier/Branch Manager/Shift Supervisor/Kitchen Staff) at signup
+          // time, so a fresh tenant's Employees "Access / Role" dropdown is
+          // never empty. Idempotent; safe alongside the Owner role above.
+          for (const key of Object.keys(
+            CANONICAL_ROLE_TEMPLATES,
+          ) as CanonicalRoleTemplateKey[]) {
+            await ensureCanonicalRole(tx, tenantId, key);
           }
 
           await tx.membershipRole.create({

@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -19,7 +21,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Idempotent } from '../../../common/idempotency/idempotent.decorator';
-import { nullable } from '../../../common/openapi/schema-helpers';
+import {
+  isoDateTimeSchema,
+  nullable,
+  uuidSchema,
+} from '../../../common/openapi/schema-helpers';
 import {
   AuthorizationTarget,
   branchFromBody,
@@ -28,8 +34,11 @@ import {
   resourceTarget,
 } from '../../identity/contract/authorization-target';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
+import { AssignmentScopeDto, AssignRoleDto } from '../../identity/authz/dto/assign-role.dto';
 import { RequirePermission } from '../../identity/authz/decorators/require-permission.decorator';
 import { PermissionGuard } from '../../identity/authz/guards/permission.guard';
+import type { AssignmentScopeInput } from '../../identity/authz/membership-roles.service';
+import { IDENTITY_PERMISSIONS } from '../../identity/authz/permissions.constants';
 import { CurrentTenantContext } from '../../identity/context/current-tenant-context.decorator';
 import type { TenantContext } from '../../identity/context/tenant-context';
 import { TenantContextGuard } from '../../identity/context/tenant-context.guard';
@@ -50,6 +59,62 @@ import {
   UpdateEmployeeDto,
 } from './employees.dto';
 import { WorkforceEmployeesService } from './employees.service';
+
+// Shape verified against `MembershipRolesService`'s `AssignmentView`
+// (`toAssignmentBody` in `rbac.controller.ts`), plus `roleName` — the one
+// enrichment this facade adds so the Employees UI never needs a second
+// round trip to `GET /auth/roles` just to label a dropdown.
+const roleAssignmentSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema('Stable assignment identity (FR-SEC-003).'),
+    membershipId: uuidSchema(),
+    roleId: uuidSchema(),
+    roleName: nullable({ type: 'string' }),
+    scopeType: { type: 'string', enum: ['tenant', 'brand', 'branch'] },
+    scopeBrandId: nullable(uuidSchema('Set iff scopeType = brand.')),
+    scopeBranchId: nullable(uuidSchema('Set iff scopeType = branch.')),
+    validFrom: isoDateTimeSchema(),
+    validTo: nullable(isoDateTimeSchema()),
+    origin: { type: 'string', enum: ['explicit', 'migration'] },
+    reviewedAt: nullable(isoDateTimeSchema()),
+    createdAt: isoDateTimeSchema(),
+  },
+};
+
+/**
+ * DEMO-EMPLOYEE-RBAC-1 — map the validated scope DTO onto the domain scope
+ * union. Mirrors `RbacController`'s own private `toAssignmentScope` exactly
+ * (same fail-closed checks) — that function is not exported, so this is a
+ * small, deliberate duplication of a pure ~15-line mapper rather than a new
+ * cross-controller import; the actual assignment logic it feeds
+ * (`MembershipRolesService.create`) is reused verbatim, never duplicated.
+ */
+function toAssignmentScope(dto: AssignmentScopeDto): AssignmentScopeInput {
+  switch (dto.type) {
+    case 'tenant':
+      if (dto.brandId || dto.branchId) {
+        throw new BadRequestException(
+          'A tenant-scoped assignment must not name a brand or a branch.',
+        );
+      }
+      return { type: 'tenant' };
+    case 'brand':
+      if (!dto.brandId || dto.branchId) {
+        throw new BadRequestException(
+          'A brand-scoped assignment requires scope.brandId and no scope.branchId.',
+        );
+      }
+      return { type: 'brand', brandId: dto.brandId };
+    case 'branch':
+      if (!dto.branchId || dto.brandId) {
+        throw new BadRequestException(
+          'A branch-scoped assignment requires scope.branchId and no scope.brandId.',
+        );
+      }
+      return { type: 'branch', branchId: dto.branchId };
+  }
+}
 
 const employeeResourceTarget = () =>
   resourceTarget(
@@ -228,6 +293,86 @@ export class EmployeesController {
     @Body() dto: SetEmployeePinDto,
   ): Promise<void> {
     await this.pin.setPin(context.tenantId, context.userId, employeeId, dto.pin);
+  }
+
+  /**
+   * DEMO-EMPLOYEE-RBAC-1 — this employee's scoped role assignments. A thin
+   * facade: the Employees UI knows only `employeeId`, never the raw
+   * `membershipId` `POST /auth/memberships/{membershipId}/roles` addresses —
+   * `WorkforceEmployeesService.listRoleAssignments` resolves that link and
+   * delegates entirely to the existing `MembershipRolesService`.
+   */
+  @Get(':employeeId/role-assignments')
+  @AuthorizationTarget(employeeResourceTarget())
+  @RequirePermission(IDENTITY_PERMISSIONS.ROLE_READ)
+  @ApiOkResponse({
+    description: "This employee's assignments, oldest first.",
+    schema: { type: 'array', items: roleAssignmentSchema },
+  })
+  listRoleAssignments(
+    @CurrentTenantContext() context: TenantContext,
+    @Param('employeeId') employeeId: string,
+  ) {
+    return this.employees.listRoleAssignments(context.tenantId, employeeId);
+  }
+
+  /**
+   * DEMO-EMPLOYEE-RBAC-1 — assign a role to this employee at an EXPLICIT
+   * scope. Same `AssignRoleDto`/`AssignmentScopeDto` shape
+   * `POST /auth/memberships/{membershipId}/roles` already accepts — no
+   * parallel contract. Delegates to `MembershipRolesService.create`, which
+   * performs the atomic scoped-assignment insert + `authzEpoch` bump + audit
+   * write; nothing is reimplemented here.
+   */
+  @Post(':employeeId/role-assignments')
+  @AuthorizationTarget(employeeResourceTarget())
+  @HttpCode(HttpStatus.CREATED)
+  @Idempotent()
+  @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description:
+      'Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.',
+  })
+  @ApiCreatedResponse({
+    description: 'The created assignment.',
+    schema: roleAssignmentSchema,
+  })
+  assignRole(
+    @CurrentTenantContext() context: TenantContext,
+    @Param('employeeId') employeeId: string,
+    @Body() dto: AssignRoleDto,
+  ) {
+    return this.employees.assignRoleToEmployee(
+      context.tenantId,
+      context.userId,
+      employeeId,
+      { roleId: dto.roleId, scope: toAssignmentScope(dto.scope) },
+    );
+  }
+
+  /**
+   * DEMO-EMPLOYEE-RBAC-1 — remove ONE of this employee's role assignments.
+   * `WorkforceEmployeesService.removeRoleAssignment` confirms the assignment
+   * actually belongs to this employee before delegating to
+   * `MembershipRolesService.remove`.
+   */
+  @Delete(':employeeId/role-assignments/:assignmentId')
+  @AuthorizationTarget(employeeResourceTarget())
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission(IDENTITY_PERMISSIONS.ROLE_ASSIGN)
+  async removeRoleAssignment(
+    @CurrentTenantContext() context: TenantContext,
+    @Param('employeeId') employeeId: string,
+    @Param('assignmentId') assignmentId: string,
+  ): Promise<void> {
+    await this.employees.removeRoleAssignment(
+      context.tenantId,
+      context.userId,
+      employeeId,
+      assignmentId,
+    );
   }
 
   /**

@@ -167,8 +167,22 @@ const KNOWN_DEVIATIONS: Readonly<Record<string, readonly string[]>> = {
     'auth/decorators/current-principal.decorator',
     'auth/decorators/pos-session.decorator',
     'auth/guards/jwt-auth.guard',
+    // DEMO-EMPLOYEE-RBAC-1 — the Employees "Access / Role" facade
+    // (`employeeId`-scoped role-assignment routes) resolves employeeId ->
+    // membershipId and then delegates VERBATIM to the existing scoped-RBAC
+    // write surface, rather than duplicating its atomic epoch-bump/audit
+    // logic: `MembershipRolesService` (assignment create/list/remove) and the
+    // `AssignRoleDto`/`AssignmentScopeDto` shape `POST /auth/memberships/
+    // {membershipId}/roles` already accepts (same contract, no parallel one).
+    // `canonical-role-templates` is the shared idempotent role-template
+    // helper both `RegistrationsService` (signup) and this module's own
+    // auto-provisioned-Cashier path use, so there is exactly one authored
+    // definition of each demo role, never two drifting copies.
+    'authz/canonical-role-templates',
     'authz/decorators/require-permission.decorator',
+    'authz/dto/assign-role.dto',
     'authz/guards/permission.guard',
+    'authz/membership-roles.service',
     'authz/permissions.constants',
     'context/current-tenant-context.decorator',
     'context/tenant-context',
