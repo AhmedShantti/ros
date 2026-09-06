@@ -1087,6 +1087,12 @@ describe('Cash session open (e2e)', () => {
       // `GET /cash-sessions/:id` and any movement-READ route remain
       // deliberately absent: no source-supported read authority exists for
       // either, and `cash.session.open` is not reinterpreted as one.
+      // DEMO-OPS-HOTFIX-3 adds `GET /cash-sessions/drawers` — the Cashier's
+      // OWN terminal-bound branch's drawers, gated on `cash.session.open`
+      // (never a drawer-admin permission), which is what makes this a READ
+      // of what the caller may already act on rather than drawer
+      // administration — that lives on the separate `/branches/:branchId/
+      // drawers` route family, asserted absent from THIS slice below.
       const treasury = paths.filter((p) => p.startsWith('/cash-sessions'));
       expect(treasury.sort()).toEqual([
         '/cash-sessions',
@@ -1096,6 +1102,7 @@ describe('Cash session open (e2e)', () => {
         '/cash-sessions/:sessionId/pay-in',
         '/cash-sessions/:sessionId/pay-out',
         '/cash-sessions/:sessionId/safe-drop',
+        '/cash-sessions/drawers',
       ]);
       // Scoped to Treasury: `/inventory/counts` is a stock-count route and has
       // nothing to do with counting cash. FR-POS-092's drawer limit is
@@ -1103,9 +1110,12 @@ describe('Cash session open (e2e)', () => {
       // parameters are undecided), so no such route exists either. `count`
       // and `variance` are dropped from this forbidden list — P1G-1
       // migration 34 legitimately introduces `close-context` (a count-mode
-      // reader) and the variance-approval `close/finalize` route; `drawer`
-      // stays forbidden (no drawer-admin route exists).
-      for (const forbidden of ['drawer']) {
+      // reader) and the variance-approval `close/finalize` route.
+      // `drawer-admin` (create/update a drawer) stays forbidden under
+      // `/cash-sessions` specifically — DEMO-OPS-HOTFIX-3 put that on the
+      // separate `/branches/:branchId/drawers` family instead, precisely so
+      // it could never be mistaken for a cash-session operation.
+      for (const forbidden of ['drawer-admin']) {
         expect(treasury.filter((p) => p.includes(forbidden))).toHaveLength(0);
       }
       // P1F-1: Payment capture is now real, but it is a SALES route

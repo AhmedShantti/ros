@@ -53,6 +53,8 @@ import {
 } from './cash-session-close/cash-session-close.dto';
 import { CashSessionCloseService } from './cash-session-close/cash-session-close.service';
 import { CashSessionsService } from './cash-sessions/cash-sessions.service';
+import { drawerSchema, toDrawerView } from './drawers/drawer.view';
+import { DrawersService } from './drawers/drawers.service';
 import { CashMovementDto, OpenCashSessionDto } from './treasury.dto';
 import { TREASURY_PERMISSIONS } from './treasury.permissions';
 import {
@@ -325,9 +327,40 @@ export class TreasuryController {
     private readonly sessions: CashSessionsService,
     private readonly movements: CashMovementsService,
     private readonly close: CashSessionCloseService,
+    private readonly drawers: DrawersService,
     @Inject(TERMINAL_PIN_VERIFIER)
     private readonly pinVerifier: TerminalPinVerifier,
   ) {}
+
+  /**
+   * DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over,
+   * for the POS Open-Shift drawer selector. Resolves the branch from the
+   * CALLER'S OWN terminal (`DrawersService.listForTerminal`), never a
+   * caller-supplied branchId — a cashier cannot browse another branch's
+   * drawers by asking for one. Gated on `cash.session.open`, the SAME
+   * permission `POST /cash-sessions` already requires, deliberately NOT
+   * `settings.branch.manage` — this is a read of what a Cashier may already
+   * act on, not a drawer-administration grant (that lives on the separate
+   * `DrawersController`).
+   */
+  @Get('drawers')
+  @AuthorizationTarget(sessionTerminalBranchTarget())
+  @RequirePermission(TREASURY_PERMISSIONS.CASH_SESSION_OPEN)
+  @ApiOkResponse({
+    description: "The caller's own terminal-bound branch's drawers.",
+    schema: { type: 'array', items: drawerSchema },
+  })
+  async listSessionDrawers(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+  ) {
+    const { terminalId } = this.requirePosIdentity(principal);
+    const rows = await this.drawers.listForTerminal(
+      context.tenantId,
+      terminalId,
+    );
+    return rows.map(toDrawerView);
+  }
 
   /**
    * Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002.

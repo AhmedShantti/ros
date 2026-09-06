@@ -24,6 +24,7 @@ import {
 import { DayCloseController } from './day-close/day-close.controller';
 import { DayCloseStateQueryService } from './day-close/day-close-state.query.service';
 import { DayCloseService } from './day-close/day-close.service';
+import { DrawersController } from './drawers/drawers.controller';
 import { DrawersService } from './drawers/drawers.service';
 import { TreasuryController } from './treasury.controller';
 import { CashSessionTargetResolver } from './cash-sessions/scope-target.resolver';
@@ -49,10 +50,18 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
  * no Workforce internal directory; `src/modules/module-boundaries.spec.ts`
  * enforces that mechanically, as SRS §5.2.3 requires.
  *
- * Drawer PROVISIONING has no public route: the SRS defines no drawer-management
- * endpoint and §15.2 no drawer-admin permission, so none is invented and
- * `cash.session.open` is not repurposed as one. `DrawersService` is exported for
- * internal/bootstrap use and the missing operator surface is reported.
+ * DEMO-OPS-HOTFIX-3 adds Drawer PROVISIONING's public surface: the SRS
+ * defines no drawer-management endpoint and §15.2 no drawer-admin
+ * permission, so `DrawersController` (`branches/:branchId/drawers`, POST +
+ * GET) reuses `settings.branch.manage` — the SAME code
+ * `CashClosePolicyController` already uses for branch-scoped Treasury
+ * configuration — rather than inventing one or repurposing
+ * `cash.session.open`. The FOURTH controller-visible route,
+ * `GET /cash-sessions/drawers` on the EXISTING `TreasuryController`, is the
+ * Cashier-facing counterpart: POS-session-only, gated on `cash.session.open`
+ * (the permission a Cashier already needs to open a shift), resolving the
+ * branch from the caller's OWN terminal — never a caller-supplied branchId —
+ * so this cannot double as a drawer-administration grant.
  *
  * P1F-1 adds the FIRST published `contract/` QUERY: `CASH_SESSION_FACTS_QUERY`
  * (`modules/treasury/contract`), consumed by Sales' Payment capture to
@@ -119,6 +128,7 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
     TreasuryController,
     CashClosePolicyController,
     DayCloseController,
+    DrawersController,
   ],
   providers: [
     CashSessionTargetResolver,
