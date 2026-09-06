@@ -29,6 +29,11 @@ import {
 import { newId } from '../../../common/ids';
 import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ensureCanonicalRole } from '../../identity/authz/canonical-role-templates';
+import {
+  AssignmentScopeInput,
+  MembershipRolesService,
+} from '../../identity/authz/membership-roles.service';
 import {
   AUDIT_ACTION,
   AUDIT_ENTITY,
@@ -110,6 +115,7 @@ export class WorkforceEmployeesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly membershipRoles: MembershipRolesService,
   ) {}
 
   private async assertBranch(
@@ -123,12 +129,36 @@ export class WorkforceEmployeesService {
     }
   }
 
-  /** FR-HRM-001/002/005. */
+  /**
+   * FR-HRM-001/002/005.
+   *
+   * LIVE-DEMO-HOTFIX-1: when the caller does NOT supply an existing `userId`
+   * (the common case — a brand-new POS-only hire with no prior account), this
+   * method ALSO auto-provisions, inline on this SAME transaction (mirroring
+   * `RegistrationsService.register()`'s own inline-`tx` composition, since
+   * `withAuthContext` cannot nest): a minimal internal `User` (a real email is
+   * required by the schema and this employee has none — see
+   * `SYNTHETIC_EMAIL_SUFFIX` below — and NO password credential, since a PIN,
+   * set separately via `POST /workforce/employees/:employeeId/pin`, is this
+   * user's only ever credential), an ACTIVE `Membership`, and a tenant-owned
+   * "Cashier" `Role` (reused by name if one already exists) holding the same
+   * minimal POS permission set `seed-dev-data.ts`'s own seeded Cashier role
+   * gets, assigned at BRANCH scope on `homeBranchId` only (least privilege for
+   * a single-branch hire). Without this, an employee created through the real
+   * UI could never pass `POST /auth/pin` (no `userId` ⇒ `PinService.
+   * authenticate` fails at its very first employee check) — see the
+   * LIVE-DEMO-HOTFIX-1 report for the full root-cause trace.
+   *
+   * The pre-existing `userId`-supplied path (linking an already-provisioned
+   * user) is completely unchanged.
+   */
   async create(tenantId: string, actorId: string, input: CreateEmployeeInput) {
     return this.prisma.withAuthContext(
       { userId: actorId, tenantId },
       async (tx) => {
         await this.assertBranch(tx, input.homeBranchId);
+
+        let linkedUserId: string | undefined = input.userId;
 
         if (input.userId !== undefined) {
           const user = await tx.user.findUnique({
@@ -149,19 +179,48 @@ export class WorkforceEmployeesService {
           }
         }
 
+        const employeeId = newId();
+        let autoProvisioned = false;
+        if (linkedUserId === undefined) {
+          autoProvisioned = true;
+          linkedUserId = newId();
+          // The schema requires a globally-unique, non-null email; a POS-only
+          // employee has none. This is a technical necessity of `users.email
+          // NOT NULL UNIQUE`, not a business feature — the address is never
+          // shown anywhere and can never be used to sign in with a password
+          // (no password credential is ever created for this user).
+          const syntheticEmail = `pos-employee-${employeeId}@employees.ros.internal`;
+          await tx.user.create({
+            data: {
+              id: linkedUserId,
+              email: syntheticEmail,
+              displayName: input.displayName,
+              preferredLocale: 'ar',
+            },
+          });
+          await tx.membership.create({
+            data: {
+              id: newId(),
+              userId: linkedUserId,
+              tenantId,
+              status: 'active',
+            },
+          });
+        }
+
         let employee: Prisma.EmployeeGetPayload<{
           select: typeof EMPLOYEE_SELECT;
         }>;
         try {
           employee = await tx.employee.create({
             data: {
-              id: newId(),
+              id: employeeId,
               tenantId,
               code: input.code,
               displayName: input.displayName,
               homeBranchId: input.homeBranchId,
               employmentType: input.employmentType,
-              ...(input.userId !== undefined ? { userId: input.userId } : {}),
+              ...(linkedUserId !== undefined ? { userId: linkedUserId } : {}),
               ...(input.namesLocalized !== undefined
                 ? {
                     namesLocalized: input.namesLocalized,
@@ -222,6 +281,16 @@ export class WorkforceEmployeesService {
           });
         }
 
+        if (autoProvisioned && linkedUserId !== undefined) {
+          await this.grantAutoCashierRole(
+            tx,
+            tenantId,
+            actorId,
+            linkedUserId,
+            input.homeBranchId,
+          );
+        }
+
         await this.audit.record(tx, {
           tenantId,
           action: AUDIT_ACTION.EMPLOYEE_CREATED,
@@ -234,13 +303,207 @@ export class WorkforceEmployeesService {
             employmentType: employee.employmentType,
             homeBranchId: employee.homeBranchId,
             permittedBranchCount: permitted.size,
-            linkedUser: input.userId !== undefined,
+            linkedUser: linkedUserId !== undefined,
+            autoProvisionedIdentity: autoProvisioned,
           },
         });
 
         return { ...employee, permittedBranchIds: [...permitted] };
       },
     );
+  }
+
+  /**
+   * LIVE-DEMO-HOTFIX-1 (role fixed under DEMO-EMPLOYEE-RBAC-1) — grant the
+   * canonical "Cashier" role, at BRANCH scope, to a freshly auto-provisioned
+   * employee's membership. `ensureCanonicalRole` is the SAME idempotent
+   * create-or-reuse-by-name helper `RegistrationsService` uses to seed all 4
+   * canonical demo roles at signup — this is no longer a separate, narrower
+   * permission list of its own (the original LIVE-DEMO-HOTFIX-1 cut was
+   * missing `cash.session.open`/`cash.session.close`/`pos.payment.capture`;
+   * DEMO-EMPLOYEE-RBAC-1 folds the fix into the one shared template instead
+   * of hardcoding the extra codes onto this one call site). Mirrors
+   * `MembershipRolesService.create`'s exact write shape (assignment insert +
+   * epoch bump + audit, all atomic with the caller's transaction) and
+   * `RegistrationsService.register()`'s own inline-`tx` role-grant pattern.
+   */
+  private async grantAutoCashierRole(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    actorId: string,
+    userId: string,
+    homeBranchId: string,
+  ): Promise<void> {
+    const role = await ensureCanonicalRole(tx, tenantId, 'cashier');
+
+    const membership = await tx.membership.findUnique({
+      where: { userId_tenantId: { userId, tenantId } },
+      select: { id: true },
+    });
+    if (!membership) return; // unreachable: this method only runs right after creating it
+
+    const membershipRoleId = newId();
+    await tx.membershipRole.create({
+      data: {
+        id: membershipRoleId,
+        tenantId,
+        membershipId: membership.id,
+        roleId: role.id,
+        scopeType: 'branch',
+        scopeBrandId: null,
+        scopeBranchId: homeBranchId,
+        origin: 'explicit',
+      },
+    });
+    await tx.membership.update({
+      where: { id: membership.id },
+      data: { authzEpoch: { increment: 1 } },
+    });
+    await this.audit.record(tx, {
+      tenantId,
+      action: AUDIT_ACTION.ROLE_ASSIGNED,
+      entityType: AUDIT_ENTITY.ROLE_ASSIGNMENT,
+      actorType: 'user',
+      actorId,
+      entityId: membershipRoleId,
+      metadata: {
+        membershipId: membership.id,
+        roleId: role.id,
+        scopeType: 'branch',
+        scopeBrandId: null,
+        scopeBranchId: homeBranchId,
+        origin: 'explicit',
+      },
+    });
+  }
+
+  /**
+   * DEMO-EMPLOYEE-RBAC-1 — resolve an employee id to the `Membership.id`
+   * behind it, for the three role-assignment facade methods below. The
+   * Employees UI knows only `employeeId`; it must never learn a raw
+   * `membershipId` (an internal identity concept it has no other reason to
+   * see). 404s (never leaks whether an employee id exists cross-tenant,
+   * matching `assertBranch`'s own RLS-invisibility convention) if the
+   * employee doesn't exist, has no linked user (`Employee.userId` is
+   * nullable — SRS §14 permits an employee with none; such an employee
+   * simply cannot hold a role assignment either), or — unreachable in
+   * practice given this service always creates one alongside a `userId` —
+   * has no membership.
+   */
+  private async resolveMembershipId(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    employeeId: string,
+  ): Promise<string> {
+    const employee = await tx.employee.findUnique({
+      where: { id: employeeId },
+      select: { userId: true },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found.');
+    }
+    if (!employee.userId) {
+      throw new ConflictException(
+        'This employee has no linked user, so it cannot hold a role assignment.',
+      );
+    }
+    const membership = await tx.membership.findUnique({
+      where: { userId_tenantId: { userId: employee.userId, tenantId } },
+      select: { id: true },
+    });
+    if (!membership) {
+      throw new NotFoundException('Employee not found.');
+    }
+    return membership.id;
+  }
+
+  /**
+   * DEMO-EMPLOYEE-RBAC-1 — this employee's scoped role assignments, each
+   * enriched with its role's `name` so the Employees UI can label them
+   * without a second round trip. Delegates entirely to
+   * `MembershipRolesService.listForMembership` — no query duplicated here.
+   */
+  async listRoleAssignments(tenantId: string, employeeId: string) {
+    const membershipId = await this.prisma.withAuthContext(
+      { tenantId },
+      (tx) => this.resolveMembershipId(tx, tenantId, employeeId),
+    );
+    const assignments = await this.membershipRoles.listForMembership(
+      tenantId,
+      membershipId,
+    );
+    const roleIds = [...new Set(assignments.map((a) => a.roleId))];
+    const roles = roleIds.length
+      ? await this.prisma.withAuthContext({ tenantId }, (tx) =>
+          tx.role.findMany({
+            where: { id: { in: roleIds } },
+            select: { id: true, name: true },
+          }),
+        )
+      : [];
+    const nameById = new Map(roles.map((r) => [r.id, r.name]));
+    return assignments.map((a) => ({
+      ...a,
+      roleName: nameById.get(a.roleId) ?? null,
+    }));
+  }
+
+  /**
+   * DEMO-EMPLOYEE-RBAC-1 — assign one role to this employee at an EXPLICIT
+   * scope. Resolves `employeeId -> membershipId` then delegates verbatim to
+   * `MembershipRolesService.create` — the atomic epoch-bump + audit write is
+   * entirely its own, unchanged. `roleId`/`scope` come from the caller
+   * exactly as `POST /auth/memberships/{membershipId}/roles` already accepts
+   * them (same `AssignRoleDto`/`AssignmentScopeDto` shape) — no parallel
+   * contract invented.
+   */
+  async assignRoleToEmployee(
+    tenantId: string,
+    actorId: string,
+    employeeId: string,
+    input: { roleId: string; scope: AssignmentScopeInput },
+  ) {
+    const membershipId = await this.prisma.withAuthContext(
+      { tenantId },
+      (tx) => this.resolveMembershipId(tx, tenantId, employeeId),
+    );
+    const created = await this.membershipRoles.create(tenantId, actorId, {
+      membershipId,
+      roleId: input.roleId,
+      scope: input.scope,
+    });
+    const role = await this.prisma.withAuthContext({ tenantId }, (tx) =>
+      tx.role.findUnique({ where: { id: input.roleId }, select: { name: true } }),
+    );
+    return { ...created, roleName: role?.name ?? null };
+  }
+
+  /**
+   * DEMO-EMPLOYEE-RBAC-1 — remove ONE of this employee's role assignments by
+   * its stable id. Confirms the assignment actually belongs to THIS
+   * employee's membership before delegating to
+   * `MembershipRolesService.remove` — so one employee's assignment id can
+   * never be used to probe or remove another employee's assignment (404
+   * either way, mirroring every other cross-entity check in this service).
+   */
+  async removeRoleAssignment(
+    tenantId: string,
+    actorId: string,
+    employeeId: string,
+    assignmentId: string,
+  ): Promise<void> {
+    const membershipId = await this.prisma.withAuthContext(
+      { tenantId },
+      (tx) => this.resolveMembershipId(tx, tenantId, employeeId),
+    );
+    const assignments = await this.membershipRoles.listForMembership(
+      tenantId,
+      membershipId,
+    );
+    if (!assignments.some((a) => a.id === assignmentId)) {
+      throw new NotFoundException('Role assignment not found.');
+    }
+    await this.membershipRoles.remove(tenantId, actorId, assignmentId);
   }
 
   /** FR-HRM-001 record maintenance. Never touches `code`/`homeBranchId`/`status`. */

@@ -32,6 +32,8 @@ import { TerminalController } from './terminals/terminal.controller';
 import { TerminalSessionService } from './terminals/terminal-session.service';
 import { TerminalsService } from './terminals/terminals.service';
 import { PasswordController } from './password/password.controller';
+import { RegistrationsController } from './registrations/registrations.controller';
+import { RegistrationsService } from './registrations/registrations.service';
 import { EmployeesService } from './employees/employees.service';
 import { PinService } from './employees/pin.service';
 import { TERMINAL_PIN_VERIFIER } from './contract/pin-verification.contract';
@@ -126,6 +128,7 @@ import { UsersService } from './users/users.service';
     RbacController,
     TerminalController,
     PasswordController,
+    RegistrationsController,
   ],
   providers: [
     UsersService,
@@ -174,6 +177,7 @@ import { UsersService } from './users/users.service';
     { provide: TERMINAL_PIN_VERIFIER, useExisting: PinService },
     TerminalFactsQueryService,
     { provide: TERMINAL_FACTS_QUERY, useExisting: TerminalFactsQueryService },
+    RegistrationsService,
   ],
   exports: [
     UsersService,

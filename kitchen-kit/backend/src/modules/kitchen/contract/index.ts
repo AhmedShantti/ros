@@ -17,4 +17,4 @@ export * from './offline-ticket-operations';
  * re-export pattern — a THIN pass-through of an existing constant, not new
  * permission surface.
  */
-export { KDS_PERMISSIONS } from '../kitchen.permissions';
+export { KDS_PERMISSIONS, KDS_PERMISSION_DEFS } from '../kitchen.permissions';
