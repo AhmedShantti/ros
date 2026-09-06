@@ -8,6 +8,7 @@ import { TerminalsService } from '../terminals/terminals.service';
 import { UsersRepository } from '../users/users.repository';
 import { AccessTokenService } from './access-token.service';
 import { AuditService } from '../../governance/audit/audit.service';
+import { EmployeesService } from '../employees/employees.service';
 import { PinService } from '../employees/pin.service';
 import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { AuthService } from './auth.service';
@@ -58,6 +59,13 @@ describe('AuthService refresh/logout', () => {
     // PIN authentication has its own suites; these password/refresh specs only
     // need the dependency to exist.
     const pins = { authenticate: jest.fn() } as unknown as PinService;
+    // DEMO-POS-EMPLOYEE-SESSION-HOTFIX: employee-custody re-derivation on
+    // refresh. `context` is null in every spec below (`resolveActiveContext`
+    // resolves `null`), so this is never actually invoked; it exists only to
+    // satisfy the constructor's dependency.
+    const employees = {
+      findByUser: jest.fn().mockResolvedValue(null),
+    } as unknown as EmployeesService;
     // B1-2: the T-4-LIVE snapshot builder. A refreshed tenant-bound token
     // re-mints the snapshot; this spec asserts refresh mechanics, so an empty
     // snapshot (zero authority — a real state, never a wildcard) suffices.
@@ -79,6 +87,7 @@ describe('AuthService refresh/logout', () => {
       terminals,
       audit,
       pins,
+      employees,
       snapshots,
       config,
     );

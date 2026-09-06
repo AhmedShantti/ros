@@ -9,6 +9,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessTokenService } from '../auth/access-token.service';
 import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { TenantContext } from '../context/tenant-context';
+import { EmployeesService } from '../employees/employees.service';
 import { TerminalSummary, toTerminalSummary } from './terminal.view';
 import { TerminalsService } from './terminals.service';
 
@@ -35,6 +36,7 @@ export class TerminalSessionService {
     private readonly terminals: TerminalsService,
     private readonly tokens: AccessTokenService,
     private readonly snapshots: AuthorizationSnapshotService,
+    private readonly employees: EmployeesService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
@@ -71,12 +73,27 @@ export class TerminalSessionService {
       context.tenantId,
       context.membershipId,
     );
+
+    // DEMO-POS-EMPLOYEE-SESSION-HOTFIX — a terminal-bound token must carry
+    // the employee behind it whenever the caller IS one (`Employee.userId`
+    // is unique, so this is a safe, unambiguous derivation — no migration,
+    // no new session column), or every Treasury route requiring custody of a
+    // drawer/cash session (FR-SEC-021) refuses this otherwise-valid,
+    // scope-authorized terminal session with "requires ... the employee
+    // taking custody of the drawer." A caller with no linked Employee (a
+    // pure back-office user binding to a KDS screen, say) simply gets no
+    // `emp` claim, exactly as before.
+    const employee = await this.employees.findByUser(
+      context.tenantId,
+      context.userId,
+    );
     const accessToken = await this.tokens.sign({
       sub: context.userId,
       sid: context.sessionId,
       tid: context.tenantId,
       mid: context.membershipId,
       trm: terminalId,
+      ...(employee?.status === 'active' ? { emp: employee.id } : {}),
       scp: [...snapshot.scp],
       pbr: snapshot.pbr,
       epo: snapshot.epo,

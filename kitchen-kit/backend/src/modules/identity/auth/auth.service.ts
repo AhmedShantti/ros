@@ -10,6 +10,7 @@ import {
 import { AuditService } from '../../governance/audit/audit.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
+import { EmployeesService } from '../employees/employees.service';
 import { MembershipsService } from '../memberships/memberships.service';
 import { SessionContext, SessionsService } from '../sessions/sessions.service';
 import { TerminalsService } from '../terminals/terminals.service';
@@ -37,6 +38,7 @@ export class AuthService {
     private readonly terminals: TerminalsService,
     private readonly audit: AuditService,
     private readonly pins: PinService,
+    private readonly employees: EmployeesService,
     private readonly snapshots: AuthorizationSnapshotService,
     config: ConfigService,
   ) {
@@ -231,6 +233,32 @@ export class AuthService {
       }
     }
 
+    // DEMO-POS-EMPLOYEE-SESSION-HOTFIX — a refreshed token that stays
+    // terminal-bound must ALSO stay employee-identified, or every Treasury
+    // route requiring custody of a drawer/cash session (FR-SEC-021) refuses
+    // an otherwise-valid POS session with "requires ... the employee taking
+    // custody of the drawer" — even though `PermissionGuard` itself already
+    // authorized the request (its scope check only ever needed
+    // terminal+branch, never `emp`). The session row carries no employeeId
+    // column (D-2's session model deliberately doesn't — see `Session` in
+    // `schema.prisma`); `Employee.userId` is unique, so the SAME identity PIN
+    // login already resolved is re-derived from the session's own `userId`,
+    // exactly as `EmployeesService.findByUser` already exists to do. This
+    // does NOT restore `typ: 'pos'` — that omission on refresh remains the
+    // deliberate FR-SEC-021 boundary (a POS session's audience is not meant
+    // to outlive its access token); only the employee-custody ATTRIBUTION is
+    // restored, and only alongside a still-valid terminal binding.
+    let employeeId: string | undefined;
+    if (context && terminalId) {
+      const employee = await this.employees.findByUser(
+        context.tenantId,
+        user.id,
+      );
+      if (employee?.status === 'active') {
+        employeeId = employee.id;
+      }
+    }
+
     // A refreshed tenant-bound token gets a FRESH snapshot and epoch, so a
     // refresh is the supported way to recover from a stale-snapshot refusal.
     const snapshot = context
@@ -245,6 +273,7 @@ export class AuthService {
       sid: session.id,
       ...(context ? { tid: context.tenantId, mid: context.membershipId } : {}),
       ...(terminalId ? { trm: terminalId } : {}),
+      ...(employeeId ? { emp: employeeId } : {}),
       ...(snapshot
         ? { scp: [...snapshot.scp], pbr: snapshot.pbr, epo: snapshot.epo }
         : {}),
