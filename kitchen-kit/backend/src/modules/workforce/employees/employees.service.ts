@@ -29,7 +29,7 @@ import {
 import { newId } from '../../../common/ids';
 import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { ensureCanonicalRole } from '../../identity/authz/canonical-role-templates';
+import { canonicalRoleKeyForName, ensureCanonicalRole } from '../../identity/authz/canonical-role-templates';
 import {
   AssignmentScopeInput,
   MembershipRolesService,
@@ -467,6 +467,31 @@ export class WorkforceEmployeesService {
       { tenantId },
       (tx) => this.resolveMembershipId(tx, tenantId, employeeId),
     );
+
+    // DEMO-OPS-HOTFIX-2 — if `input.roleId` names one of the canonical
+    // templates, reconcile its permission grants to the CURRENT template
+    // before handing out a new assignment to it. Without this, a role row
+    // created under an earlier, narrower template version (found here by id,
+    // unchanged since) would keep silently under-granting every employee
+    // assigned it afterwards, even through this exact UI. `ensureCanonicalRole`
+    // is idempotent (create-or-reuse-by-name, upsert-only) — safe to call on
+    // every assignment.
+    await this.prisma.withAuthContext(
+      { userId: actorId, tenantId },
+      async (tx) => {
+        const role = await tx.role.findUnique({
+          where: { id: input.roleId },
+          select: { name: true },
+        });
+        const canonicalKey = role
+          ? canonicalRoleKeyForName(role.name)
+          : undefined;
+        if (canonicalKey) {
+          await ensureCanonicalRole(tx, tenantId, canonicalKey);
+        }
+      },
+    );
+
     const created = await this.membershipRoles.create(tenantId, actorId, {
       membershipId,
       roleId: input.roleId,

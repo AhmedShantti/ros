@@ -148,6 +148,32 @@ export const CANONICAL_ROLE_TEMPLATES: Readonly<
   },
 };
 
+const CANONICAL_ROLE_KEY_BY_NAME: ReadonlyMap<string, CanonicalRoleTemplateKey> =
+  new Map(
+    Object.values(CANONICAL_ROLE_TEMPLATES).map((template) => [
+      template.name,
+      template.key,
+    ]),
+  );
+
+/**
+ * DEMO-OPS-HOTFIX-2 — identify whether an existing `Role.name` is one of the
+ * canonical templates, so a caller that is about to GRANT an already-existing
+ * role (found by id, e.g. via `GET /auth/roles`) can reconcile it to the
+ * CURRENT template's permission set first via `ensureCanonicalRole`. This is
+ * what makes the fix live in "the canonical role template/provisioning" (as
+ * required) rather than in one employee's grant: a role row created under an
+ * earlier, narrower version of a template (e.g. the original
+ * LIVE-DEMO-HOTFIX-1 Cashier cut, missing `cash.session.open`) self-heals the
+ * next time ANY employee is assigned that role by name, with no migration and
+ * no per-tenant backfill required.
+ */
+export function canonicalRoleKeyForName(
+  name: string,
+): CanonicalRoleTemplateKey | undefined {
+  return CANONICAL_ROLE_KEY_BY_NAME.get(name);
+}
+
 /**
  * Idempotent create-or-reuse-by-name of a tenant role for the given template,
  * with every one of its permission codes upserted onto it. Safe to call on
