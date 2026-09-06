@@ -288,6 +288,152 @@ describe('Drawer provisioning + cashier shift-open (e2e)', () => {
       });
   });
 
+  /**
+   * DEMO-DRAWER-AUTHZ-HOTFIX-4 — direct proof/disproof of the hypothesis
+   * that `GET /cash-sessions/drawers` is missing (or has the wrong)
+   * `@AuthorizationTarget`. `TreasuryController#listSessionDrawers`
+   * already declares `@AuthorizationTarget(sessionTerminalBranchTarget())`
+   * — byte-identical to `POST /cash-sessions`'s own decorator — so a
+   * genuinely branch-scoped Cashier PIN session gets 200 here (proven
+   * below and in the "no more 404" test above), and a caller with NO
+   * terminal binding at all (the Owner's own dashboard token — never
+   * `@AllowPosSession`-eligible in the sense this route actually checks)
+   * correctly gets the SAME 403 `POST /cash-sessions` would give it. That
+   * second case is not a bug: it is `sessionTerminalBranchTarget()`
+   * working exactly as designed for a caller that is not a POS session —
+   * and it is the most plausible explanation for the reported production
+   * 403 (a request made without a completed PIN sign-on, or after the
+   * active token had already been replaced by a dashboard one).
+   */
+  it('the Owner\'s own (non-POS, non-terminal-bound) token gets the SAME 403 from GET /cash-sessions/drawers as it would from POST /cash-sessions — proving the target is correctly declared, not missing', async () => {
+    const { accessToken } = await signUpOwner();
+
+    const drawersAttempt = await request(http)
+      .get('/cash-sessions/drawers')
+      .set('Authorization', `Bearer ${accessToken}`);
+    const openAttempt = await request(http)
+      .post('/cash-sessions')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', idemKey())
+      .send({
+        shiftId: newId(),
+        cashSessionId: newId(),
+        drawerId: newId(),
+        openingFloat: '50000',
+      });
+
+    expect(drawersAttempt.status).toBe(403);
+    expect(openAttempt.status).toBe(403);
+    expect((drawersAttempt.body as { message: string }).message).toBe(
+      (openAttempt.body as { message: string }).message,
+    );
+  });
+
+  it('a genuinely branch-scoped Cashier PIN session gets 200 from GET /cash-sessions/drawers, with the correct branch\'s drawer only', async () => {
+    const { tenantId, accessToken, branchId } = await signUpOwner();
+
+    await request(http)
+      .post(`/branches/${branchId}/drawers`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', idemKey())
+      .send({ name: 'Real Branch Drawer' })
+      .expect(201);
+
+    const employee = (
+      await request(http)
+        .post('/workforce/employees')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .set('Idempotency-Key', idemKey())
+        .send(employeeBody(branchId))
+        .expect(201)
+    ).body as { id: string; code: string };
+    await request(http)
+      .post(`/workforce/employees/${employee.id}/pin`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', idemKey())
+      .send({ pin: '4321' })
+      .expect(204);
+    const terminalId = await registerTerminal(accessToken, branchId);
+    const login = await request(http)
+      .post('/auth/pin')
+      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .expect(200);
+    const posToken = (login.body as { accessToken: string }).accessToken;
+
+    const drawers = await request(http)
+      .get('/cash-sessions/drawers')
+      .set('Authorization', `Bearer ${posToken}`)
+      .expect(200);
+    const rows = drawers.body as { id: string; name: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe('Real Branch Drawer');
+  });
+
+  it('a foreign branch\'s drawer is not visible to this Cashier', async () => {
+    const { tenantId, accessToken, branchId } = await signUpOwner();
+
+    const brands = await request(http)
+      .get('/org/brands')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const brandId = (brands.body as { id: string }[])[0].id;
+    const otherBranch = await request(http)
+      .post('/org/branches')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        brandId,
+        code: `B3-${Date.now()}`.slice(0, 16),
+        name: 'Third Branch',
+        timezone: 'Africa/Cairo',
+        baseCurrency: 'EGP',
+        countryCode: 'EG',
+      })
+      .expect(201);
+    const otherBranchId = (otherBranch.body as { id: string }).id;
+
+    await request(http)
+      .post(`/branches/${branchId}/drawers`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', idemKey())
+      .send({ name: 'This Branch Drawer' })
+      .expect(201);
+    await request(http)
+      .post(`/branches/${otherBranchId}/drawers`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', idemKey())
+      .send({ name: 'Other Branch Drawer' })
+      .expect(201);
+
+    const employee = (
+      await request(http)
+        .post('/workforce/employees')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .set('Idempotency-Key', idemKey())
+        .send(employeeBody(branchId))
+        .expect(201)
+    ).body as { id: string; code: string };
+    await request(http)
+      .post(`/workforce/employees/${employee.id}/pin`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', idemKey())
+      .send({ pin: '4321' })
+      .expect(204);
+    const terminalId = await registerTerminal(accessToken, branchId);
+    const login = await request(http)
+      .post('/auth/pin')
+      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .expect(200);
+    const posToken = (login.body as { accessToken: string }).accessToken;
+
+    const drawers = await request(http)
+      .get('/cash-sessions/drawers')
+      .set('Authorization', `Bearer ${posToken}`)
+      .expect(200);
+    const names = (drawers.body as { name: string }[]).map((d) => d.name);
+    expect(names).toEqual(['This Branch Drawer']);
+    expect(names).not.toContain('Other Branch Drawer');
+  });
+
   it('cross-tenant drawer access is rejected (404)', async () => {
     const ownerA = await signUpOwner();
     const ownerB = await signUpOwner();
