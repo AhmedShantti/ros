@@ -4,21 +4,22 @@
  * A branch-level master identity. It holds no balance and no float: those belong
  * to the CashSession open over it.
  *
- * ── NO PUBLIC ADMINISTRATION SURFACE, AND WHY ──────────────────────────────
+ * ── ADMINISTRATION SURFACE (DEMO-OPS-HOTFIX-3) ──────────────────────────────
  * The SRS defines no drawer-management endpoint and §15.2 contains no
- * drawer-admin permission. `cash.drawer.open_no_sale` is about opening the
- * physical till without a sale, not about creating drawer records. So:
- *
- *   · no public route is exposed;
- *   · `cash.session.open` is NOT misused as a drawer-admin authority;
- *   · no permission is invented to fill the gap;
- *   · and drawers are NOT auto-created per terminal — no source says a terminal
- *     implies a drawer, and inventing that rule would silently give every KDS
- *     screen a till.
- *
- * The persistence substrate exists so FR-FIN-001 is modelled and so the session
- * command has something real to reference. Provisioning is an internal
- * application call today; the missing operator surface is reported, not faked.
+ * drawer-admin permission — so `create`/`listForBranch` are exposed on
+ * `DrawersController` (`branches/:branchId/drawers`) reusing
+ * `settings.branch.manage` (`TREASURY_PERMISSIONS.SETTINGS_BRANCH_MANAGE`,
+ * the SAME code `CashClosePolicyController` already uses for this exact kind
+ * of branch-scoped Treasury configuration), never `cash.session.open` and
+ * never an invented permission. `listForTerminal` is exposed on
+ * `TreasuryController` (`GET /cash-sessions/drawers`, POS-session-only) so a
+ * Cashier can select a real drawer to open their own shift over — gated on
+ * `cash.session.open` (the permission they already need for the shift
+ * itself), never on `settings.branch.manage`, so this cannot be mistaken for
+ * a drawer-administration grant. Drawers are still NOT auto-created per
+ * terminal — no source says a terminal implies a drawer, and inventing that
+ * rule would silently give every KDS screen a till; every drawer here is an
+ * explicit, named administrative act.
  */
 
 import {
@@ -54,7 +55,7 @@ export class DrawersService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Provision a drawer. INTERNAL — no HTTP route reaches this.
+   * Provision a drawer, via `DrawersController` (`settings.branch.manage`).
    *
    * Reads and writes through `withAuthContext`, so RLS applies: a branch or
    * terminal belonging to another tenant is invisible and surfaces as 404.
@@ -142,9 +143,44 @@ export class DrawersService {
     return drawer;
   }
 
-  listForBranch(tenantId: string, branchId: string) {
-    return this.prisma.withAuthContext({ tenantId }, (tx) =>
-      tx.drawer.findMany({ where: { branchId }, orderBy: { name: 'asc' } }),
-    );
+  async listForBranch(tenantId: string, branchId: string) {
+    return this.prisma.withAuthContext({ tenantId }, async (tx) => {
+      const branch = await tx.branch.findUnique({
+        where: { id: branchId },
+        select: { id: true },
+      });
+      if (!branch) {
+        throw new NotFoundException('Branch not found.');
+      }
+      return tx.drawer.findMany({
+        where: { branchId },
+        orderBy: { name: 'asc' },
+      });
+    });
+  }
+
+  /**
+   * The drawers a POS session's OWN terminal-bound branch may open a shift
+   * over — for the Cashier-facing drawer selector on `GET
+   * /cash-sessions/drawers`. Resolves the terminal's branch itself (never a
+   * caller-supplied branchId), mirroring `CashSessionsService.open`'s own
+   * terminal-to-branch resolution — a terminal in another tenant is
+   * invisible under RLS and surfaces as 404, never a drawer list for a
+   * branch the caller does not actually operate from.
+   */
+  async listForTerminal(tenantId: string, terminalId: string) {
+    return this.prisma.withAuthContext({ tenantId }, async (tx) => {
+      const terminal = await tx.terminal.findUnique({
+        where: { id: terminalId },
+        select: { branchId: true },
+      });
+      if (!terminal) {
+        throw new NotFoundException('Terminal not found.');
+      }
+      return tx.drawer.findMany({
+        where: { branchId: terminal.branchId },
+        orderBy: { name: 'asc' },
+      });
+    });
   }
 }

@@ -597,6 +597,24 @@
         ],
         "type": "object"
       },
+      "CreateDrawerDto": {
+        "properties": {
+          "name": {
+            "description": "`Drawer.name` — VARCHAR(64).",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "terminalId": {
+            "description": "Optional device binding. When set, a cash session may only be opened\nagainst this drawer from THAT terminal — `DrawersService.create`\nenforces same-branch (ADR 0008 D-16). Omitted = any terminal in the\nbranch may open a session over this drawer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
       "CreateEmployeeDto": {
         "properties": {
           "code": {
@@ -6921,6 +6939,222 @@
         ]
       }
     },
+    "/branches/{branchId}/drawers": {
+      "get": {
+        "operationId": "DrawersController_listDrawers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "branchId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "isActive": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "terminalId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "All drawers in the branch."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Branch not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "treasury"
+        ]
+      },
+      "post": {
+        "operationId": "DrawersController_createDrawer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDrawerDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "isActive": {
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "terminalId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The newly created drawer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Branch not found, or the referenced terminal not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The referenced terminal is not registered to this branch, or the Idempotency-Key was already used with a different request body / is still in flight."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
     "/cash-sessions": {
       "post": {
         "operationId": "TreasuryController_openCashSession",
@@ -7112,6 +7346,82 @@
           }
         ],
         "summary": "Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002.\n\nONE command for the cashier, two records for the model. FR-POS-090\ndescribes a single action (\"open a shift, declaring an opening float\"), and\nthe cashier should not have to know that a shift is a Workforce concept and\na session a Treasury one. They stay distinct in the schema (carried item\nP1D-A); only the command is unified, and both are written in one transaction.\n\n`Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a\nfinancially significant act, and a retry over a flaky link must not produce\na second shift or a second session. The two client ULIDs are independent\nduplicate protection beneath it.",
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
+    "/cash-sessions/drawers": {
+      "get": {
+        "operationId": "TreasuryController_listSessionDrawers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "branchId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "isActive": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "terminalId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The caller's own terminal-bound branch's drawers."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over,\nfor the POS Open-Shift drawer selector. Resolves the branch from the\nCALLER'S OWN terminal (`DrawersService.listForTerminal`), never a\ncaller-supplied branchId — a cashier cannot browse another branch's\ndrawers by asking for one. Gated on `cash.session.open`, the SAME\npermission `POST /cash-sessions` already requires, deliberately NOT\n`settings.branch.manage` — this is a read of what a Cashier may already\nact on, not a drawer-administration grant (that lives on the separate\n`DrawersController`).",
         "tags": [
           "treasury"
         ]
