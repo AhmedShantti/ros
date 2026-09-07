@@ -1493,6 +1493,99 @@ describe('Sales Fire (P1E-6 e2e)', () => {
       });
       expect(tickets).toHaveLength(0);
     });
+
+    it('multi-line fire where one line resolves and a sibling line has zero routing destinations -> the WHOLE fire rolls back, including the line that would have resolved (no partial Kitchen write survives)', async () => {
+      const tokenC = await pinLogin(tenantA, terminalC, employeeACode, '1111');
+      const stationC = await admin.station
+        .create({
+          data: { id: newId(), branchId: branchC, name: `MultiLineC-${newId()}` },
+        })
+        .then((s) => s.id);
+      const categoryC = await admin.category
+        .create({
+          data: {
+            id: newId(),
+            tenantId: tenantA,
+            menuId: (
+              await admin.menu.create({
+                data: { id: newId(), tenantId: tenantA, name: { en: 'BranchC Menu' } },
+              })
+            ).id,
+            name: { en: 'BranchC Category' },
+          },
+        })
+        .then((c) => c.id);
+      await admin.stationRoutingRule.create({
+        data: {
+          id: newId(),
+          tenantId: tenantA,
+          branchId: branchC,
+          stationId: stationC,
+          categoryId: categoryC,
+        },
+      });
+
+      // One item resolves via the category rule just created; its sibling has
+      // no override/modifier/menu-item/category rule and branchC has no
+      // fallback — this is the exact shape the audit flagged as highest-risk:
+      // does a resolvable line's Kitchen write survive if a SIBLING line in
+      // the same Fire fails routing?
+      const resolvingItem = await mkSellable(`MultiLineResolves-${newId()}`, {
+        priceListId: priceListC,
+        categoryId: categoryC,
+      });
+      const deadEndItem = await mkSellable(`MultiLineNoDest-${newId()}`, {
+        priceListId: priceListC,
+      });
+
+      const order = await mkOrder({
+        idempotencyKey: `k-${newId()}`,
+        terminalId: terminalC,
+        openedByEmployeeId: employeeA,
+      });
+      const resolvingLine = await mkLine(
+        order.id,
+        order.businessDay,
+        resolvingItem.itemId,
+        resolvingItem.variantId,
+      );
+      const deadEndLine = await mkLine(
+        order.id,
+        order.businessDay,
+        deadEndItem.itemId,
+        deadEndItem.variantId,
+      );
+
+      const beforeOrder = await admin.order.findFirstOrThrow({
+        where: { id: order.id },
+      });
+      await fireAndExpect(tokenC, order.id, order.businessDay, 422);
+
+      const afterOrder = await admin.order.findFirstOrThrow({
+        where: { id: order.id },
+      });
+      expect(afterOrder.state).toBe(beforeOrder.state);
+      expect(afterOrder.version).toBe(beforeOrder.version);
+
+      const afterResolvingLine = await admin.orderLine.findFirstOrThrow({
+        where: { id: resolvingLine.line.id },
+      });
+      const afterDeadEndLine = await admin.orderLine.findFirstOrThrow({
+        where: { id: deadEndLine.line.id },
+      });
+      expect(afterResolvingLine.state).toBe('pending');
+      expect(afterResolvingLine.firedAt).toBeNull();
+      expect(afterDeadEndLine.state).toBe('pending');
+      expect(afterDeadEndLine.firedAt).toBeNull();
+
+      // The audit's exact risk: had the resolvable line's Kitchen write been
+      // committed independently of the failing sibling line, a Ticket would
+      // exist here even though the order-level Fire returned 422. It must not.
+      const tickets = await admin.ticket.findMany({
+        where: { orderId: order.id },
+      });
+      expect(tickets).toHaveLength(0);
+    });
   });
 
   // ============================================ §16 TRANSACTION / AUDIT

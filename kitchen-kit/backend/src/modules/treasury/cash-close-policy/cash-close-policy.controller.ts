@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -15,6 +16,7 @@ import {
   ApiForbiddenResponse,
   ApiHeader,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -31,7 +33,10 @@ import { CurrentTenantContext } from '../../identity/context/current-tenant-cont
 import type { TenantContext } from '../../identity/context/tenant-context';
 import { TenantContextGuard } from '../../identity/context/tenant-context.guard';
 import { TREASURY_PERMISSIONS } from '../treasury.permissions';
-import { toCashClosePolicyView } from '../treasury.views';
+import {
+  toCashClosePolicyView,
+  toResolvedCashClosePolicyView,
+} from '../treasury.views';
 import { CashClosePolicyService } from './cash-close-policy.service';
 import { CreateCashClosePolicyDto } from './cash-close-policy.dto';
 import { AuthorizationTarget, branchFromParam } from '../../identity/contract';
@@ -63,8 +68,20 @@ import { AuthorizationTarget, branchFromParam } from '../../identity/contract';
  *
  * DELIBERATELY ABSENT: PATCH/PUT (no update — a new configuration is always
  * a NEW immutable version, §20), DELETE (no DELETE grant exists on the
- * table), and any read/inspector endpoint (FR-PLT-027's settings inspector
- * is `[S]` and out of scope; §26 permits an admin write route without one).
+ * table).
+ *
+ * GET (GOLDEN-PATH-BACKEND-CLOSURE, 2026-09-07): the original design gate
+ * left the write route reachable with no paired read, citing FR-PLT-027's
+ * settings inspector as out of scope — but that argument does not cover a
+ * plain "what applies to this branch right now" read, which FR-PLT-027 never
+ * owned (the inspector's job is showing every override LEVEL and which one
+ * won; this returns the one resolved value, exactly what the write route
+ * already echoes back on create). Its absence left this route
+ * administratively unreachable in practice: the golden-path audit found no
+ * console/dashboard surface could tell an Owner whether a branch already had
+ * a policy before deciding whether to create one. Same guards, same
+ * permission, still no `@AllowPosSession` — a read of branch administrative
+ * configuration is exactly as POS-inappropriate as writing it.
  */
 @ApiTags('treasury')
 @ApiBearerAuth()
@@ -141,5 +158,63 @@ export class CashClosePolicyController {
       },
     );
     return toCashClosePolicyView(policy);
+  }
+
+  /**
+   * The currently-effective cash-close policy for a branch, wrapped as
+   * `{ policy: ... | null }` — GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07).
+   * `policy` is `null` when none has ever been configured; a bare top-level
+   * `null` body is deliberately avoided (Express sends an empty body for a
+   * handler returning `null`, which is indistinguishable on the wire from
+   * "no response content" — a wrapper object keeps `null` an unambiguous,
+   * inspectable JSON value). Not FR-PLT-027's settings inspector (see class
+   * docblock) — a single resolved value, not a level-by-level override
+   * trace.
+   */
+  @Get(':branchId/cash-close-policy')
+  @AuthorizationTarget(branchFromParam('branchId'))
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission(TREASURY_PERMISSIONS.SETTINGS_BRANCH_MANAGE)
+  @ApiOkResponse({
+    description:
+      '`policy` is null if the branch has none configured yet.',
+    schema: {
+      type: 'object',
+      properties: {
+        policy: {
+          nullable: true,
+          type: 'object',
+          properties: {
+            id: uuidSchema(),
+            branchId: uuidSchema(),
+            effectiveFrom: isoDateTimeSchema(),
+            countMode: { type: 'string', enum: ['blind', 'open'] },
+            varianceToleranceMinorUnits: moneyStringSchema(
+              'Non-negative minor-unit tolerance as a decimal string.',
+            ),
+            currency: {
+              type: 'string',
+              description:
+                "ISO 4217 currency code — the branch's own base currency.",
+              example: 'AED',
+            },
+            varianceApprovalExpirySeconds: { type: 'integer', minimum: 1 },
+            createdAt: isoDateTimeSchema(),
+          },
+        },
+      },
+    },
+  })
+  @ApiNotFoundResponse({ description: 'Unknown branch.' })
+  async getPolicy(
+    @CurrentTenantContext() context: TenantContext,
+    @Param('branchId') branchId: string,
+  ) {
+    const policy = await this.policies.getCurrent(
+      context.tenantId,
+      context.userId,
+      branchId,
+    );
+    return { policy: policy ? toResolvedCashClosePolicyView(policy) : null };
   }
 }
