@@ -43,3 +43,42 @@ describe('canonical role templates — refund permission separation', () => {
     ]);
   });
 });
+
+/**
+ * DEMO-PRODUCTION-CLOSURE-P0 (2026-09-07) — regression coverage for the
+ * canonical-role gap identified by the full-SRS backend audit: four
+ * implemented POS capabilities (`pos.discount.apply`, `pos.comp.apply`,
+ * `pos.discount.unlimited`, `pos.order.void_line_postfire`) were unreachable
+ * by any staff canonical role. Fix preserves manager-only separation:
+ * Cashier gets ordinary discount/comp; the approval-bypass and post-fire
+ * void stay Shift-Supervisor-tier (the latter per CLARIFICATION C).
+ */
+describe('canonical role templates — discount/comp/post-fire-void permission separation', () => {
+  it('Cashier can apply an ordinary discount and comp (pos.discount.apply, pos.comp.apply)', () => {
+    const codes = CANONICAL_ROLE_TEMPLATES.cashier.permissionCodes;
+    expect(codes).toContain(SALES_PERMISSIONS.DISCOUNT_APPLY);
+    expect(codes).toContain(SALES_PERMISSIONS.COMP_APPLY);
+  });
+
+  it('Cashier does NOT get the discount-approval-bypass or post-fire-void manager-only powers', () => {
+    const codes = CANONICAL_ROLE_TEMPLATES.cashier.permissionCodes;
+    expect(codes).not.toContain(SALES_PERMISSIONS.DISCOUNT_UNLIMITED);
+    expect(codes).not.toContain(SALES_PERMISSIONS.ORDER_VOID_LINE_POSTFIRE);
+  });
+
+  it('Shift Supervisor inherits ordinary discount/comp from Cashier and separately holds unlimited-discount and post-fire-void', () => {
+    const codes = CANONICAL_ROLE_TEMPLATES.shift_supervisor.permissionCodes;
+    expect(codes).toContain(SALES_PERMISSIONS.DISCOUNT_APPLY);
+    expect(codes).toContain(SALES_PERMISSIONS.COMP_APPLY);
+    expect(codes).toContain(SALES_PERMISSIONS.DISCOUNT_UNLIMITED);
+    expect(codes).toContain(SALES_PERMISSIONS.ORDER_VOID_LINE_POSTFIRE);
+  });
+
+  it('Branch Manager template is unchanged by this fix (smallest-scope correction, no broadened grant)', () => {
+    const codes = CANONICAL_ROLE_TEMPLATES.branch_manager.permissionCodes;
+    expect(codes).not.toContain(SALES_PERMISSIONS.DISCOUNT_APPLY);
+    expect(codes).not.toContain(SALES_PERMISSIONS.COMP_APPLY);
+    expect(codes).not.toContain(SALES_PERMISSIONS.DISCOUNT_UNLIMITED);
+    expect(codes).not.toContain(SALES_PERMISSIONS.ORDER_VOID_LINE_POSTFIRE);
+  });
+});
