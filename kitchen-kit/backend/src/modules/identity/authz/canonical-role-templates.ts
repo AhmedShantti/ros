@@ -54,12 +54,24 @@ export interface CanonicalRoleTemplate {
  * the accepted end-to-end cashier workflow. No reporting, no
  * inventory-cost-view, no branch-management permission — matching the
  * governance register's explicit "NOT granted: Cashier" list for those.
+ *
+ * `pos.refund.issue` (GOLDEN-PATH-BACKEND-CLOSURE, 2026-09-07) is included so
+ * a Cashier can INITIATE a refund — this grants only the ability to start the
+ * flow, never to self-approve it: `RefundsService.issueRefund` still requires
+ * manager sign-off (`pos.discount.approve`, verified via manager PIN) unless a
+ * branch's `DiscountApprovalPolicyVersion` explicitly raises a no-approval
+ * threshold, and no such policy is provisioned by default (absent policy =
+ * approval always required — the safe default, unchanged by this grant).
+ * `pos.refund.different_tender` (refunding to a tender other than the
+ * original) and `pos.discount.approve` (the approval act itself) are
+ * deliberately WITHHELD here — that separation is the point.
  */
 const CASHIER_PERMISSION_CODES = [
   SALES_PERMISSIONS.ORDER_CREATE,
   SALES_PERMISSIONS.ORDER_FIRE,
   SALES_PERMISSIONS.ORDER_VOID_LINE_PREFIRE,
   SALES_PERMISSIONS.PAYMENT_CAPTURE,
+  SALES_PERMISSIONS.REFUND_ISSUE,
   CATALOGUE_PERMISSIONS.ITEM_READ,
   CATALOGUE_PERMISSIONS.PRICE_READ,
   CATALOGUE_PERMISSIONS.AVAILABILITY_READ,

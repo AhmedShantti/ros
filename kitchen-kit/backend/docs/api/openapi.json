@@ -5784,6 +5784,124 @@
       }
     },
     "/branches/{branchId}/cash-close-policy": {
+      "get": {
+        "operationId": "CashClosePolicyController_getPolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "policy": {
+                      "properties": {
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "countMode": {
+                          "enum": [
+                            "blind",
+                            "open"
+                          ],
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "currency": {
+                          "description": "ISO 4217 currency code — the branch's own base currency.",
+                          "example": "AED",
+                          "type": "string"
+                        },
+                        "effectiveFrom": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "varianceApprovalExpirySeconds": {
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        "varianceToleranceMinorUnits": {
+                          "description": "Non-negative minor-unit tolerance as a decimal string.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "`policy` is null if the branch has none configured yet."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown branch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The currently-effective cash-close policy for a branch, wrapped as\n`{ policy: ... | null }` — GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07).\n`policy` is `null` when none has ever been configured; a bare top-level\n`null` body is deliberately avoided (Express sends an empty body for a\nhandler returning `null`, which is indistinguishable on the wire from\n\"no response content\" — a wrapper object keeps `null` an unambiguous,\ninspectable JSON value). Not FR-PLT-027's settings inspector (see class\ndocblock) — a single resolved value, not a level-by-level override\ntrace.",
+        "tags": [
+          "treasury"
+        ]
+      },
       "post": {
         "operationId": "CashClosePolicyController_createPolicy",
         "parameters": [

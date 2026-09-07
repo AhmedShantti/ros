@@ -63,6 +63,10 @@ import {
 import { AuditService } from '../../governance/audit/audit.service';
 import { BRANCH_CURRENCY_QUERY } from '../../organisation/contract';
 import type { BranchCurrencyQuery } from '../../organisation/contract';
+import {
+  CashClosePolicyResolver,
+  type ResolvedCashClosePolicy,
+} from './cash-close-policy.resolver';
 
 /**
  * `tx.$queryRaw` failures surface as `PrismaClientKnownRequestError` code
@@ -120,7 +124,48 @@ export class CashClosePolicyService {
     private readonly audit: AuditService,
     @Inject(BRANCH_CURRENCY_QUERY)
     private readonly branchCurrency: BranchCurrencyQuery,
+    private readonly resolver: CashClosePolicyResolver,
   ) {}
+
+  /**
+   * GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07) — the currently-effective
+   * version for a branch, or `null` if none has ever been configured.
+   * `asOf` is the current app-clock instant: this is a display/admin read
+   * ("what applies right now"), not a temporal-enforcement decision — unlike
+   * `create`'s DB-time discipline, no correctness property depends on this
+   * being exactly the database's clock. Delegates entirely to the existing
+   * `CashClosePolicyResolver` (no duplicated query/selection logic) — this
+   * method only adds the transaction wrapper a Treasury-private resolver
+   * requires and the branch-existence check an admin GET route should give.
+   *
+   * This is NOT FR-PLT-027's settings inspector (which is `[S]`, later-phase,
+   * out of scope — it must show every override LEVEL and which one won).
+   * This returns only the single resolved value for one branch, matching
+   * exactly what the existing write route already returns on create.
+   */
+  async getCurrent(
+    tenantId: string,
+    actorUserId: string,
+    branchId: string,
+  ): Promise<ResolvedCashClosePolicy | null> {
+    return this.prisma.withAuthContext(
+      { userId: actorUserId, tenantId },
+      async (tx) => {
+        const branch = await this.branchCurrency.find(tx, {
+          tenantId,
+          branchId,
+        });
+        if (!branch) {
+          throw new NotFoundException('Branch not found.');
+        }
+        return this.resolver.resolve(tx, {
+          tenantId,
+          branchId: branch.branchId,
+          asOf: new Date(),
+        });
+      },
+    );
+  }
 
   async create(
     tenantId: string,

@@ -232,6 +232,11 @@ describe('Cash-close policy (e2e) — P1G-1 migration 33', () => {
       .set('Idempotency-Key', idempotencyKey)
       .send(body);
 
+  const getPolicy = (token: string, branchId: string) =>
+    request(http)
+      .get(`/branches/${branchId}/cash-close-policy`)
+      .set(auth(token));
+
   // ============================================================ AUTHZ
   describe('authorization', () => {
     it('23: route without settings.branch.manage -> 403', async () => {
@@ -258,6 +263,75 @@ describe('Cash-close policy (e2e) — P1G-1 migration 33', () => {
       });
       expect(entries).toHaveLength(1);
       expect(entries[0].action).toBe('CASH_CLOSE_POLICY_VERSION_CREATED');
+    });
+  });
+
+  // ============================================================ GET (read)
+  // GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07) — the smallest reachable admin
+  // read this correction adds: "what applies to this branch right now",
+  // not FR-PLT-027's (out-of-scope) settings inspector.
+  describe('GET current policy (GOLDEN-PATH-BACKEND-CLOSURE)', () => {
+    let freshBranch: string;
+
+    beforeAll(async () => {
+      const brand = (
+        await request(http)
+          .post('/org/brands')
+          .set(auth(managerTokenA))
+          .send({ name: `Brand CCPGet${shortStamp}` })
+          .expect(201)
+      ).body as WithId;
+      freshBranch = (
+        (
+          await request(http)
+            .post('/org/branches')
+            .set(auth(managerTokenA))
+            .send({
+              brandId: brand.id,
+              code: `CCPGET${shortStamp}`,
+              name: `Branch CCPGet${shortStamp}`,
+              timezone: 'Africa/Cairo',
+              baseCurrency: 'EGP',
+              countryCode: 'EG',
+            })
+            .expect(201)
+        ).body as WithId
+      ).id;
+    });
+
+    it('route without settings.branch.manage -> 403', async () => {
+      await getPolicy(noPermTokenA, freshBranch).expect(403);
+    });
+
+    it('a branch with no configured policy -> 200 + { policy: null } (not a 404 — the branch itself exists)', async () => {
+      const res = await getPolicy(managerTokenA, freshBranch).expect(200);
+      expect((res.body as { policy: unknown }).policy).toBeNull();
+    });
+
+    it('unknown branch id -> 404', async () => {
+      await getPolicy(managerTokenA, newId()).expect(404);
+    });
+
+    it('after a create, GET returns exactly the version just created', async () => {
+      const created = await createPolicy(managerTokenA, freshBranch, {
+        varianceToleranceMinorUnits: '750',
+        varianceApprovalExpirySeconds: 900,
+        countMode: 'open',
+      }).expect(201);
+
+      const res = await getPolicy(managerTokenA, freshBranch).expect(200);
+      expect((res.body as { policy: CcpBody }).policy).toMatchObject({
+        id: bodyOf(created).id,
+        branchId: freshBranch,
+        countMode: 'open',
+        varianceToleranceMinorUnits: '750',
+        varianceApprovalExpirySeconds: 900,
+        currency: 'EGP',
+      });
+    });
+
+    it("a different tenant's manager cannot read this branch's policy (cross-tenant invisible)", async () => {
+      await getPolicy(managerTokenB, freshBranch).expect(404);
     });
   });
 

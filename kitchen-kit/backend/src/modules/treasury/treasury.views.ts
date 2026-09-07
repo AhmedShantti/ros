@@ -4,6 +4,7 @@ import {
   Shift,
 } from '../../generated/prisma/client';
 import { CashClosePolicyRecord } from './cash-close-policy/cash-close-policy.service';
+import { ResolvedCashClosePolicy } from './cash-close-policy/cash-close-policy.resolver';
 
 /**
  * Treasury read models.
@@ -54,6 +55,25 @@ export function toCashClosePolicyView(policy: CashClosePolicyRecord) {
     currency: policy.currency,
     varianceApprovalExpirySeconds: policy.varianceApprovalExpirySeconds,
     createdBy: policy.createdBy,
+    createdAt: policy.createdAt,
+  };
+}
+
+/**
+ * GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07) — the read-side counterpart to
+ * `toCashClosePolicyView`, for `CashClosePolicyResolver`'s resolved shape
+ * (no `createdBy`; `id` is named `policyVersionId` there since it is a
+ * resolution result, not a freshly-created row).
+ */
+export function toResolvedCashClosePolicyView(policy: ResolvedCashClosePolicy) {
+  return {
+    id: policy.policyVersionId,
+    branchId: policy.branchId,
+    effectiveFrom: policy.effectiveFrom,
+    countMode: policy.countMode,
+    varianceToleranceMinorUnits: policy.varianceToleranceMinorUnits.toString(),
+    currency: policy.currency,
+    varianceApprovalExpirySeconds: policy.varianceApprovalExpirySeconds,
     createdAt: policy.createdAt,
   };
 }

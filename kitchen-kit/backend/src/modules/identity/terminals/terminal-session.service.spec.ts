@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessTokenService } from '../auth/access-token.service';
 import { TenantContext } from '../context/tenant-context';
 import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
+import { EmployeesService } from '../employees/employees.service';
 import { TerminalSessionService } from './terminal-session.service';
 import { TerminalsService } from './terminals.service';
 
@@ -55,11 +56,17 @@ describe('TerminalSessionService.bind', () => {
         epo: 0,
       }),
     } as unknown as AuthorizationSnapshotService;
+    // DEMO-POS-EMPLOYEE-SESSION-HOTFIX: no test below asserts employee
+    // attribution, so a "no linked Employee" resolution suffices here.
+    const employees = {
+      findByUser: jest.fn().mockResolvedValue(null),
+    } as unknown as EmployeesService;
     service = new TerminalSessionService(
       prisma,
       terminals,
       tokens,
       snapshots,
+      employees,
       config,
     );
   });
