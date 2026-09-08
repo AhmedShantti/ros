@@ -202,29 +202,6 @@ groups:
           metric_query: >-
             increase(scheduled_job_findings_total{job_type="inventory.daily_reconciliation",severity="critical"}[1d])
 
-      # ── FR-DR-002: automated partition-lifecycle creation failure ────────
-      - alert: ROSPartitionLifecycleCreationFailed
-        expr: >-
-          increase(
-            scheduled_job_findings_total{job_type="platform.partition_lifecycle",severity="critical"}[1d]
-          ) > 0
-        for: 0m
-        labels:
-          severity: critical
-          slo: FR-DR-002
-        annotations:
-          summary: 'ROS partition-lifecycle job failed to create a required partition'
-          description: >-
-            The scheduled partition-maintenance job (FR-DR-002) recorded at
-            least one table/month it could not create a partition for. Left
-            unaddressed, a write that lands past the last existing partition
-            will fail outright once the horizon is exhausted. Diagnose via the
-            finding's `detail.failures` (table, month, error) before the
-            horizon runs out.
-          runbook_url: 'docs/observability/runbooks/partition-lifecycle-failure.md'
-          metric_query: >-
-            increase(scheduled_job_findings_total{job_type="platform.partition_lifecycle",severity="critical"}[1d])
-
       # ── FR-AUD-005 ───────────────────────────────────────────────────
       # AUD-1's DETECTION signal, same shape and same caveats as
       # ROSInventoryLedgerProjectionDivergence above: incremented ONLY after

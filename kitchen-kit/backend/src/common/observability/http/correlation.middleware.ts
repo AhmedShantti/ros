@@ -1,9 +1,6 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
-import {
-  ObservabilityContextService,
-  ObservabilityStore,
-} from '../context/observability-context';
+import { ObservabilityContextService } from '../context/observability-context';
 import {
   CAUSATION_HEADER,
   CORRELATION_HEADER,
@@ -12,13 +9,8 @@ import {
 } from '../context/correlation';
 import { MetricsService, classifyStatus } from '../metrics/metrics.service';
 import { StructuredLoggerService } from '../logging/structured-logger.service';
-import type { RequestAuthorization } from '../../../modules/identity/context/tenant-context';
 
 const UNMATCHED = 'unmatched';
-
-type MaybeAuthorizedRequest = Request & {
-  authorization?: RequestAuthorization;
-};
 
 /**
  * Establishes the request's {@link ObservabilityContextService} store for the
@@ -56,7 +48,7 @@ export class CorrelationMiddleware implements NestMiddleware {
     const causationId = resolveCausationId(req.headers[CAUSATION_HEADER]);
     res.setHeader(CORRELATION_HEADER, correlationId);
 
-    const store: ObservabilityStore = {
+    const store = {
       correlationId,
       causationId,
       tenantId: null,
@@ -72,23 +64,6 @@ export class CorrelationMiddleware implements NestMiddleware {
       res.once('finish', () => {
         if (store.completed) return; // exactly-once guard
         store.completed = true;
-
-        // `TenantEnrichmentInterceptor` only runs once every guard on the
-        // route has already allowed the request through — a `PermissionGuard`
-        // denial (403) never reaches it, so `store.tenantId`/`branchId` would
-        // otherwise stay `null` even though `TenantContextGuard` already
-        // resolved and cached the trusted context at `request.authorization`
-        // (memoized by `TenantContextService.require`, read again — never
-        // re-derived — by `PermissionGuard` itself before it denies). Reading
-        // that same trusted, already-live-verified object here, at the single
-        // completion point, closes that gap without weakening trust: this is
-        // still never a header/body/query/JWT-snapshot value.
-        const authContext = (req as MaybeAuthorizedRequest).authorization
-          ?.context;
-        if (authContext) {
-          store.tenantId = authContext.tenantId;
-          store.branchId = authContext.branchId ?? null;
-        }
 
         const durationNs = process.hrtime.bigint() - store.startedAtNs;
         const durationMs = Number(durationNs) / 1_000_000;

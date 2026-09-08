@@ -169,9 +169,7 @@ describe('Exact persisted movement deltas — Transfers/Counts/Waste (A1-1 corre
     return item.id;
   };
 
-  const movementQuantity = async (
-    movementId: string,
-  ): Promise<Prisma.Decimal> => {
+  const movementQuantity = async (movementId: string): Promise<Prisma.Decimal> => {
     const mv = await admin.stockMovement.findFirstOrThrow({
       where: { id: movementId },
     });
@@ -192,11 +190,16 @@ describe('Exact persisted movement deltas — Transfers/Counts/Waste (A1-1 corre
       const outQty = await movementQuantity(dispatchResult.dispatchMovementId);
       expect(outQty.equals(new Prisma.Decimal('-0.300003'))).toBe(true);
 
-      const receiveResult = await transfers.receive(tenantA, userA, locationB, {
-        transferReferenceId: dispatchResult.transferReferenceId,
-        receivedQuantity: '0.100001',
-        discrepancyReasonCodeId: reasonAdjustment,
-      });
+      const receiveResult = await transfers.receive(
+        tenantA,
+        userA,
+        locationB,
+        {
+          transferReferenceId: dispatchResult.transferReferenceId,
+          receivedQuantity: '0.100001',
+          discrepancyReasonCodeId: reasonAdjustment,
+        },
+      );
       const inQty = await movementQuantity(receiveResult.receiveMovementId);
       // transfer_in is ALWAYS posted at the dispatched quantity (BR-INV-002).
       expect(inQty.equals(new Prisma.Decimal('0.300003'))).toBe(true);
@@ -222,15 +225,20 @@ describe('Exact persisted movement deltas — Transfers/Counts/Waste (A1-1 corre
         reasonCodeId: reasonAdjustment,
       });
       const outQty = await movementQuantity(dispatchResult.dispatchMovementId);
-      expect(outQty.equals(new Prisma.Decimal('-100000000000.123456'))).toBe(
-        true,
-      );
+      expect(
+        outQty.equals(new Prisma.Decimal('-100000000000.123456')),
+      ).toBe(true);
 
-      const receiveResult = await transfers.receive(tenantA, userA, locationB, {
-        transferReferenceId: dispatchResult.transferReferenceId,
-        receivedQuantity: '100000000000.523456',
-        discrepancyReasonCodeId: reasonAdjustment,
-      });
+      const receiveResult = await transfers.receive(
+        tenantA,
+        userA,
+        locationB,
+        {
+          transferReferenceId: dispatchResult.transferReferenceId,
+          receivedQuantity: '100000000000.523456',
+          discrepancyReasonCodeId: reasonAdjustment,
+        },
+      );
       const inQty = await movementQuantity(receiveResult.receiveMovementId);
       expect(inQty.equals(new Prisma.Decimal('100000000000.123456'))).toBe(
         true,
@@ -252,10 +260,15 @@ describe('Exact persisted movement deltas — Transfers/Counts/Waste (A1-1 corre
         quantity: '0.700003',
         reasonCodeId: reasonAdjustment,
       });
-      const receiveResult = await transfers.receive(tenantA, userA, locationB, {
-        transferReferenceId: dispatchResult.transferReferenceId,
-        receivedQuantity: '0.700003',
-      });
+      const receiveResult = await transfers.receive(
+        tenantA,
+        userA,
+        locationB,
+        {
+          transferReferenceId: dispatchResult.transferReferenceId,
+          receivedQuantity: '0.700003',
+        },
+      );
       expect(receiveResult.adjustmentMovementId).toBeNull();
     });
   });
@@ -263,10 +276,7 @@ describe('Exact persisted movement deltas — Transfers/Counts/Waste (A1-1 corre
   // ------------------------------------------------------------------ COUNT --
   describe('CountsService — exact variance', () => {
     /** Opens a count session with one line at an explicit expectedQuantity, bypassing `open()` to isolate the exactness of recordCount/post. */
-    const mkCountLine = async (
-      stockItemId: string,
-      expectedQuantity: string,
-    ) => {
+    const mkCountLine = async (stockItemId: string, expectedQuantity: string) => {
       const session = await admin.countSession.create({
         data: {
           id: newId(),
@@ -321,7 +331,10 @@ describe('Exact persisted movement deltas — Transfers/Counts/Waste (A1-1 corre
 
     it('zero variance posts no movement', async () => {
       const stockItemId = await mkItem();
-      const { sessionId, lineId } = await mkCountLine(stockItemId, '5.000000');
+      const { sessionId, lineId } = await mkCountLine(
+        stockItemId,
+        '5.000000',
+      );
       await counts.recordCount(tenantA, userA, lineId, '5.000000');
       const posted = await counts.post(tenantA, userA, sessionId);
       expect(posted.adjustments).toHaveLength(0);
@@ -339,7 +352,9 @@ describe('Exact persisted movement deltas — Transfers/Counts/Waste (A1-1 corre
       });
       const movementId = result.lines[0].movementId;
       const qty = await movementQuantity(movementId);
-      expect(qty.equals(new Prisma.Decimal('-100000000000.123456'))).toBe(true);
+      expect(qty.equals(new Prisma.Decimal('-100000000000.123456'))).toBe(
+        true,
+      );
 
       const line = await admin.wasteLine.findFirstOrThrow({
         where: { wasteRecordId: result.id, stockItemId },

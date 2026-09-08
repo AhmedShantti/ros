@@ -7,7 +7,6 @@
  */
 export * from './commands';
 export * from './types';
-export * from './attendance-summary.query';
 export * from './scope-target.resolvers';
 /**
  * SIGNUP-1 — thin re-export of the existing Workforce permission catalog,
