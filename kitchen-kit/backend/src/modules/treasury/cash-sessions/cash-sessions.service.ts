@@ -136,7 +136,10 @@ export class CashSessionsService {
           branchId: terminal.branchId,
         });
         if (!branchFacts) throw new NotFoundException('Branch not found.');
-        const branch = { id: branchFacts.branchId, baseCurrency: branchFacts.baseCurrency };
+        const branch = {
+          id: branchFacts.branchId,
+          baseCurrency: branchFacts.baseCurrency,
+        };
 
         const employee = await tx.employee.findUnique({
           where: { id: input.employeeId },
@@ -357,6 +360,52 @@ export class CashSessionsService {
         take: 2,
       });
       return open.length === 1 ? open[0] : null;
+    });
+  }
+
+  /**
+   * DEMO-MANAGER-CASH-SESSIONS-P0 — the OPEN/CLOSING cash sessions at a
+   * manager-authorized branch, for `GET /branches/{branchId}/cash-sessions/open`.
+   *
+   * ── WHY THIS IS NOT THE `findOne` READ D-20 WITHHOLDS ──────────────────────
+   * `findOne` is unexposed because it is an unbounded BY-ID read of ANY
+   * session with no source-supported authority. This is the READ HALF of the
+   * `cash.session.close_other` WRITE authority §15.2 already grants ("Close
+   * another user's shift"): a manager who may close another employee's
+   * session at a branch may see which sessions exist to close — the exact
+   * same relationship `GET /cash-sessions/current` bears to
+   * `cash.session.open` (see that method's own docblock). It is not a
+   * general CashSession query capability: `branchId` is resolved by the
+   * route's `@AuthorizationTarget(branchFromParam('branchId'))` against the
+   * caller's OWN authorized-branch grants before this method ever runs, so a
+   * caller can never enumerate a branch they are not permitted at, and
+   * `status: 'closed'` rows — already fully reconciled, nothing left to
+   * discover — are never returned.
+   *
+   * `open` AND `closing` are both included: a `closing` session (frozen
+   * above-tolerance, mid `declareClose`/`finalizeClose`) is exactly as
+   * "stranded" from a manager's point of view as an `open` one — both need
+   * this same close-other workflow to resolve.
+   */
+  async listOpenForBranch(tenantId: string, branchId: string) {
+    return this.prisma.withAuthContext({ tenantId }, async (tx) => {
+      // Organisation's PUBLIC contract, same transaction (SRS §5.5.1) —
+      // never a direct `tx.branch.*` query (SRS §5.2.3), exactly like
+      // `open()` above.
+      const branchFacts = await this.branchCurrency.find(tx, {
+        tenantId,
+        branchId,
+      });
+      if (!branchFacts) throw new NotFoundException('Branch not found.');
+
+      return tx.cashSession.findMany({
+        where: { branchId, status: { in: ['open', 'closing'] } },
+        include: {
+          drawer: { select: { name: true } },
+          employee: { select: { displayName: true } },
+        },
+        orderBy: { openedAt: 'asc' },
+      });
     });
   }
 

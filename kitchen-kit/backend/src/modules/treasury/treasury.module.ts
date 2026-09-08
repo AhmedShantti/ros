@@ -26,6 +26,7 @@ import { DayCloseStateQueryService } from './day-close/day-close-state.query.ser
 import { DayCloseService } from './day-close/day-close.service';
 import { DrawersController } from './drawers/drawers.controller';
 import { DrawersService } from './drawers/drawers.service';
+import { OpenCashSessionsController } from './cash-sessions/open-cash-sessions.controller';
 import { TreasuryController } from './treasury.controller';
 import { CashSessionTargetResolver } from './cash-sessions/scope-target.resolver';
 import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
@@ -106,6 +107,15 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
  * `SalesModule` for `CASH_SESSION_TENDER_TOTALS_QUERY` (Sales' cash/rounding
  * totals) — see both docblocks above/there for the resulting circular-import
  * resolution.
+ *
+ * DEMO-MANAGER-CASH-SESSIONS-P0 adds manager cash-session DISCOVERY: a FIFTH
+ * controller-visible route, `GET /branches/:branchId/cash-sessions/open`, on
+ * a NEW `OpenCashSessionsController` (`cash-sessions/`) — a dashboard route,
+ * not `TreasuryController` (whose class-level `@AllowPosSession()` has no
+ * per-route opt-out). Gated on the EXISTING `cash.session.close_other`
+ * (no new permission), branch-scoped via `branchFromParam`. Backed by a new
+ * `CashSessionsService.listOpenForBranch` method; no new provider, no new
+ * close endpoint — see the controller's own docblock.
  */
 @Module({
   imports: [
@@ -129,6 +139,7 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
     CashClosePolicyController,
     DayCloseController,
     DrawersController,
+    OpenCashSessionsController,
   ],
   providers: [
     CashSessionTargetResolver,

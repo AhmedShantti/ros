@@ -4249,6 +4249,87 @@ paths:
         flaky link must not produce a second version.
       tags:
         - treasury
+  /branches/{branchId}/cash-sessions/open:
+    get:
+      operationId: OpenCashSessionsController_listOpenSessions
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  properties:
+                    branchId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    currency:
+                      description: ISO 4217 currency code.
+                      example: AED
+                      type: string
+                    drawerId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    drawerName:
+                      type: string
+                    employeeId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    employeeName:
+                      type: string
+                    openedAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    openingFloat:
+                      description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                      example: '1250'
+                      pattern: ^-?\d+$
+                      type: string
+                    sessionId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    status:
+                      enum:
+                        - open
+                        - closing
+                      type: string
+                  type: object
+                type: array
+          description: Every OPEN or CLOSING cash session at this branch, oldest first — enough to identify and act on a stranded session through the existing close-other workflow (close-context / close / close/finalize).
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing the required permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Branch not found.
+      security:
+        - bearer: []
+      tags:
+        - treasury
   /branches/{branchId}/day-closes/{businessDay}:
     get:
       description: Returns the persisted immutable snapshot, byte-stable forever — never recomputed, never manufactured for a pre-activation date. Requires `report.view.financial` (DC-R3); NOT `cash.day.close` (a write authority) and NOT `report.view.sales`.

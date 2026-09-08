@@ -42,7 +42,10 @@ import {
   CurrentAuthorization,
   CurrentTenantContext,
 } from '../identity/context/current-tenant-context.decorator';
-import type { RequestAuthorization, TenantContext } from '../identity/context/tenant-context';
+import type {
+  RequestAuthorization,
+  TenantContext,
+} from '../identity/context/tenant-context';
 import { TenantContextGuard } from '../identity/context/tenant-context.guard';
 import { TERMINAL_PIN_VERIFIER } from '../identity/contract';
 import type { TerminalPinVerifier } from '../identity/contract';
@@ -125,6 +128,14 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
  * resume — the read half of the `cash.session.open` write, mirroring the
  * `GET /cash-sessions/drawers` precedent below. See its own docblock and
  * `CashSessionsService.findCurrentForEmployee`.
+ *
+ * `GET /branches/{branchId}/cash-sessions/open` (DEMO-MANAGER-CASH-SESSIONS-P0)
+ * is the SAME shape of narrow read for the manager close-other side —
+ * gated on `cash.session.close_other`, the read half of THAT write — but it
+ * lives on a SEPARATE `OpenCashSessionsController`, not here: this class
+ * carries `@AllowPosSession()` at the CLASS level with no route-level
+ * opt-out, and that manager route is deliberately NOT POS-session-reachable.
+ * See that controller's own docblock.
  *
  * ── DELIBERATELY ABSENT ─────────────────────────────────────────────────────
  *   GET  /cash-sessions/:id               · no source-supported read authority
@@ -315,7 +326,8 @@ const declareCloseResponseSchema = {
     varianceMinorUnits: moneyStringSchema(),
     created: {
       type: 'boolean',
-      description: 'False on an idempotent replay of an already-declared attempt.',
+      description:
+        'False on an idempotent replay of an already-declared attempt.',
     },
   },
 };

@@ -78,6 +78,31 @@ export function toResolvedCashClosePolicyView(policy: ResolvedCashClosePolicy) {
   };
 }
 
+/**
+ * DEMO-MANAGER-CASH-SESSIONS-P0 — `GET /branches/{branchId}/cash-sessions/open`.
+ * `drawerName`/`employeeName` come from a same-query join (never a second
+ * round trip); mirrors `toCashSessionView`'s money-as-string discipline.
+ */
+export function toOpenCashSessionView(
+  session: CashSession & {
+    drawer: { name: string };
+    employee: { displayName: string };
+  },
+) {
+  return {
+    sessionId: session.id,
+    branchId: session.branchId,
+    drawerId: session.drawerId,
+    drawerName: session.drawer.name,
+    employeeId: session.employeeId,
+    employeeName: session.employee.displayName,
+    status: session.status,
+    openedAt: session.openedAt,
+    openingFloat: session.openingFloat.toString(),
+    currency: session.currency,
+  };
+}
+
 export function toShiftView(shift: {
   id: string;
   branchId: string;
