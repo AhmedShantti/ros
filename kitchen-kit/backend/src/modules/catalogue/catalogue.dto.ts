@@ -219,3 +219,16 @@ export class Toggle86Dto {
   @IsOptional() @IsDateString() autoReenableAt?: string;
   @IsOptional() @IsString() @IsNotEmpty() @Length(1, 500) reasonText?: string;
 }
+
+// ------------------------------------------------------------- pos menu ---
+export class PosMenuQueryDto {
+  /**
+   * FR-MNU-002. No `branchId` field: the branch is DERIVED from the
+   * authenticated POS session's own terminal, never accepted from the
+   * client (DEMO-POS-MENU-BACKEND-P0). Vocabulary is owned by Sales
+   * (`sales.order_type_enum`); stored/accepted as opaque text here, the same
+   * choice `CreatePriceListDto.orderType` already makes, so no Sales
+   * dependency is created.
+   */
+  @IsOptional() @IsString() @Length(1, 16) orderType?: string;
+}
