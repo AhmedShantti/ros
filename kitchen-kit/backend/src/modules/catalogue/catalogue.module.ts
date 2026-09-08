@@ -10,6 +10,7 @@ import { CatalogueFireFactsQueryService } from './fire-facts/catalogue-fire-fact
 import { MenuItemsService } from './menu-items/menu-items.service';
 import { MenusService } from './menus/menus.service';
 import { ModifierGroupsService } from './modifier-groups/modifier-groups.service';
+import { PosMenuService } from './pos-menu/pos-menu.service';
 import { PriceListsService } from './price-lists/price-lists.service';
 import { PriceResolutionService } from './pricing/price-resolution.service';
 import {
@@ -52,6 +53,7 @@ import {
     AvailabilityService,
     CatalogueCompletenessService,
     CatalogueFireFactsQueryService,
+    PosMenuService,
     {
       provide: CATALOGUE_FIRE_FACTS_QUERY,
       useExisting: CatalogueFireFactsQueryService,
