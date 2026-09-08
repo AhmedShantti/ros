@@ -109,58 +109,6 @@ export class AvailabilityService {
   }
 
   /**
-   * FR-MNU-030/031 sellability check, batched — the SAME narrow scope
-   * `OrderLinesService.assertAvailable` evaluates at line-capture time (only
-   * `is_manual_86`; the day/time window columns are not evaluated, per that
-   * method's own docblock), reused here rather than re-derived so a menu
-   * listing and an order line never disagree about what "available" means.
-   *
-   * Returns the SUBSET of the given menu items / variants that are currently
-   * 86'd at `branchId` (a branch-scoped rule OR a tenant-wide rule with
-   * `branchId: null` — either blocks). A rule whose `autoReenableAt` has
-   * already passed is treated as cleared, matching `assertAvailable` exactly.
-   */
-  async resolveBlocked(
-    tenantId: string,
-    branchId: string,
-    menuItemIds: readonly string[],
-    variantIds: readonly string[],
-  ): Promise<{
-    readonly blockedMenuItemIds: ReadonlySet<string>;
-    readonly blockedVariantIds: ReadonlySet<string>;
-  }> {
-    if (menuItemIds.length === 0 && variantIds.length === 0) {
-      return { blockedMenuItemIds: new Set(), blockedVariantIds: new Set() };
-    }
-    const now = new Date();
-    const rules = await this.prisma.withAuthContext({ tenantId }, (tx) =>
-      tx.availabilityRule.findMany({
-        where: {
-          isManual86: true,
-          OR: [
-            ...(menuItemIds.length
-              ? [{ menuItemId: { in: [...menuItemIds] } }]
-              : []),
-            ...(variantIds.length
-              ? [{ variantId: { in: [...variantIds] } }]
-              : []),
-          ],
-          AND: [{ OR: [{ branchId }, { branchId: null }] }],
-        },
-        select: { menuItemId: true, variantId: true, autoReenableAt: true },
-      }),
-    );
-    const blockedMenuItemIds = new Set<string>();
-    const blockedVariantIds = new Set<string>();
-    for (const rule of rules) {
-      if (rule.autoReenableAt && rule.autoReenableAt <= now) continue;
-      if (rule.menuItemId) blockedMenuItemIds.add(rule.menuItemId);
-      if (rule.variantId) blockedVariantIds.add(rule.variantId);
-    }
-    return { blockedMenuItemIds, blockedVariantIds };
-  }
-
-  /**
    * FR-MNU-030/032: manual 86 and its authorised override, both recorded.
    * Guarded by `menu.availability.toggle`, not by the manage permission.
    */

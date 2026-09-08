@@ -71,12 +71,6 @@ const REVIEWED_TENANT_TARGET_ROUTES: Readonly<Record<string, string>> = {};
 const REVIEWED_UNPROTECTED_ROUTES: Readonly<Record<string, string>> = {
   'GET /health':
     'Liveness probe. Unauthenticated by design; discloses no tenant data.',
-  'POST /auth/registrations':
-    'SIGNUP-1 (FR-PLT-020) — public tenant self-service signup. Unauthenticated ' +
-    'entry point by design; it CREATES the first principal (user, tenant, Owner ' +
-    'role) rather than acting against one that already exists, so there is no ' +
-    'business target to authorize against. Rate-limited by ThrottlerGuard ' +
-    '(IP-keyed) and strict whitelist DTO validation instead.',
   'POST /auth/login':
     'Unauthenticated entry point — it is what ESTABLISHES a principal.',
   'POST /auth/pin':

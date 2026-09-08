@@ -65,35 +65,12 @@ export interface CanonicalRoleTemplate {
  * `pos.refund.different_tender` (refunding to a tender other than the
  * original) and `pos.discount.approve` (the approval act itself) are
  * deliberately WITHHELD here — that separation is the point.
- *
- * `pos.discount.apply` and `pos.comp.apply` (DEMO-PRODUCTION-CLOSURE-P0,
- * 2026-09-07) are included so a Cashier can reach the ordinary line/order
- * discount and comp routes at all — SRS §15.2 names both as base-tier
- * capabilities ("Apply discounts within limits" / "Give complimentary
- * items"), and `DiscountsService.applyLineDiscount` /
- * `applyOrderDiscount` still gate any above-threshold amount behind
- * `resolveApproval` → manager PIN + `pos.discount.approve` regardless of
- * this grant (absent an approval-threshold policy, EVERY discount still
- * requires approval — unchanged). `applyComp` carries no such
- * threshold/approval mechanism in the domain model (SRS names no
- * comp-approval act), so `pos.comp.apply` alone is the complete authority
- * for it, matching the demo golden path's "discount/comp if shown" step.
- * `pos.discount.unlimited` (the approval-BYPASS override) and
- * `pos.order.void_line_postfire` are deliberately WITHHELD here —
- * `pos.order.void_line_postfire` in particular is governed by
- * `GOVERNANCE_DECISION_REGISTER.md` CLARIFICATION C ("AFTER a line is
- * fired — the cashier SHALL NOT directly mutate that fired content ...
- * requiring Manager-or-higher authority"), so it cannot be granted to
- * Cashier regardless of route-reachability; both live on
- * `SHIFT_SUPERVISOR_PERMISSION_CODES` instead.
  */
 const CASHIER_PERMISSION_CODES = [
   SALES_PERMISSIONS.ORDER_CREATE,
   SALES_PERMISSIONS.ORDER_FIRE,
   SALES_PERMISSIONS.ORDER_VOID_LINE_PREFIRE,
   SALES_PERMISSIONS.PAYMENT_CAPTURE,
-  SALES_PERMISSIONS.DISCOUNT_APPLY,
-  SALES_PERMISSIONS.COMP_APPLY,
   SALES_PERMISSIONS.REFUND_ISSUE,
   CATALOGUE_PERMISSIONS.ITEM_READ,
   CATALOGUE_PERMISSIONS.PRICE_READ,
@@ -137,24 +114,11 @@ const BRANCH_MANAGER_PERMISSION_CODES = [
  * generic manager-tier override permission this catalogue provides).
  * Deliberately WITHOUT `organisation.branch.manage`, any reporting
  * permission, or `inventory.adjust` — those stay Branch-Manager-tier.
- *
- * `pos.discount.unlimited` (DEMO-PRODUCTION-CLOSURE-P0, 2026-09-07) — the
- * per-actor approval-threshold BYPASS (SRS §15.2 "Apply discounts without
- * limit") — is manager-tier by definition (it exists to let a supervisor
- * skip the very approval gate `pos.discount.approve` otherwise enforces), so
- * it is added here rather than to Cashier. `pos.order.void_line_postfire`
- * is added here because `GOVERNANCE_DECISION_REGISTER.md` CLARIFICATION C
- * makes a post-fire line correction/void explicitly "Manager-or-higher
- * authority" — Shift Supervisor is the smallest canonical role that
- * satisfies that bar, so this is where SRS-consistent route-reachability
- * requires it to live, not on Cashier.
  */
 const SHIFT_SUPERVISOR_PERMISSION_CODES = [
   ...CASHIER_PERMISSION_CODES,
   TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
   SALES_PERMISSIONS.DISCOUNT_APPROVE,
-  SALES_PERMISSIONS.DISCOUNT_UNLIMITED,
-  SALES_PERMISSIONS.ORDER_VOID_LINE_POSTFIRE,
 ] as const;
 
 /**

@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -53,7 +52,6 @@ import {
   CreateVariantDto,
   LinkModifierGroupDto,
   PlaceMenuItemDto,
-  PosMenuQueryDto,
   SetActiveDto,
   SetPriceEntryDto,
   Toggle86Dto,
@@ -66,17 +64,14 @@ import { CategoriesService } from './categories/categories.service';
 import { MenuItemsService } from './menu-items/menu-items.service';
 import { MenusService } from './menus/menus.service';
 import { ModifierGroupsService } from './modifier-groups/modifier-groups.service';
-import { PosMenuService } from './pos-menu/pos-menu.service';
 import { PriceListsService } from './price-lists/price-lists.service';
 import {
-  AllowPosSession,
   AuthorizationTarget,
   branchFromBody,
   branchFromBodyOrTenant,
   branchFromParam,
   declaredScopeFromBody,
   fromParam,
-  posTerminalBranchTarget,
   resourceTarget,
   tenantTarget,
 } from '../identity/contract';
@@ -279,120 +274,6 @@ const availabilityRuleSchema = {
   },
 };
 
-// Shapes verified against `PosMenuService.getMenu` — the only place this
-// response is actually built (DEMO-POS-MENU-BACKEND-P0).
-const posMenuVariantSchema = {
-  type: 'object',
-  properties: {
-    id: uuidSchema(),
-    name: localizedTextSchema,
-    barcode: nullable({ type: 'string' }),
-    sortOrder: { type: 'integer' },
-    isAvailable: {
-      type: 'boolean',
-      description: "FR-MNU-030/031 — false when this variant is manually 86'd.",
-    },
-    price: nullable({
-      type: 'object',
-      description:
-        'The FR-POS-040 resolved price at this branch/order type, or null when none applies.',
-      properties: {
-        amountMinorUnits: { type: 'string' },
-        currency: { type: 'string', example: 'AED' },
-      },
-    }),
-    priceAmbiguous: {
-      type: 'boolean',
-      description:
-        'True when two price lists tie for this variant (SRS §7.3 #10) — price is null and this is why.',
-    },
-  },
-};
-
-const posMenuModifierSchema = {
-  type: 'object',
-  properties: {
-    id: uuidSchema(),
-    name: localizedTextSchema,
-    kind: nullable({
-      type: 'string',
-      enum: ['addition', 'removal', 'substitution'],
-    }),
-    priceDelta: moneyStringSchema('May be negative.'),
-    isDefault: { type: 'boolean' },
-    sortOrder: { type: 'integer' },
-  },
-};
-
-const posMenuModifierGroupSchema = {
-  type: 'object',
-  properties: {
-    id: uuidSchema(),
-    name: localizedTextSchema,
-    minSelections: { type: 'integer' },
-    maxSelections: { type: 'integer' },
-    isRequired: { type: 'boolean' },
-    allowRepeat: { type: 'boolean' },
-    freeQuantityThreshold: { type: 'integer' },
-    modifiers: { type: 'array', items: posMenuModifierSchema },
-  },
-};
-
-const posMenuItemSchema = {
-  type: 'object',
-  properties: {
-    id: uuidSchema(),
-    names: localizedTextSchema,
-    description: nullable(localizedTextSchema),
-    allergens: { type: 'array', items: { type: 'string' } },
-    dietaryTags: { type: 'array', items: { type: 'string' } },
-    sortOrder: { type: 'integer' },
-    colour: nullable({ type: 'string', example: '#FF5733' }),
-    barcodePlu: nullable({ type: 'string' }),
-    isOpenPrice: { type: 'boolean' },
-    isWeighed: { type: 'boolean' },
-    isAvailable: {
-      type: 'boolean',
-      description: "FR-MNU-030/031 — false when this item is manually 86'd.",
-    },
-    variants: { type: 'array', items: posMenuVariantSchema },
-    modifierGroups: { type: 'array', items: posMenuModifierGroupSchema },
-  },
-};
-
-const posMenuCategorySchema = {
-  type: 'object',
-  properties: {
-    id: uuidSchema(),
-    menuId: uuidSchema(),
-    parentCategoryId: nullable(uuidSchema()),
-    name: localizedTextSchema,
-    sortOrder: { type: 'integer' },
-    colour: nullable({ type: 'string', example: '#FF5733' }),
-    itemIds: { type: 'array', items: uuidSchema() },
-  },
-};
-
-const posMenuSchema = {
-  type: 'object',
-  properties: {
-    branchId: uuidSchema(),
-    orderType: nullable({ type: 'string' }),
-    menus: { type: 'array', items: menuSchema },
-    categories: { type: 'array', items: posMenuCategorySchema },
-    items: { type: 'array', items: posMenuItemSchema },
-    ambiguousMenuPriority: {
-      type: 'boolean',
-      description:
-        'FR-MNU-003 — true when two or more active menus share the same priority for this branch.',
-    },
-    warning: {
-      type: 'string',
-      description: 'Present only when ambiguousMenuPriority is true.',
-    },
-  },
-};
-
 @ApiTags('catalogue')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing/invalid/expired token.' })
@@ -410,62 +291,7 @@ export class CatalogueController {
     private readonly priceLists: PriceListsService,
     private readonly availability: AvailabilityService,
     private readonly completeness: CatalogueCompletenessService,
-    private readonly posMenu: PosMenuService,
   ) {}
-
-  // -------------------------------------------------------------- pos menu --
-  /**
-   * DEMO-POS-MENU-BACKEND-P0 — the sellable menu for a POS/PIN session's OWN
-   * branch. `@AllowPosSession` opts this ONE route in for PIN-issued sessions
-   * (FR-SEC-021); every other route on this controller is still refused to
-   * them by `JwtAuthGuard`'s default. The branch is `posTerminalBranchTarget()`
-   * — derived live from the authenticated terminal, never a client-supplied
-   * id — so a POS session cannot browse another branch's menu, and this
-   * target also REFUSES a non-POS (dashboard) caller outright, keeping this
-   * route POS-only regardless of what a dashboard actor's own grants cover.
-   *
-   * Deliberately narrower than `GET /catalogue/items` and the other admin
-   * catalogue reads it stands beside: branch-scoped (never tenant-wide),
-   * active rows only, no admin/back-office metadata, and reuses (never
-   * re-derives) the same price-resolution and availability logic Sales runs
-   * at order-line capture — see `PosMenuService`.
-   */
-  @Get('pos-menu')
-  @AllowPosSession()
-  @AuthorizationTarget(posTerminalBranchTarget())
-  @RequirePermission(
-    CATALOGUE_PERMISSIONS.ITEM_READ,
-    CATALOGUE_PERMISSIONS.PRICE_READ,
-    CATALOGUE_PERMISSIONS.AVAILABILITY_READ,
-  )
-  @ApiOperation({
-    summary:
-      "The caller's own branch sellable menu — items, variants, resolved prices, availability and modifier groups.",
-  })
-  @ApiOkResponse({
-    description: "The sellable menu at the POS session's own branch.",
-    schema: posMenuSchema,
-  })
-  @ApiForbiddenResponse({
-    description:
-      "Not a POS session, or the session's terminal/branch binding is no longer valid.",
-  })
-  getPosMenu(
-    @CurrentTenantContext() c: TenantContext,
-    @Query() query: PosMenuQueryDto,
-  ) {
-    if (!c.branchId) {
-      // Unreachable in practice: `posTerminalBranchTarget()` already denies
-      // any request with no live POS terminal branch before this handler
-      // runs. Kept as a defensive, typed guard rather than a non-null
-      // assertion.
-      throw new ForbiddenException('This route requires a POS session.');
-    }
-    return this.posMenu.getMenu(c.tenantId, {
-      branchId: c.branchId,
-      orderType: query.orderType ?? null,
-    });
-  }
 
   // ----------------------------------------------------------------- menus --
   @Post('menus')
