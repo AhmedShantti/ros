@@ -1093,6 +1093,11 @@ describe('Cash session open (e2e)', () => {
       // of what the caller may already act on rather than drawer
       // administration — that lives on the separate `/branches/:branchId/
       // drawers` route family, asserted absent from THIS slice below.
+      // DEMO-CASH-SESSION-RECOVERY-P0 adds `GET /cash-sessions/current` — the
+      // caller's OWN open session at their OWN terminal-bound branch, gated
+      // on `cash.session.open` (the same precedent as `/cash-sessions/
+      // drawers`, not a general CashSession read; see the controller's own
+      // docblock and D-20).
       const treasury = paths.filter((p) => p.startsWith('/cash-sessions'));
       expect(treasury.sort()).toEqual([
         '/cash-sessions',
@@ -1102,6 +1107,7 @@ describe('Cash session open (e2e)', () => {
         '/cash-sessions/:sessionId/pay-in',
         '/cash-sessions/:sessionId/pay-out',
         '/cash-sessions/:sessionId/safe-drop',
+        '/cash-sessions/current',
         '/cash-sessions/drawers',
       ]);
       // Scoped to Treasury: `/inventory/counts` is a stock-count route and has

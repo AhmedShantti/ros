@@ -5257,6 +5257,104 @@ paths:
         duplicate protection beneath it.
       tags:
         - treasury
+  /cash-sessions/current:
+    get:
+      operationId: TreasuryController_getCurrentSession
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  cashSession:
+                    properties:
+                      branchId:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      closedAt:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type:
+                          - string
+                          - 'null'
+                      currency:
+                        description: ISO 4217 currency code.
+                        example: AED
+                        type: string
+                      drawerId:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      employeeId:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      id:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      openedAt:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type: string
+                      openingFloat:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      shiftId:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      status:
+                        enum:
+                          - open
+                          - closing
+                          - closed
+                        type: string
+                    type:
+                      - object
+                      - 'null'
+                type: object
+          description: The caller's own open cash session at their own terminal-bound branch, or null if none (or more than one) exists.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing the required permission.
+      security:
+        - bearer: []
+      summary: |-
+        DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at
+        THEIR OWN terminal-bound branch, if exactly one exists.
+
+        Recovery contract: after a fresh PIN login (e.g. after a frontend
+        reload/deploy wiped the locally-remembered `cashSessionId`), the POS
+        calls this BEFORE showing Open Shift. A non-null `cashSession` means the
+        employee already holds an open shift here — the client resumes it
+        in-place; `POST /cash-sessions` is never called again for it, and no new
+        drawer is opened. `null` means either no open session exists (normal
+        Open Shift) or more than one does (ambiguous — see
+        `CashSessionsService.findCurrentForEmployee`).
+
+        Gated on `cash.session.open` — the SAME permission `POST /cash-sessions`
+        already requires, deliberately not a new/invented read permission. This
+        mirrors `GET /cash-sessions/drawers` immediately above: a narrow read of
+        state the caller may already act on, scoped to their own
+        terminal-derived branch and their own employee identity, never a
+        generic CashSession read (`findOne` stays internal-only — see its own
+        docblock and D-20).
+      tags:
+        - treasury
   /cash-sessions/drawers:
     get:
       operationId: TreasuryController_listSessionDrawers

@@ -79,6 +79,7 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
  * deployment, not in the controller):
  *
  *   POST /cash-sessions                          open a cashier shift + its cash session
+ *   GET  /cash-sessions/current                   DEMO-CASH-SESSION-RECOVERY-P0 — the caller's own open session, if any
  *   POST /cash-sessions/{sessionId}/pay-in        FR-POS-091 — record cash in
  *   POST /cash-sessions/{sessionId}/pay-out       FR-POS-091 — record cash out
  *   POST /cash-sessions/{sessionId}/safe-drop     FR-POS-091 — remove excess cash to the safe
@@ -117,8 +118,18 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
  * contract exists precisely so a future Cash Close (P1G-1) can read movement
  * totals without any HTTP surface at all.
  *
+ * `GET /cash-sessions/current` (DEMO-CASH-SESSION-RECOVERY-P0) is NOT an
+ * exception to this and does NOT reopen D-20: it is not a by-id or
+ * tenant-wide CashSession read. It returns AT MOST the one session the
+ * SAME `(terminalId, employeeId)` pair already trusted by `open()` may
+ * resume — the read half of the `cash.session.open` write, mirroring the
+ * `GET /cash-sessions/drawers` precedent below. See its own docblock and
+ * `CashSessionsService.findCurrentForEmployee`.
+ *
  * ── DELIBERATELY ABSENT ─────────────────────────────────────────────────────
- *   GET  /cash-sessions/:id               · no source-supported read authority.
+ *   GET  /cash-sessions/:id               · no source-supported read authority
+ *                                            (unrelated to `/current` above,
+ *                                            which is never addressed by id).
  *   GET  .../movements                    · no source-supported read authority.
  *   drawer-limit enforcement / prompt     · FR-POS-092 — all four of its
  *                                            parameters (source of truth,
@@ -189,6 +200,16 @@ const cashSessionSchema = {
     status: { type: 'string', enum: ['open', 'closing', 'closed'] },
     openedAt: isoDateTimeSchema(),
     closedAt: nullable(isoDateTimeSchema()),
+  },
+};
+
+// DEMO-CASH-SESSION-RECOVERY-P0. Same shape as `cashSessionSchema` — this
+// route discloses nothing about the caller's own current session that
+// `POST /cash-sessions` did not already disclose to that same employee.
+const currentCashSessionSchema = {
+  type: 'object',
+  properties: {
+    cashSession: nullable(cashSessionSchema),
   },
 };
 
@@ -360,6 +381,49 @@ export class TreasuryController {
       terminalId,
     );
     return rows.map(toDrawerView);
+  }
+
+  /**
+   * DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at
+   * THEIR OWN terminal-bound branch, if exactly one exists.
+   *
+   * Recovery contract: after a fresh PIN login (e.g. after a frontend
+   * reload/deploy wiped the locally-remembered `cashSessionId`), the POS
+   * calls this BEFORE showing Open Shift. A non-null `cashSession` means the
+   * employee already holds an open shift here — the client resumes it
+   * in-place; `POST /cash-sessions` is never called again for it, and no new
+   * drawer is opened. `null` means either no open session exists (normal
+   * Open Shift) or more than one does (ambiguous — see
+   * `CashSessionsService.findCurrentForEmployee`).
+   *
+   * Gated on `cash.session.open` — the SAME permission `POST /cash-sessions`
+   * already requires, deliberately not a new/invented read permission. This
+   * mirrors `GET /cash-sessions/drawers` immediately above: a narrow read of
+   * state the caller may already act on, scoped to their own
+   * terminal-derived branch and their own employee identity, never a
+   * generic CashSession read (`findOne` stays internal-only — see its own
+   * docblock and D-20).
+   */
+  @Get('current')
+  @AuthorizationTarget(sessionTerminalBranchTarget())
+  @RequirePermission(TREASURY_PERMISSIONS.CASH_SESSION_OPEN)
+  @ApiOkResponse({
+    description:
+      "The caller's own open cash session at their own terminal-bound " +
+      'branch, or null if none (or more than one) exists.',
+    schema: currentCashSessionSchema,
+  })
+  async getCurrentSession(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+  ) {
+    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const session = await this.sessions.findCurrentForEmployee(
+      context.tenantId,
+      terminalId,
+      employeeId,
+    );
+    return { cashSession: session ? toCashSessionView(session) : null };
   }
 
   /**

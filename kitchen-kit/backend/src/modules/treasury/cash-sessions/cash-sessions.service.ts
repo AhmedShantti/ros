@@ -313,6 +313,53 @@ export class CashSessionsService {
     );
   }
 
+  /**
+   * DEMO-CASH-SESSION-RECOVERY-P0 — the CALLER'S OWN open cash session at
+   * THEIR OWN terminal-bound branch, for `GET /cash-sessions/current`.
+   *
+   * ── WHY THIS IS NOT THE `findOne` READ D-20 WITHHOLDS ──────────────────────
+   * `findOne` is unexposed because it is a BY-ID read of ANY session — an
+   * unbounded disclosure with no source-supported authority. This is
+   * structurally different: it is scoped to the SAME `(employeeId, branchId)`
+   * pair `open()` already trusts from the POS session, returns AT MOST the
+   * one session that employee's OWN prior `POST /cash-sessions` call already
+   * disclosed to them once, and reveals nothing about any other employee's
+   * session, any other branch, or any closed/historical session. It is the
+   * read half of the exact write `cash.session.open` already authorises —
+   * "may I resume the shift I already hold" — not a general CashSession
+   * query capability. `D-20`'s deferral concerned an UNSCOPED read
+   * permission; it is not reopened, contradicted, or amended by this.
+   *
+   * ── WHY `branchId`, NOT `drawerId` ──────────────────────────────────────
+   * FR-FIN-001's uniqueness is PER DRAWER, not per employee — nothing in the
+   * schema stops one employee holding two open sessions on two different
+   * drawers at the same branch. That is a real (if unusual) state, so the
+   * caller must be told when it makes THIS lookup ambiguous rather than
+   * silently guessing: `null` is also returned when more than one match
+   * exists, exactly as when none does — recovering a specific session in
+   * that case is a task for `GET /cash-sessions/drawers` (pick one to close
+   * or continue on explicitly), not for this single-result endpoint.
+   */
+  async findCurrentForEmployee(
+    tenantId: string,
+    terminalId: string,
+    employeeId: string,
+  ): Promise<CashSession | null> {
+    return this.prisma.withAuthContext({ tenantId }, async (tx) => {
+      const terminal = await tx.terminal.findUnique({
+        where: { id: terminalId },
+        select: { branchId: true },
+      });
+      if (!terminal) throw new NotFoundException('Terminal not found.');
+
+      const open = await tx.cashSession.findMany({
+        where: { branchId: terminal.branchId, employeeId, status: 'open' },
+        take: 2,
+      });
+      return open.length === 1 ? open[0] : null;
+    });
+  }
+
   // ------------------------------------------------------------- internals
 
   /**
