@@ -380,7 +380,8 @@ BACKEND_FILES_CHANGED:
   MOD  docs/api/openapi.json
   MOD  docs/api/openapi.yaml
 
-BACKEND_COMMIT: <filled in after commit — see chat for hash>
+BACKEND_COMMIT: `571539b` — "feat(catalogue,localisation): complete
+  MenuItem tax-class discovery/validation contract" (not pushed).
 
 SAFE_TO_DEPLOY: Yes, for the backend contract described here. No Prisma
   migration was needed (fiscal.tax_classes already existed). No existing
