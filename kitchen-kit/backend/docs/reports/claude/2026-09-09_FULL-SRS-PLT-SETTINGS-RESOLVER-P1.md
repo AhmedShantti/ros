@@ -308,7 +308,7 @@ docs/reports/claude/INDEX.md                                (this entry appended
 
 ## COMMIT
 
-Per task instruction §11 ("Commit source + tests + generated OpenAPI + report. Do NOT push."), committed after this report was written. See chat for the commit hash.
+Per task instruction §11 ("Commit source + tests + generated OpenAPI + report. Do NOT push."), committed as `6f12c62692ea5281d4de24038ac386cfa4759391` on `full-srs/lane-d4-reporting-demo`. Not pushed.
 
 ## SAFE_TO_INTEGRATE
 
