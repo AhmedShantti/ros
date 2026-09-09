@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
@@ -12,12 +15,75 @@ import { RolesService } from './../src/modules/identity/authz/roles.service';
 import { MembershipsService } from './../src/modules/identity/memberships/memberships.service';
 import { TenantsService } from './../src/modules/identity/tenants/tenants.service';
 import { UsersService } from './../src/modules/identity/users/users.service';
+import { withCurrency } from './../src/modules/localisation/country-pack/country-pack.fixture';
+import {
+  generateReleaseKey,
+  signPackDocument,
+} from './../src/modules/localisation/country-pack/country-pack.signing.fixture';
 import {
   ORGANISATION_PERMISSIONS,
   ORGANISATION_PERMISSION_DEFS,
 } from './../src/modules/organisation/organisation.permissions';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { createMigratorClient } from './rls-admin';
+
+/**
+ * FULL-SRS-PLT-SETTINGS-CORRECTION-P1C §7 — real Country Pack activation for
+ * two distinct, generic (non-Egypt) jurisdiction codes, proving
+ * branch-accurate resolution. `COUNTRY_PACK_DIR`/`COUNTRY_PACK_TRUST_MANIFEST`
+ * must be set BEFORE the Nest app boots (`CountryPackLoader.onModuleInit`
+ * reads them once, at startup) — this runs before `Test.createTestingModule`
+ * compiles below. Every other e2e suite in this repository leaves both unset
+ * (`COUNTRY_PACK_DIR` "unconfigured ... activates nothing" per its own
+ * docblock); this is the first to genuinely activate signed packs, using the
+ * SAME ephemeral in-memory Ed25519 signing fixtures
+ * `country-pack.registry.spec.ts` already uses — no private key is committed
+ * or written to disk, only the resulting PUBLIC key (in the trust manifest)
+ * and the signed pack documents.
+ */
+function activateTwoJurisdictionPacksBeforeBoot(): {
+  readonly jurisdictionX: string;
+  readonly jurisdictionY: string;
+} {
+  const dir = mkdtempSync(join(tmpdir(), 'plt-country-packs-'));
+  const releaseKey = generateReleaseKey(`plt-settings-test-${stamp}`);
+
+  // Two-letter, deliberately non-Egypt, non-real-country codes — SRS §6.4's
+  // resolver treats a jurisdiction code as an opaque key (CR-03: "a KEY —
+  // never a branch condition"), so any two distinct codes prove branch
+  // accuracy equally well.
+  const jurisdictionX = 'ZX';
+  const jurisdictionY = 'ZY';
+
+  const packX = signPackDocument(
+    withCurrency(
+      { code: 'XPA', cashRounding: { enabled: false } },
+      { code: jurisdictionX, version: '1.0' },
+    ),
+    releaseKey,
+  );
+  const packY = signPackDocument(
+    withCurrency(
+      { code: 'XPB', cashRounding: { enabled: true, stepMinorUnits: 50 } },
+      { code: jurisdictionY, version: '1.0' },
+    ),
+    releaseKey,
+  );
+
+  writeFileSync(join(dir, 'zx.pack.json'), JSON.stringify(packX));
+  writeFileSync(join(dir, 'zy.pack.json'), JSON.stringify(packY));
+
+  const trustManifestPath = join(dir, 'trust-manifest.json');
+  writeFileSync(
+    trustManifestPath,
+    JSON.stringify({ keys: [releaseKey.trusted('active')] }),
+  );
+
+  process.env.COUNTRY_PACK_DIR = dir;
+  process.env.COUNTRY_PACK_TRUST_MANIFEST = trustManifestPath;
+
+  return { jurisdictionX, jurisdictionY };
+}
 
 /**
  * FULL-SRS-PLT-SETTINGS-RESOLVER-P1 — FR-PLT-025/026/027.
@@ -91,6 +157,21 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
   let noPermTokenA: string;
   let ownerTokenB: string;
 
+  // FULL-SRS-PLT-SETTINGS-CORRECTION-P1C §7 — multi-country branch-accuracy
+  // fixture. tenantC's OWN default is jurisdiction X; branchCX also sits in
+  // X (so the tenant-default fallback and a branch-accurate resolve agree,
+  // proving the fallback still works); branchCY sits in a DIFFERENT
+  // jurisdiction Y, proving branch-accurate resolution actually overrides
+  // the tenant default rather than merely happening to match it.
+  let jurisdictionXCode: string;
+  let jurisdictionYCode: string;
+  let tenantC: string;
+  let brandC: string;
+  let branchCX: string;
+  let branchCY: string;
+  let terminalCY: string;
+  let ownerTokenC: string;
+
   const scoped = async (email: string, tenantId: string): Promise<string> => {
     const login = await request(http)
       .post('/auth/login')
@@ -105,6 +186,11 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
   };
 
   beforeAll(async () => {
+    const { jurisdictionX, jurisdictionY } =
+      activateTwoJurisdictionPacksBeforeBoot();
+    jurisdictionXCode = jurisdictionX;
+    jurisdictionYCode = jurisdictionY;
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -147,6 +233,14 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
         countryPackCode: 'EG',
       })
     ).id;
+    tenantC = (
+      await tenants.create({
+        slug: `plt-c-${stamp}`,
+        legalName: 'PLT Tenant C',
+        defaultCurrency: 'EGP',
+        countryPackCode: jurisdictionXCode,
+      })
+    ).id;
 
     const mk = async (
       email: string,
@@ -171,6 +265,7 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
     const emailOwnerA = `plt.ownerA.${stamp}@example.com`;
     const emailNoPermA = `plt.noPermA.${stamp}@example.com`;
     const emailOwnerB = `plt.ownerB.${stamp}@example.com`;
+    const emailOwnerC = `plt.ownerC.${stamp}@example.com`;
 
     await mk(emailOwnerA, tenantA, [
       ORGANISATION_PERMISSIONS.TENANT_MANAGE,
@@ -187,10 +282,18 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
       ORGANISATION_PERMISSIONS.BRANCH_READ,
       IDENTITY_PERMISSIONS.TERMINAL_MANAGE,
     ]);
+    await mk(emailOwnerC, tenantC, [
+      ORGANISATION_PERMISSIONS.TENANT_MANAGE,
+      ORGANISATION_PERMISSIONS.TENANT_READ,
+      ORGANISATION_PERMISSIONS.BRANCH_MANAGE,
+      ORGANISATION_PERMISSIONS.BRANCH_READ,
+      IDENTITY_PERMISSIONS.TERMINAL_MANAGE,
+    ]);
 
     ownerTokenA = await scoped(emailOwnerA, tenantA);
     noPermTokenA = await scoped(emailNoPermA, tenantA);
     ownerTokenB = await scoped(emailOwnerB, tenantB);
+    ownerTokenC = await scoped(emailOwnerC, tenantC);
 
     const mkBrand = async (token: string, name: string): Promise<string> => {
       const res = await request(http)
@@ -204,6 +307,7 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
       token: string,
       brandId: string,
       code: string,
+      countryCode = 'EG',
     ): Promise<string> => {
       const res = await request(http)
         .post('/org/branches')
@@ -214,7 +318,7 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
           name: `Branch ${code}`,
           timezone: 'Africa/Cairo',
           baseCurrency: 'EGP',
-          countryCode: 'EG',
+          countryCode,
         })
         .expect(201);
       return (res.body as WithId).id;
@@ -227,6 +331,20 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
     brandB = await mkBrand(ownerTokenB, `Brand B ${shortStamp}`);
     branchB = await mkBranch(ownerTokenB, brandB, `PLTB${shortStamp}`);
 
+    brandC = await mkBrand(ownerTokenC, `Brand C ${shortStamp}`);
+    branchCX = await mkBranch(
+      ownerTokenC,
+      brandC,
+      `PLTCX${shortStamp}`,
+      jurisdictionXCode,
+    );
+    branchCY = await mkBranch(
+      ownerTokenC,
+      brandC,
+      `PLTCY${shortStamp}`,
+      jurisdictionYCode,
+    );
+
     const terminalRes = await request(http)
       .post('/auth/terminals')
       .set(auth(ownerTokenA))
@@ -237,6 +355,17 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
       })
       .expect(201);
     terminalA1 = (terminalRes.body as WithId).id;
+
+    const terminalCYRes = await request(http)
+      .post('/auth/terminals')
+      .set(auth(ownerTokenC))
+      .send({
+        branchId: branchCY,
+        name: `TCY-${shortStamp}`,
+        terminalType: 'pos',
+      })
+      .expect(201);
+    terminalCY = (terminalCYRes.body as WithId).id;
   }, 60000);
 
   afterAll(async () => {
@@ -630,5 +759,143 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
       (tx) => tx.settingValue.findMany({ where: { settingKey: key } }),
     );
     expect(seenByOther).toHaveLength(0);
+  });
+
+  // ============================================== P1C item 6 — Platform-Default lock
+  it('Platform-Default lock blocks every lower level, both on read and on write, and the inspector shows it (CORRECTION-P1C item 6)', async () => {
+    const key = nextKey();
+
+    // A tenant-level value already exists BEFORE the platform lock is
+    // applied — proving "existing lower-level rows must not affect
+    // effective resolution" (FR-PLT-026), not merely "a write beneath an
+    // already-locked ancestor is rejected" (that is proven separately, on
+    // the WRITE side, below).
+    await putTenant(ownerTokenA, key, {
+      value: { tier: 'tenant-preexisting' },
+    }).expect(200);
+
+    const creator = await admin.membership.findFirstOrThrow({
+      where: { tenantId: tenantA },
+    });
+    await appPrisma.platformDefaultSetting.create({
+      data: {
+        id: newId(),
+        settingKey: key,
+        value: { tier: 'platform-locked' },
+        locked: true,
+        createdBy: creator.userId,
+      },
+    });
+
+    // Resolve: the platform lock wins outright, the pre-existing tenant row
+    // never applies.
+    const resolved = await resolveKey(ownerTokenA, key, {
+      branchId: branchA1,
+    }).expect(200);
+    expect(effBody(resolved).effectiveSourceLevel).toBe('platform');
+    expect(effBody(resolved).effectiveValue).toEqual({
+      tier: 'platform-locked',
+    });
+    expect(effBody(resolved).isLocked).toBe(true);
+    expect(effBody(resolved).lockedAtLevel).toBe('platform');
+
+    // Inspector: every lower level (tenant included, even though it has a
+    // real configured row) is reported blocked, never the effective source.
+    const inspected = await inspectKey(ownerTokenA, key, {
+      branchId: branchA1,
+    }).expect(200);
+    expect(inspBody(inspected).effective.effectiveSourceLevel).toBe('platform');
+    const platformView = inspBody(inspected).levels.find(
+      (l) => l.level === 'platform',
+    );
+    expect(platformView?.isEffectiveSource).toBe(true);
+    expect(platformView?.locked).toBe(true);
+    const tenantView = inspBody(inspected).levels.find(
+      (l) => l.level === 'tenant',
+    );
+    expect(tenantView?.configuredValue).toEqual({ tier: 'tenant-preexisting' });
+    expect(tenantView?.blockedByHigherLock).toBe(true);
+    expect(tenantView?.isEffectiveSource).toBe(false);
+    // branch has no configured row of its own in this scenario — "blocked"
+    // only describes a level that HAS a value the lock prevented from
+    // winning (mirrors test K-M's own convention); with nothing configured
+    // there, `eligible` is still true but there is nothing to be blocked.
+    const branchView = inspBody(inspected).levels.find(
+      (l) => l.level === 'branch',
+    );
+    expect(branchView?.eligible).toBe(true);
+    expect(branchView?.configuredValue).toBeNull();
+    expect(branchView?.blockedByHigherLock).toBe(false);
+
+    // Write: a NEW override beneath the platform lock is rejected
+    // server-side, exactly like a tenant/branch lock already proves for the
+    // levels below THEM (tests G/H) — the SAME generic check, now proven
+    // for the platform level specifically.
+    await putBrand(ownerTokenA, brandA1, key, {
+      value: { tier: 'brand' },
+    }).expect(409);
+    await putBranch(ownerTokenA, branchA1, key, {
+      value: { tier: 'branch-2' },
+    }).expect(409);
+  });
+
+  // ============================================== P1C item 7 — branch-accurate Country Pack
+  it('Country-Pack resolution is branch-accurate, not tenant-default-only (CORRECTION-P1C item 7)', async () => {
+    const key = 'payments.cash_rounding_policy';
+
+    // branchCX sits in the SAME jurisdiction as tenantC's own default (X) —
+    // a sanity check that branch-accurate resolution still agrees with the
+    // tenant default when they happen to match.
+    const resolvedX = await resolveKey(ownerTokenC, key, {
+      branchId: branchCX,
+    }).expect(200);
+    expect(effBody(resolvedX).effectiveSourceLevel).toBe('country_pack');
+    const valueX = effBody(resolvedX).effectiveValue as {
+      currencyCode: string;
+      cashRoundingEnabled: boolean;
+    };
+    expect(valueX.currencyCode).toBe('XPA');
+    expect(valueX.cashRoundingEnabled).toBe(false);
+
+    // branchCY sits in a DIFFERENT jurisdiction (Y) — this is the actual
+    // bug fix under test: resolving for branchCY must return Y's pack, NOT
+    // tenantC's own default (X).
+    const resolvedY = await resolveKey(ownerTokenC, key, {
+      branchId: branchCY,
+    }).expect(200);
+    expect(effBody(resolvedY).effectiveSourceLevel).toBe('country_pack');
+    expect(effBody(resolvedY).effectiveSourceTargetId).toBe(jurisdictionYCode);
+    const valueY = effBody(resolvedY).effectiveValue as {
+      currencyCode: string;
+      cashRoundingEnabled: boolean;
+      cashRoundingStepMinorUnits: string | null;
+    };
+    expect(valueY.currencyCode).toBe('XPB');
+    expect(valueY.cashRoundingEnabled).toBe(true);
+    expect(valueY.cashRoundingStepMinorUnits).toBe('50');
+    // Proves this is genuinely branch-sourced, not the tenant default X.
+    expect(valueY.currencyCode).not.toBe(valueX.currencyCode);
+
+    // Tenant/brand-only (no branch in scope) — the honest fallback still
+    // resolves the TENANT's own default (X), never Y.
+    const resolvedTenantOnly = await resolveKey(ownerTokenC, key).expect(200);
+    expect(effBody(resolvedTenantOnly).effectiveSourceTargetId).toBe(
+      jurisdictionXCode,
+    );
+
+    // Terminal scope: terminalCY belongs to branchCY (not passed explicitly
+    // here) — proves the terminal->branch derivation
+    // (`SettingsScopeService.deriveScope`) feeds the SAME branch-accurate
+    // jurisdiction, not a terminal-blind tenant fallback.
+    const resolvedTerminal = await resolveKey(ownerTokenC, key, {
+      terminalId: terminalCY,
+    }).expect(200);
+    expect(effBody(resolvedTerminal).effectiveSourceTargetId).toBe(
+      jurisdictionYCode,
+    );
+    const terminalValue = effBody(resolvedTerminal).effectiveValue as {
+      cashRoundingEnabled: boolean;
+    };
+    expect(terminalValue.cashRoundingEnabled).toBe(true);
   });
 });

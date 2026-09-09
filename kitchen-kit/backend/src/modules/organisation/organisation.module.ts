@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { BranchCurrencyQueryService } from './branches/branch-currency.query.service';
+import { BranchJurisdictionQueryService } from './branches/branch-jurisdiction.query.service';
 import { BranchBrandQueryService } from './branches/branch-brand.query.service';
 import { BranchReportingScopeQueryService } from './branches/branch-reporting-scope.query.service';
 import { BranchesService } from './branches/branches.service';
@@ -21,6 +22,7 @@ import {
   ORG_WAREHOUSE_TARGET_RESOLVER,
   BRANCH_BRAND_QUERY,
   BRANCH_CURRENCY_QUERY,
+  BRANCH_JURISDICTION_QUERY,
   BRANCH_LOCATIONS_QUERY,
   BRANCH_REPORTING_SCOPE_QUERY,
   KDS_BRANCH_CONFIG_QUERY,
@@ -83,6 +85,11 @@ import { WarehousesService } from './warehouses/warehouses.service';
     { provide: TABLE_DISPLAY_QUERY, useExisting: TableDisplayQueryService },
     BranchCurrencyQueryService,
     { provide: BRANCH_CURRENCY_QUERY, useExisting: BranchCurrencyQueryService },
+    BranchJurisdictionQueryService,
+    {
+      provide: BRANCH_JURISDICTION_QUERY,
+      useExisting: BranchJurisdictionQueryService,
+    },
     StationDisplayBindingQueryService,
     {
       provide: STATION_DISPLAY_BINDING_QUERY,
@@ -148,6 +155,7 @@ import { WarehousesService } from './warehouses/warehouses.service';
     ROUTING_CONFIG_QUERY,
     TABLE_DISPLAY_QUERY,
     BRANCH_CURRENCY_QUERY,
+    BRANCH_JURISDICTION_QUERY,
     STATION_DISPLAY_BINDING_QUERY,
     KDS_BRANCH_CONFIG_QUERY,
     BRANCH_REPORTING_SCOPE_QUERY,

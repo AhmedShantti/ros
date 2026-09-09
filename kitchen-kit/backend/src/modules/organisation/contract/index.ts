@@ -14,6 +14,7 @@
 export * from './routing-config.query';
 export * from './table-display.query';
 export * from './branch-currency.query';
+export * from './branch-jurisdiction.query';
 export * from './station-display-binding.query';
 export * from './kds-branch-config.query';
 export * from './branch-reporting-scope.query';
@@ -25,4 +26,7 @@ export * from './scope-target.resolvers';
  * mirroring Kitchen's `KDS_PERMISSIONS` re-export pattern. Consumed by
  * Identity's production-safe permission-catalog aggregator.
  */
-export { ORGANISATION_PERMISSIONS, ORGANISATION_PERMISSION_DEFS } from '../organisation.permissions';
+export {
+  ORGANISATION_PERMISSIONS,
+  ORGANISATION_PERMISSION_DEFS,
+} from '../organisation.permissions';

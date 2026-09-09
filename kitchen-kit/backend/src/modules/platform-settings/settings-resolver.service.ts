@@ -3,6 +3,8 @@ import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { COUNTRY_PACK_SETTING_FACT_QUERY } from '../localisation/contract';
 import type { CountryPackSettingFactQuery } from '../localisation/contract';
+import { BRANCH_JURISDICTION_QUERY } from '../organisation/contract';
+import type { BranchJurisdictionQuery } from '../organisation/contract';
 import { SettingsScopeService } from './settings-scope.service';
 import { assertValidSettingKey } from './settings-key.util';
 import {
@@ -58,6 +60,8 @@ export class SettingsResolverService {
     private readonly scope: SettingsScopeService,
     @Inject(COUNTRY_PACK_SETTING_FACT_QUERY)
     private readonly countryPackFacts: CountryPackSettingFactQuery,
+    @Inject(BRANCH_JURISDICTION_QUERY)
+    private readonly branchJurisdiction: BranchJurisdictionQuery,
   ) {}
 
   /** The FR-PLT-025 entrypoint: the single winning value, with lock metadata. */
@@ -176,19 +180,38 @@ export class SettingsResolverService {
     };
   }
 
+  /**
+   * FULL-SRS-PLT-SETTINGS-DESIGN-CORRECTION-GATE-P1B §1 / -CORRECTION-P1C §2:
+   * branch-accurate jurisdiction resolution. FR-BRN-003 requires two
+   * branches of one tenant to be able to resolve to DIFFERENT Country
+   * Packs, so — exactly mirroring `CountryPackService.resolveForBranch`'s
+   * own reasoning ("`identity.tenants.country_pack_code` is deliberately
+   * NOT used [for pricing] ... a tenant-wide default and cannot satisfy
+   * FR-BRN-003") — a branch/terminal-scoped request resolves the pack
+   * through the REQUESTED branch's own jurisdiction
+   * (`BRANCH_JURISDICTION_QUERY`, Organisation-owned), never the tenant
+   * default. `Tenant.countryPackCode` is used ONLY as the honest fallback
+   * for a genuinely tenant/brand-only request, where no branch exists to
+   * derive a jurisdiction from at all — not a workaround, the correct
+   * answer at that narrower granularity.
+   *
+   * This does NOT create a Localisation<->Organisation dependency: the
+   * CALLER (this resolver, already depending on both modules through their
+   * own published contracts) resolves the jurisdiction code itself and
+   * hands it to `COUNTRY_PACK_SETTING_FACT_QUERY` as an opaque input —
+   * dependency inversion, not a new module-graph edge.
+   */
   private async fetchCountryPackEntry(
     tx: Prisma.TransactionClient,
     scope: ResolvedSettingsScope,
     settingKey: string,
     at: Date,
   ): Promise<SettingLevelEntry> {
-    const tenant = await tx.tenant.findUnique({
-      where: { id: scope.tenantId },
-      select: { countryPackCode: true },
-    });
-    // Not reachable in practice (the caller's own tenant, already validated
-    // by TenantContextGuard) — fail closed rather than throw mid-resolve.
-    if (!tenant) {
+    const jurisdictionCode = await this.resolveJurisdictionCode(tx, scope);
+    // Not reachable in practice (either the caller's own tenant, already
+    // validated by TenantContextGuard, or a branch SettingsScopeService has
+    // already proven visible) — fail closed rather than throw mid-resolve.
+    if (jurisdictionCode === null) {
       return {
         level: 'country_pack',
         eligible: false,
@@ -199,7 +222,7 @@ export class SettingsResolverService {
       };
     }
     const fact = this.countryPackFacts.getSettingFact({
-      countryPackCode: tenant.countryPackCode,
+      countryPackCode: jurisdictionCode,
       settingKey,
       at,
     });
@@ -209,7 +232,7 @@ export class SettingsResolverService {
       return {
         level: 'country_pack',
         eligible: false,
-        targetId: tenant.countryPackCode,
+        targetId: jurisdictionCode,
         hasConfiguredValue: false,
         configuredValue: null,
         locked: false,
@@ -218,15 +241,47 @@ export class SettingsResolverService {
     return {
       level: 'country_pack',
       eligible: true,
-      targetId: tenant.countryPackCode,
+      targetId: jurisdictionCode,
       hasConfiguredValue: fact !== null,
       configuredValue: fact,
-      // Country Pack facts are Localisation's own authoritative data, never
-      // an app-writable row here, so FR-PLT-026 locking does not apply to
-      // them — a Country Pack value can still be overridden by Tenant and
-      // below, exactly like any other unlocked higher level.
+      // FULL-SRS-PLT-SETTINGS-DESIGN-CORRECTION-GATE-P1B §2: this is a
+      // KNOWN, GOVERNANCE-BLOCKED GAP, not a settled architectural
+      // conclusion. The signed CountryPack document has no generic
+      // settings-key lock representation today (no field anywhere in
+      // `country-pack.model.ts`/`country-pack.parser.ts` expresses one), so
+      // this resolver CANNOT currently honour FR-PLT-026 ("a setting SHALL
+      // be markable as locked at any level") for Country-Pack-sourced
+      // values — it reports them unlocked because that is presently,
+      // literally true, not because the SRS or any ratified governance
+      // decision exempts Country Pack from lockability. A lower-level
+      // override therefore remains possible for a Country-Pack-sourced
+      // value until a governance decision extends the signed-pack format
+      // with a lock representation and this resolver is updated to honour
+      // it — see docs/reports/claude/
+      // 2026-09-09_FULL-SRS-PLT-SETTINGS-DESIGN-CORRECTION-GATE-P1B.md §2
+      // and docs/reports/claude/
+      // 2026-09-09_FULL-SRS-PLT-SETTINGS-CORRECTION-P1C.md
+      // COUNTRY_PACK_LOCK_DOCUMENTED_GAP.
       locked: false,
     };
+  }
+
+  private async resolveJurisdictionCode(
+    tx: Prisma.TransactionClient,
+    scope: ResolvedSettingsScope,
+  ): Promise<string | null> {
+    if (scope.branchId !== null) {
+      const branch = await this.branchJurisdiction.find(tx, {
+        tenantId: scope.tenantId,
+        branchId: scope.branchId,
+      });
+      return branch?.countryCode ?? null;
+    }
+    const tenant = await tx.tenant.findUnique({
+      where: { id: scope.tenantId },
+      select: { countryPackCode: true },
+    });
+    return tenant?.countryPackCode ?? null;
   }
 
   /**

@@ -28,16 +28,14 @@ import {
   resourceTarget,
   tenantTarget,
   IDENTITY_TERMINAL_TARGET_RESOLVER,
-} from '../identity/contract';
-import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import {
+  JwtAuthGuard,
+  PermissionGuard,
   RequireAnyPermission,
   RequirePermission,
-} from '../identity/authz/decorators/require-permission.decorator';
-import { PermissionGuard } from '../identity/authz/guards/permission.guard';
-import { CurrentTenantContext } from '../identity/context/current-tenant-context.decorator';
-import type { TenantContext } from '../identity/context/tenant-context';
-import { TenantContextGuard } from '../identity/context/tenant-context.guard';
+  CurrentTenantContext,
+  TenantContextGuard,
+} from '../identity/contract';
+import type { TenantContext } from '../identity/contract';
 import { ORGANISATION_PERMISSIONS } from '../organisation/contract';
 import { PLATFORM_SETTINGS_SCOPE_TARGET_RESOLVER } from './platform-settings-scope-target.resolver';
 import { SettingsAdminService } from './settings-admin.service';

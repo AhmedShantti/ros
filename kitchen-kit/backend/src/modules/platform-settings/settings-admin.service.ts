@@ -9,8 +9,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   AUDIT_ACTION,
   AUDIT_ENTITY,
-} from '../governance/audit/audit.constants';
-import { AuditService } from '../governance/audit/audit.service';
+  AuditService,
+} from '../governance/contract';
 import { SettingsResolverService } from './settings-resolver.service';
 import { SettingsScopeService } from './settings-scope.service';
 import { assertValidSettingKey } from './settings-key.util';

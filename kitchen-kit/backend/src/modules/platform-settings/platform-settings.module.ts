@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { LocalisationModule } from '../localisation/localisation.module';
 import { OrganisationModule } from '../organisation/organisation.module';
@@ -32,12 +31,7 @@ import { SettingsScopeService } from './settings-scope.service';
  * dedicated module, not `PlatformModule`'s job/partitioning code.
  */
 @Module({
-  imports: [
-    IdentityModule,
-    OrganisationModule,
-    LocalisationModule,
-    AuditModule,
-  ],
+  imports: [IdentityModule, OrganisationModule, LocalisationModule],
   controllers: [PlatformSettingsController],
   providers: [
     SettingsScopeService,
