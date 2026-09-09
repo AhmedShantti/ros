@@ -348,7 +348,8 @@ BACKEND_FILES_CHANGED:
   MOD  docs/api/openapi.json
   MOD  docs/api/openapi.yaml
 
-BACKEND_COMMIT: <filled in after commit — see chat for hash>
+BACKEND_COMMIT: `0952fc1` — "feat(sales): add narrow POS-safe reason-code
+  read, purpose-authorised per action" (not pushed).
 
 SAFE_TO_DEPLOY: Yes. No Prisma migration needed (inventory.reason_codes
   pre-existed). No new permission invented; no existing route's behaviour
