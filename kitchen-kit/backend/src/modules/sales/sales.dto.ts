@@ -333,3 +333,26 @@ export class IssueRefundDto extends ManagerApprovalFieldsDto {
   /** REQUIRED for a `cash` refund; refused for `manual_external_card`. */
   @IsOptional() @Matches(UUID_PATTERN) cashSessionId?: string;
 }
+
+// ================================================ DEMO-POS-REASON-CODES ===
+
+/**
+ * The five POS actions that require a `reasonCodeId` — every
+ * `@Matches(UUID_PATTERN) reasonCodeId!: string` above, i.e. NOT the
+ * Inventory-side `PostMovementDto`/`DispatchTransferDto`, where it is
+ * optional and out of this route's scope.
+ */
+export const POS_REASON_CODE_PURPOSES = [
+  'void_prefire',
+  'discount',
+  'comp',
+  'void_postfire',
+  'refund',
+] as const;
+export type PosReasonCodePurpose = (typeof POS_REASON_CODE_PURPOSES)[number];
+
+/** `GET /orders/reason-codes?purpose=...` — see `PosReasonCodesService`. */
+export class PosReasonCodesQueryDto {
+  /** REQUIRED — the specific action authorises the read, never a blanket grant. */
+  @IsIn(POS_REASON_CODE_PURPOSES) purpose!: PosReasonCodePurpose;
+}

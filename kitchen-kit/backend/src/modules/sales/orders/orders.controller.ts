@@ -59,6 +59,7 @@ import {
   ListOrdersQueryDto,
   OrderLinePathParamsDto,
   OrderPathParamsDto,
+  PosReasonCodesQueryDto,
   VoidOrderLineDto,
   VoidOrderLinePostFireDto,
 } from '../sales.dto';
@@ -83,13 +84,19 @@ import { DiscountsService } from './discounts.service';
 import { PostFireVoidService } from './post-fire-void.service';
 import { RefundsService } from './refunds.service';
 import {
+  POS_REASON_CODE_ANY_PERMISSION,
+  PosReasonCodesService,
+} from './pos-reason-codes.service';
+import {
   AuthorizationTarget,
   branchFromQueryOrTenant,
   businessDayFromParam,
   CurrentAuthorization,
   fromParam,
+  RequireAnyPermission,
   resourceTarget,
   sessionTerminalBranchTarget,
+  tenantTarget,
   TERMINAL_PIN_VERIFIER,
 } from '../../identity/contract';
 import type {
@@ -382,6 +389,22 @@ const refundSchema = {
   },
 };
 
+// DEMO-POS-REASON-CODES-BACKEND-P0. Shapes verified against
+// `PosReasonCodesService.listForPurpose` — deliberately narrower than
+// `GET /inventory/reason-codes`'s `reasonCodeSchema` (no `category`, no
+// other Inventory admin metadata).
+const posReasonCodeSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema('The value to send back as reasonCodeId.'),
+    code: { type: 'string' },
+    label: {
+      type: 'object',
+      description: 'Opaque localized-label object (locale -> label).',
+    },
+  },
+};
+
 const etagHeader = {
   ETag: {
     description:
@@ -411,6 +434,7 @@ export class OrdersController {
     private readonly discounts: DiscountsService,
     private readonly postFireVoid: PostFireVoidService,
     private readonly refunds: RefundsService,
+    private readonly reasonCodes: PosReasonCodesService,
     @Inject(TERMINAL_PIN_VERIFIER)
     private readonly pinVerifier: TerminalPinVerifier,
   ) {}
@@ -536,6 +560,45 @@ export class OrdersController {
       ...(query.limit ? { limit: query.limit } : {}),
     });
     return { orders: orders.map((o) => toOrderView(o)), nextCursor };
+  }
+
+  /**
+   * DEMO-POS-REASON-CODES-BACKEND-P0 — the narrowest POS-safe reason-code
+   * read. NOT `GET /inventory/reason-codes` (that needs `inventory.view`,
+   * which Cashier deliberately does not hold). `purpose` is REQUIRED and
+   * selects the ONE real permission that authorises this read — the SAME
+   * permission the corresponding mutation itself requires
+   * (`pos.discount.apply`, `pos.comp.apply`, `pos.refund.issue`,
+   * `pos.order.void_line_prefire`, `pos.order.void_line_postfire`) — never a
+   * blanket `pos.reason_codes.read` (no such code is invented). The route
+   * guard proves the actor holds AT LEAST ONE of the five; the SPECIFIC one
+   * `purpose` names is re-checked in `PosReasonCodesService`, mirroring the
+   * `assertCloseAuthority`/refund-different-tender precedent.
+   */
+  @Get('reason-codes')
+  @AuthorizationTarget(
+    tenantTarget(
+      'Reason codes are a tenant-level registry (no branch_id), identical scope to GET /inventory/reason-codes.',
+    ),
+  )
+  @RequireAnyPermission(...POS_REASON_CODE_ANY_PERMISSION)
+  @ApiOperation({
+    summary:
+      'Reason codes valid for a POS action (purpose-scoped, action-permission-authorised).',
+  })
+  @ApiOkResponse({
+    description: 'Reason codes usable for the given purpose.',
+    schema: { type: 'array', items: posReasonCodeSchema },
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Missing every one of the five reason-requiring action permissions, or missing the ONE that matches `purpose`.',
+  })
+  async listReasonCodes(
+    @CurrentAuthorization() authorization: RequestAuthorization,
+    @Query() query: PosReasonCodesQueryDto,
+  ) {
+    return this.reasonCodes.listForPurpose(authorization, query.purpose);
   }
 
   /**

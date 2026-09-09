@@ -13409,6 +13409,65 @@ paths:
       summary: Open an order.
       tags:
         - sales
+  /orders/reason-codes:
+    get:
+      operationId: OrdersController_listReasonCodes
+      parameters:
+        - description: REQUIRED — the specific action authorises the read, never a blanket grant.
+          in: query
+          name: purpose
+          required: true
+          schema:
+            enum:
+              - void_prefire
+              - discount
+              - comp
+              - void_postfire
+              - refund
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  properties:
+                    code:
+                      type: string
+                    id:
+                      description: The value to send back as reasonCodeId.
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    label:
+                      description: Opaque localized-label object (locale -> label).
+                      type: object
+                  type: object
+                type: array
+          description: Reason codes usable for the given purpose.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing every one of the five reason-requiring action permissions, or missing the ONE that matches `purpose`.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unknown or cross-tenant resource.
+      security:
+        - bearer: []
+      summary: Reason codes valid for a POS action (purpose-scoped, action-permission-authorised).
+      tags:
+        - sales
   /orders/{businessDay}/{id}:
     get:
       operationId: OrdersController_findOne

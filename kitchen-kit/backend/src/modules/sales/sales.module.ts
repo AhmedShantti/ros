@@ -28,6 +28,7 @@ import { TicketRecalledHandler } from './orders/ticket-recalled.handler';
 import { DiscountsService } from './orders/discounts.service';
 import { PostFireVoidService } from './orders/post-fire-void.service';
 import { RefundsService } from './orders/refunds.service';
+import { PosReasonCodesService } from './orders/pos-reason-codes.service';
 import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
 import { OrderTargetResolver } from './orders/scope-target.resolver';
 import { SALES_ORDER_TARGET_RESOLVER } from './contract';
@@ -133,6 +134,9 @@ import { SALES_ORDER_TARGET_RESOLVER } from './contract';
     DiscountsService,
     PostFireVoidService,
     RefundsService,
+    // DEMO-POS-REASON-CODES-BACKEND-P0 — narrowest POS-safe reason-code read;
+    // consumed only by `OrdersController`, never exported.
+    PosReasonCodesService,
     // KDS operator lifecycle (KDS-R11/KDS-R12) — PRIVATE subscribers, never
     // exported, discovered purely via `@DomainEventHandler` metadata
     // (`DomainEventHandlerRegistry`'s `DiscoveryService` scan), exactly the
