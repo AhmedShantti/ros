@@ -75,6 +75,10 @@ model User {
   /// D-2 (amended) PIN substrate: an Employee may link to at most one User.
   employee Employee?
 
+  /// FR-PLT-025/026 back-relations only; no column, no behaviour change.
+  platformDefaultSettingsCreated PlatformDefaultSetting[] @relation("PlatformDefaultSettingCreatedBy")
+  settingValuesCreated           SettingValue[]           @relation("SettingValueCreatedBy")
+
   @@map("users")
   @@schema("identity")
 }
@@ -286,6 +290,9 @@ model Tenant {
   clockEvents                ClockEvent[]
   attendanceCorrections      AttendanceCorrection[]
   attendanceSettings         AttendanceSettings[]
+  /// FR-PLT-025/026 — back-relation only; no column, no behaviour change on
+  /// `identity.tenants`.
+  settingValues              SettingValue[]
 
   @@map("tenants")
   @@schema("identity")
@@ -5114,5 +5121,99 @@ model ScheduledJobFinding {
   @@unique([tenantId, jobType, occurrenceKey, findingCode], map: "job_findings_occurrence_code_key")
   @@index([tenantId, acknowledgedAt, detectedAt(sort: Desc)], map: "job_findings_tenant_open_idx")
   @@map("job_findings")
+  @@schema("platform")
+}
+
+// ---------------------------------------------------------------------------
+// FR-PLT-025/026/027 — hierarchical settings resolver substrate.
+//
+// SRS §6.4's six-level cascade is: Platform Default -> Country Pack ->
+// Tenant -> Brand -> Branch -> Terminal. Only FOUR of those six are rows in
+// `SettingValue` below (tenant/brand/branch/terminal) — the other two are
+// deliberately NOT stored here:
+//   - Country Pack contributes through Localisation's published contract
+//     (`COUNTRY_PACK_SETTING_FACT_QUERY`), never duplicated into a row here
+//     (task instruction: never copy Country Pack configuration for
+//     convenience; Localisation stays authoritative for its own domain).
+//   - Platform Default lives in the SEPARATE `PlatformDefaultSetting` table
+//     below, which carries NO `tenant_id` at all — see that model's own
+//     comment for why it cannot share this table.
+// See `docs/adr/0008-organisation-foundation.md` D-11 for the deferred
+// `org.settings` design this corrects (missing `tenant_id`, only 3 of 6
+// levels modelled, no `locked` column) and
+// `docs/reports/claude/2026-09-09_FULL-SRS-PLT-SETTINGS-RESOLVER-P1.md` for
+// the full design record.
+// ---------------------------------------------------------------------------
+
+enum SettingLevel {
+  tenant
+  brand
+  branch
+  terminal
+
+  @@schema("platform")
+}
+
+/// The genuinely GLOBAL Platform-Default level (SRS §6.4's highest tier).
+/// NOT tenant-scoped and carries NO `tenant_id` column — identical posture to
+/// `identity.permissions` (the repository's only other table with no RLS,
+/// because it too is a cross-tenant registry a caller must be able to read
+/// before any tenant context exists). A per-tenant RLS predicate cannot
+/// protect a row every tenant must be able to READ, and this repository has
+/// no cross-tenant "platform administrator" actor/authorization model today
+/// (verified: zero `platform.*` permission codes, zero HTTP controllers in
+/// `src/modules/platform`) — inventing one is an authorization-architecture
+/// decision outside this slice's authority (see the report's
+/// BLOCKERS_OR_UNCERTAINTIES). This table is therefore READ + resolver-input
+/// only in this slice: seeded directly (migration/ops), never through an
+/// HTTP write route guarded by ordinary tenant-scoped RBAC — exposing one
+/// would let any tenant holding a matching permission code overwrite every
+/// other tenant's platform defaults, a real cross-tenant privilege
+/// escalation this schema alone cannot prevent.
+model PlatformDefaultSetting {
+  id         String   @id @db.Uuid
+  settingKey String   @unique @map("setting_key") @db.VarChar(120)
+  value      Json     @db.JsonB
+  locked     Boolean  @default(false)
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdByUser User @relation("PlatformDefaultSettingCreatedBy", fields: [createdBy], references: [id])
+
+  @@map("platform_default_settings")
+  @@schema("platform")
+}
+
+/// Tenant/Brand/Branch/Terminal cascade levels — FR-PLT-025/026. `targetId`
+/// is polymorphic by `level` (the tenant's own id for `level = tenant`, else
+/// the brand/branch/terminal id) and therefore carries no direct FK —
+/// Postgres cannot FK one column to four different parent tables selected by
+/// a discriminator. `tenantId` IS a real FK (ADR 0008 D-11's binding
+/// instruction: "whatever is eventually built must carry `tenant_id` ...
+/// from the first migration") and is what RLS anchors to. Every write
+/// additionally validates the target's existence AND tenant ownership
+/// through the OWNING module's published contract
+/// (`BRANCH_BRAND_QUERY`/`TERMINAL_FACTS_QUERY`) before the row lands — see
+/// `platform-settings.admin.service.ts` — never a raw cross-schema FK
+/// substitute for that check.
+model SettingValue {
+  id         String       @id @db.Uuid
+  tenantId   String       @map("tenant_id") @db.Uuid
+  level      SettingLevel
+  targetId   String       @map("target_id") @db.Uuid
+  settingKey String       @map("setting_key") @db.VarChar(120)
+  value      Json         @db.JsonB
+  locked     Boolean      @default(false)
+  createdBy  String       @map("created_by") @db.Uuid
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdByUser User   @relation("SettingValueCreatedBy", fields: [createdBy], references: [id])
+
+  @@unique([tenantId, level, targetId, settingKey], map: "uq_setting_value_scope_key")
+  @@index([tenantId, settingKey])
+  @@map("setting_values")
   @@schema("platform")
 }

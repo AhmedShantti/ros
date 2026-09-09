@@ -280,6 +280,17 @@ export const AUDIT_ACTION = {
   // already one-field-at-a-time; the audit entry mirrors it 1:1).
   ATTENDANCE_CORRECTED: 'ATTENDANCE_CORRECTED',
   ATTENDANCE_SETTINGS_VERSION_CREATED: 'ATTENDANCE_SETTINGS_VERSION_CREATED',
+
+  // FULL-SRS-PLT-SETTINGS-RESOLVER-P1 — FR-PLT-025/026 generic settings
+  // resolver (FR-AUD-006 "configuration changes"). One verb covers both a
+  // first configure and a later value/lock change at the same
+  // (level, target, key) — the upsert IS the configuration change, mirroring
+  // CASH_MOVEMENT_RECORDED's "route taken is metadata, not a different
+  // action" convention. Unsetting an override is a materially different,
+  // separately accountable act (it restores inheritance rather than
+  // configuring a value), hence a second, distinct verb.
+  SETTING_VALUE_UPSERTED: 'SETTING_VALUE_UPSERTED',
+  SETTING_VALUE_UNSET: 'SETTING_VALUE_UNSET',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -373,4 +384,7 @@ export const AUDIT_ENTITY = {
   CLOCK_EVENT: 'clock_event',
   ATTENDANCE_CORRECTION: 'attendance_correction',
   ATTENDANCE_SETTINGS: 'attendance_settings',
+
+  // FULL-SRS-PLT-SETTINGS-RESOLVER-P1.
+  SETTING_VALUE: 'setting_value',
 } as const;

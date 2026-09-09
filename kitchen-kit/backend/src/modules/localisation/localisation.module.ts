@@ -10,10 +10,12 @@ import {
 import type { CountryPackTrustStore } from './country-pack/country-pack.signature';
 import { ConfiguredCountryPackTrustStore } from './country-pack/country-pack.trust.provider';
 import {
+  COUNTRY_PACK_SETTING_FACT_QUERY,
   PINNED_PAYMENT_POLICY_QUERY,
   SELLABLE_TAX_CLASSES_QUERY,
   TAX_CLASS_LABELS_QUERY,
 } from './contract';
+import { CountryPackSettingFactQueryService } from './country-pack/country-pack-setting-fact.query.service';
 import { PinnedPaymentPolicyQueryService } from './payment-policy/pinned-payment-policy.query.service';
 import { TAX_CLASS_PROVISIONER } from './tax/tax-class.port';
 import { TaxClassLabelsQueryService } from './tax/tax-class-labels.query.service';
@@ -89,6 +91,15 @@ import { SellableTaxClassesQueryService } from './tax/sellable-tax-classes.query
       provide: SELLABLE_TAX_CLASSES_QUERY,
       useExisting: SellableTaxClassesQueryService,
     },
+    // FULL-SRS-PLT-SETTINGS-RESOLVER-P1 — the Country Pack tier of the
+    // generic settings resolver (`platform-settings` module). A small,
+    // honest allow-list (see `COUNTRY_PACK_SETTING_KEYS`), never a
+    // passthrough of the full `CountryPack` object.
+    CountryPackSettingFactQueryService,
+    {
+      provide: COUNTRY_PACK_SETTING_FACT_QUERY,
+      useExisting: CountryPackSettingFactQueryService,
+    },
   ],
   exports: [
     CountryPackService,
@@ -98,6 +109,7 @@ import { SellableTaxClassesQueryService } from './tax/sellable-tax-classes.query
     PINNED_PAYMENT_POLICY_QUERY,
     TAX_CLASS_LABELS_QUERY,
     SELLABLE_TAX_CLASSES_QUERY,
+    COUNTRY_PACK_SETTING_FACT_QUERY,
   ],
 })
 export class LocalisationModule {}

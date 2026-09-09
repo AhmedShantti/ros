@@ -8,3 +8,4 @@
 export * from './pinned-payment-policy.query';
 export * from './tax-class-labels.query';
 export * from './sellable-tax-classes.query';
+export * from './country-pack-setting-fact.query';

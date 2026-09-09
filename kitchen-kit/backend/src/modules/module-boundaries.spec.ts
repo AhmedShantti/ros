@@ -109,6 +109,22 @@ const KNOWN_DEVIATIONS: Readonly<Record<string, readonly string[]>> = {
     'context/tenant-context',
     'context/tenant-context.guard',
   ],
+  // FULL-SRS-PLT-SETTINGS-RESOLVER-P1 gives platform-settings its first HTTP
+  // controller, so it now carries the SAME category-(a) cross-cutting
+  // plumbing entries every other HTTP module in this repository already
+  // carries — see this file's own docblock ("workforce appeared in neither
+  // list...").
+  'platform-settings->governance': [
+    'audit/audit.module',
+    'audit/audit.service',
+  ],
+  'platform-settings->identity': [
+    'auth/guards/jwt-auth.guard',
+    'authz/guards/permission.guard',
+    'context/current-tenant-context.decorator',
+    'context/tenant-context',
+    'context/tenant-context.guard',
+  ],
   'production->governance': ['audit/audit.module', 'audit/audit.service'],
   'production->identity': [
     'auth/guards/jwt-auth.guard',

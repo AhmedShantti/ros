@@ -21,6 +21,7 @@ import { ReportingModule } from './modules/reporting/reporting.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { PlatformModule } from './modules/platform/platform.module';
+import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 
 @Module({
   imports: [
@@ -94,6 +95,10 @@ import { PlatformModule } from './modules/platform/platform.module';
     // (Nest constructs every provider app-wide before any lifecycle hook, so
     // this is documentation of intent rather than a load-order dependency).
     PlatformModule,
+    // FR-PLT-025/026/027 — the hierarchical settings resolver (SRS §6.4).
+    // Deliberately its own module, not an addition to PlatformModule — see
+    // `platform-settings.module.ts`'s own docblock.
+    PlatformSettingsModule,
   ],
 })
 export class AppModule {}
