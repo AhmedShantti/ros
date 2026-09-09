@@ -149,7 +149,7 @@ docs/reports/claude/INDEX.md                                            (this en
 
 ## COMMIT
 
-Committed after this report was written — see chat for the commit hash. Not pushed.
+Committed as `656c354` on `full-srs/lane-d4-reporting-demo` (parent `8971af7`). Not pushed.
 
 ## SAFE_TO_INTEGRATE
 
