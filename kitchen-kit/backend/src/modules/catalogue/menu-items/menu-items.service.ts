@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { newId } from '../../../common/ids';
 import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -8,6 +8,11 @@ import {
   AUDIT_ENTITY,
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
+import { SELLABLE_TAX_CLASSES_QUERY } from '../../localisation/contract';
+import type {
+  SellableTaxClass,
+  SellableTaxClassesQuery,
+} from '../../localisation/contract';
 import { rethrowAsNotFoundOnFk } from '../../organisation/prisma-errors';
 import { toMenuItemView, toVariantView } from '../catalogue.views';
 
@@ -52,9 +57,37 @@ export class MenuItemsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Inject(SELLABLE_TAX_CLASSES_QUERY)
+    private readonly taxClasses: SellableTaxClassesQuery,
   ) {}
 
+  /**
+   * C-04 AMENDMENT: `taxClassId` must name an ACTIVE `fiscal.tax_classes`
+   * identity this tenant already holds (DEMO-TAX-CLASS-BACKEND-P0). Checked
+   * OUTSIDE the create/update transaction — `SellableTaxClassesQuery` opens
+   * its own `withAuthContext`, and nested calls are not supported. Rejecting
+   * here, rather than letting a bad id fall through to the DB FK, turns an
+   * unhandled constraint violation into a clean 400 with a real reason.
+   */
+  private async requireValidTaxClassId(
+    tenantId: string,
+    taxClassId: string,
+  ): Promise<void> {
+    const resolved = await this.taxClasses.resolveSellable({
+      tenantId,
+      taxClassId,
+    });
+    if (!resolved) {
+      throw new BadRequestException(
+        'taxClassId does not name an active tax class for this tenant.',
+      );
+    }
+  }
+
   async create(tenantId: string, actorId: string, input: CreateMenuItemInput) {
+    if (input.taxClassId) {
+      await this.requireValidTaxClassId(tenantId, input.taxClassId);
+    }
     const item = await this.prisma.withAuthContext(
       { userId: actorId, tenantId },
       async (tx) => {
@@ -75,7 +108,9 @@ export class MenuItemsService {
             ...(input.description !== undefined
               ? { description: input.description as Prisma.InputJsonValue }
               : {}),
-            // C-04: recorded only; Fiscal is out of scope so it is never resolved.
+            // C-04 AMENDMENT: recorded as a stable class REFERENCE only —
+            // never a rate. Sales resolves the rate from the active country
+            // pack at sale time (`TaxClassService.requireForSale`).
             taxClassId: input.taxClassId ?? null,
             revenueAccountCode: input.revenueAccountCode ?? null,
             barcodePlu: input.barcodePlu ?? null,
@@ -133,6 +168,9 @@ export class MenuItemsService {
     itemId: string,
     input: Partial<CreateMenuItemInput>,
   ) {
+    if (input.taxClassId) {
+      await this.requireValidTaxClassId(tenantId, input.taxClassId);
+    }
     const item = await this.prisma.withAuthContext(
       { userId: actorId, tenantId },
       async (tx) => {
@@ -503,5 +541,19 @@ export class MenuItemsService {
         'This modifier group is already linked to the item.',
       );
     }
+  }
+
+  // ------------------------------------------------------------ tax classes --
+  /**
+   * DEMO-TAX-CLASS-BACKEND-P0: every value valid for `taxClassId` on an item
+   * meant to sell at this branch — the read side of the C-04 AMENDMENT
+   * contract. Delegates entirely to Localisation's `SellableTaxClassesQuery`;
+   * branch resolution, jurisdiction lookup and RLS all happen there.
+   */
+  listTaxClassesForBranch(
+    tenantId: string,
+    branchId: string,
+  ): Promise<readonly SellableTaxClass[]> {
+    return this.taxClasses.listSellableForBranch({ tenantId, branchId });
   }
 }

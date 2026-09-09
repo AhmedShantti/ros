@@ -24,6 +24,7 @@ import {
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import {
   isoDateTimeSchema,
@@ -160,6 +161,21 @@ const menuItemSchema = {
     isWeighed: { type: 'boolean' },
     isActive: { type: 'boolean' },
     createdAt: isoDateTimeSchema(),
+  },
+};
+
+// DEMO-TAX-CLASS-BACKEND-P0. Shapes verified against `SellableTaxClass`
+// (`modules/localisation/contract/sellable-tax-classes.query.ts`) — never a
+// rate, a component, or any other tax-engine configuration.
+const taxClassSchema = {
+  type: 'object',
+  properties: {
+    id: uuidSchema('The value to send back as MenuItem.taxClassId.'),
+    code: {
+      type: 'string',
+      description: "Immutable semantic key, e.g. 'standard', 'zero', 'exempt'.",
+    },
+    names: localizedTextSchema,
   },
 };
 
@@ -639,6 +655,40 @@ export class CatalogueController {
     @Param('branchId') branchId: string,
   ) {
     return this.menus.resolveForBranch(c.tenantId, branchId);
+  }
+
+  // -------------------------------------------------------------- tax classes --
+  /**
+   * DEMO-TAX-CLASS-BACKEND-P0 — the narrowest read discovery contract for
+   * `MenuItem.taxClassId`: every ACTIVE tax class identity this tenant holds
+   * under the country pack currently effective for this branch. No rate, no
+   * tax component, no engine configuration is exposed — see `taxClassSchema`.
+   */
+  @Get('branches/:branchId/tax-classes')
+  @AuthorizationTarget(branchFromParam('branchId'))
+  @RequirePermission(CATALOGUE_PERMISSIONS.ITEM_READ)
+  @ApiOperation({
+    summary:
+      "Tax classes valid for MenuItem.taxClassId, sellable at this branch's active country pack.",
+  })
+  @ApiOkResponse({
+    description: 'Active tax class identities for this branch.',
+    schema: { type: 'array', items: taxClassSchema },
+  })
+  @ApiNotFoundResponse({
+    description:
+      'The named branch is not visible in this tenant — unknown, or another ' +
+      "tenant's. Byte-identical for both.",
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      "No activated country pack covers this branch's jurisdiction, or its currency disagrees with the branch's.",
+  })
+  listBranchTaxClasses(
+    @CurrentTenantContext() c: TenantContext,
+    @Param('branchId') branchId: string,
+  ) {
+    return this.items.listTaxClassesForBranch(c.tenantId, branchId);
   }
 
   // ------------------------------------------------------------ categories --

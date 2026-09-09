@@ -92,7 +92,13 @@ export class CreateMenuItemDto {
   @IsOptional() @IsObject() aggregatorNames?: Record<string, unknown>;
   @IsOptional() @IsObject() description?: Record<string, unknown>;
 
-  /** C-04: recorded only. Fiscal is out of scope, so this is never resolved. */
+  /**
+   * C-04 AMENDMENT: must name an ACTIVE `fiscal.tax_classes` identity this
+   * tenant already holds — see `GET /catalogue/branches/:branchId/tax-classes`
+   * for how to discover a valid value. Rejected at write time if it does not
+   * (DEMO-TAX-CLASS-BACKEND-P0); the rate itself is never stored here, only
+   * resolved by Sales from the active country pack at sale time.
+   */
   @IsOptional() @uuid('taxClassId') taxClassId?: string;
 
   @IsOptional() @IsString() @Length(1, 32) revenueAccountCode?: string;

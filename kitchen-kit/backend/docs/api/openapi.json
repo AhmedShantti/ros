@@ -778,7 +778,7 @@
             "type": "number"
           },
           "taxClassId": {
-            "description": "C-04: recorded only. Fiscal is out of scope, so this is never resolved.",
+            "description": "C-04 AMENDMENT: must name an ACTIVE `fiscal.tax_classes` identity this\ntenant already holds — see `GET /catalogue/branches/:branchId/tax-classes`\nfor how to discover a valid value. Rejected at write time if it does not\n(DEMO-TAX-CLASS-BACKEND-P0); the rate itself is never stored here, only\nresolved by Sales from the active country pack at sale time.",
             "type": "string"
           }
         },
@@ -2732,7 +2732,7 @@
             "type": "number"
           },
           "taxClassId": {
-            "description": "C-04: recorded only. Fiscal is out of scope, so this is never resolved.",
+            "description": "C-04 AMENDMENT: must name an ACTIVE `fiscal.tax_classes` identity this\ntenant already holds — see `GET /catalogue/branches/:branchId/tax-classes`\nfor how to discover a valid value. Rejected at write time if it does not\n(DEMO-TAX-CLASS-BACKEND-P0); the rate itself is never stored here, only\nresolved by Sales from the active country pack at sale time.",
             "type": "string"
           }
         },
@@ -9220,6 +9220,103 @@
           }
         ],
         "summary": "FR-MNU-003: priority-ordered resolution with an ambiguity warning.",
+        "tags": [
+          "catalogue"
+        ]
+      }
+    },
+    "/catalogue/branches/{branchId}/tax-classes": {
+      "get": {
+        "operationId": "CatalogueController_listBranchTaxClasses",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "code": {
+                        "description": "Immutable semantic key, e.g. 'standard', 'zero', 'exempt'.",
+                        "type": "string"
+                      },
+                      "id": {
+                        "description": "The value to send back as MenuItem.taxClassId.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "names": {
+                        "description": "Localised text, e.g. {\"ar\": \"...\", \"en\": \"...\"}.",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Active tax class identities for this branch."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named branch is not visible in this tenant — unknown, or another tenant's. Byte-identical for both."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No activated country pack covers this branch's jurisdiction, or its currency disagrees with the branch's."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tax classes valid for MenuItem.taxClassId, sellable at this branch's active country pack.",
         "tags": [
           "catalogue"
         ]

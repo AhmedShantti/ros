@@ -11,6 +11,7 @@ import type { CountryPackTrustStore } from './country-pack/country-pack.signatur
 import { ConfiguredCountryPackTrustStore } from './country-pack/country-pack.trust.provider';
 import {
   PINNED_PAYMENT_POLICY_QUERY,
+  SELLABLE_TAX_CLASSES_QUERY,
   TAX_CLASS_LABELS_QUERY,
 } from './contract';
 import { PinnedPaymentPolicyQueryService } from './payment-policy/pinned-payment-policy.query.service';
@@ -19,6 +20,7 @@ import { TaxClassLabelsQueryService } from './tax/tax-class-labels.query.service
 import { TaxClassProvisioningService } from './tax/tax-class.provisioner';
 import { TaxClassService } from './tax/tax-class.service';
 import { TaxEngineRegistry } from './tax/tax-engine.registry';
+import { SellableTaxClassesQueryService } from './tax/sellable-tax-classes.query.service';
 
 /**
  * Localisation bounded context — SRS Chapter 22.
@@ -80,6 +82,13 @@ import { TaxEngineRegistry } from './tax/tax-engine.registry';
       provide: TAX_CLASS_LABELS_QUERY,
       useExisting: TaxClassLabelsQueryService,
     },
+    // DEMO-TAX-CLASS-BACKEND-P0 — the narrowest read/write-validation surface
+    // over `fiscal.tax_classes`, consumed by Catalogue only through this token.
+    SellableTaxClassesQueryService,
+    {
+      provide: SELLABLE_TAX_CLASSES_QUERY,
+      useExisting: SellableTaxClassesQueryService,
+    },
   ],
   exports: [
     CountryPackService,
@@ -88,6 +97,7 @@ import { TaxEngineRegistry } from './tax/tax-engine.registry';
     TAX_CLASS_PROVISIONER,
     PINNED_PAYMENT_POLICY_QUERY,
     TAX_CLASS_LABELS_QUERY,
+    SELLABLE_TAX_CLASSES_QUERY,
   ],
 })
 export class LocalisationModule {}

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../governance/audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
+import { LocalisationModule } from '../localisation/localisation.module';
 import { AvailabilityService } from './availability/availability.service';
 import { CatalogueCompletenessService } from './catalogue-completeness.service';
 import { CatalogueController } from './catalogue.controller';
@@ -29,9 +30,13 @@ import {
  * tamper-evident audit writer (AuditModule). Neither is modified: no new
  * tenant-context mechanism, no parallel audit system, no change to Auth, RBAC or
  * Organisation.
+ *
+ * DEMO-TAX-CLASS-BACKEND-P0 adds the FIRST `catalogue -> localisation` edge,
+ * through `localisation/contract` only (`SELLABLE_TAX_CLASSES_QUERY`) —
+ * `MenuItemsService` never imports a Localisation internal path.
  */
 @Module({
-  imports: [IdentityModule, AuditModule],
+  imports: [IdentityModule, AuditModule, LocalisationModule],
   controllers: [CatalogueController],
   providers: [
     PriceListTargetResolver,
