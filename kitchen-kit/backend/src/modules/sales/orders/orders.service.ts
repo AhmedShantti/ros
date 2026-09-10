@@ -14,9 +14,12 @@ import {
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
 import { CountryPackService } from '../../localisation/country-pack/country-pack.service';
+import { BRANCH_BRAND_QUERY } from '../../organisation/contract';
+import type { BranchBrandQuery } from '../../organisation/contract';
 import { DAY_CLOSE_STATE_QUERY } from '../../treasury/contract';
 import type { DayCloseStateQuery } from '../../treasury/contract';
 import { cutoverLookup, resolveBusinessDay } from './business-day';
+import { ServiceChargePolicyResolver } from '../service-charge-policy/service-charge-policy.resolver';
 import {
   DEFAULT_BLOCK_SIZE,
   formatOrderNumber,
@@ -103,6 +106,16 @@ export class OrdersService {
      */
     @Inject(DAY_CLOSE_STATE_QUERY)
     private readonly dayCloseState: DayCloseStateQuery,
+    @Inject(BRANCH_BRAND_QUERY)
+    private readonly branchBrand: BranchBrandQuery,
+    /**
+     * P2D (ratified P2D-R1 clause 7) — resolved and pinned at the SAME
+     * instant (`at`) and in the SAME transaction as `countryPackVersion`
+     * below. Additive: an order pins `null` when no ServiceChargePolicy
+     * version is configured anywhere in scope — never a fabricated
+     * default, never a reason order creation itself can fail.
+     */
+    private readonly serviceChargePolicies: ServiceChargePolicyResolver,
   ) {}
 
   /**
@@ -246,6 +259,28 @@ export class OrdersService {
         // never filled with a placeholder.
         const pack = this.countryPacks.requireEffectiveFor(branch, at);
 
+        // P2D (ratified P2D-R1 clause 7) — resolve the winning
+        // ServiceChargePolicy version at the SAME instant `at`, through
+        // the PUBLISHED Organisation contract only (never a raw
+        // `tx.branch` read for the brand id — Branch.brandId is NOT NULL,
+        // so every branch has exactly one; `null` here would only mean
+        // this branch is momentarily not RLS-visible in its OWN
+        // transaction, which fails closed to "no brand in scope" rather
+        // than failing order creation itself).
+        const branchFacts = await this.branchBrand.findBranchAuthorizationFacts(
+          tx,
+          branch.id,
+        );
+        const serviceChargeBreakdown = await this.serviceChargePolicies.resolve(
+          tx,
+          {
+            tenantId,
+            brandId: branchFacts?.brandId ?? null,
+            branchId: branch.id,
+            at,
+          },
+        );
+
         const orderNumber = await this.allocateOrderNumber(
           tx,
           tenantId,
@@ -290,6 +325,8 @@ export class OrdersService {
             originDeviceTime: input.originDeviceTime,
             idempotencyKey: input.idempotencyKey,
             countryPackVersion: pack.version,
+            serviceChargePolicyVersionId:
+              serviceChargeBreakdown.winner?.id ?? null,
             notes: input.notes ?? null,
           },
         });

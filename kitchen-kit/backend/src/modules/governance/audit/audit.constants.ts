@@ -291,6 +291,18 @@ export const AUDIT_ACTION = {
   // configuring a value), hence a second, distinct verb.
   SETTING_VALUE_UPSERTED: 'SETTING_VALUE_UPSERTED',
   SETTING_VALUE_UNSET: 'SETTING_VALUE_UNSET',
+
+  // P2D (ratified P2D-R1) — Sales-owned ServiceChargePolicy configuration
+  // substrate (FR-AUD-006 "configuration changes"). Mirrors
+  // CASH_CLOSE_POLICY_VERSION_CREATED's own convention: every write is a
+  // NEW immutable version, never an edit, so there is no separate
+  // _UPDATED verb. Cancellation (P2A-R1 clause 11's future-only DELETE) is
+  // a materially different, separately accountable act — hence a second,
+  // distinct verb, mirroring SETTING_VALUE_UPSERTED/_UNSET's own split.
+  SERVICE_CHARGE_POLICY_VERSION_CREATED:
+    'SERVICE_CHARGE_POLICY_VERSION_CREATED',
+  SERVICE_CHARGE_POLICY_VERSION_CANCELLED:
+    'SERVICE_CHARGE_POLICY_VERSION_CANCELLED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -387,4 +399,7 @@ export const AUDIT_ENTITY = {
 
   // FULL-SRS-PLT-SETTINGS-RESOLVER-P1.
   SETTING_VALUE: 'setting_value',
+
+  // P2D (ratified P2D-R1) — Sales ServiceChargePolicy.
+  SERVICE_CHARGE_POLICY: 'service_charge_policy',
 } as const;

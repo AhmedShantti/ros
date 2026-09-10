@@ -78,6 +78,8 @@ model User {
   /// FR-PLT-025/026 back-relations only; no column, no behaviour change.
   platformDefaultSettingsCreated PlatformDefaultSetting[] @relation("PlatformDefaultSettingCreatedBy")
   settingValuesCreated           SettingValue[]           @relation("SettingValueCreatedBy")
+  /// P2D back-relation only (virtual; no DDL impact on this model).
+  serviceChargePoliciesCreated   ServiceChargePolicy[]
 
   @@map("users")
   @@schema("identity")
@@ -240,6 +242,8 @@ model Tenant {
   /// Migration 35 back-relations only (virtual; no DDL impact on `tenants`).
   dayCloseActivations            DayCloseActivation[]
   dayCloses                      DayClose[]
+  /// P2D back-relation only (virtual; no DDL impact on `tenants`).
+  serviceChargePolicies          ServiceChargePolicy[]
   dayCloseTaxClassTotals         DayCloseTaxClassTotal[]
   dayCloseOrderTypeTotals        DayCloseOrderTypeTotal[]
   dayCloseSessions               DayCloseSession[]
@@ -2062,6 +2066,13 @@ model Order {
   aggregatorRef      String?      @map("aggregator_ref") @db.VarChar(80)
   /// No authoritative CountryPack source exists yet; see the migration header.
   countryPackVersion String       @map("country_pack_version") @db.VarChar(24)
+  /// P2D (ratified P2D-R1) — the ServiceChargePolicy version resolved and
+  /// pinned at `openedAt` (tenant -> brand -> branch, stopping at a locked
+  /// level), using the SAME instant as `countryPackVersion` above. NULL
+  /// means no configured version governed this order's scope at that
+  /// instant — never a fabricated default. Pinning this id does NOT itself
+  /// imply any non-zero service charge was computed for this order — P2E.
+  serviceChargePolicyVersionId String?      @map("service_charge_policy_version_id") @db.Uuid
   notes              String?
   metadata           Json         @default("{}") @db.JsonB
   /// §24.6.4 optimistic concurrency.
@@ -2077,6 +2088,9 @@ model Order {
   discounts            Discount[]
   refunds              Refund[]
   postFireVoidRecords  PostFireVoidRecord[]
+  /// P2D — the pinned ServiceChargePolicy version, if any (see column
+  /// comment above).
+  serviceChargePolicyVersion ServiceChargePolicy? @relation(fields: [tenantId, serviceChargePolicyVersionId], references: [tenantId, id], onDelete: Restrict)
 
   @@id([id, businessDay])
   @@unique([tenantId, id, businessDay])
@@ -2089,6 +2103,82 @@ model Order {
   @@index([tenantId, branchId, businessDay])
   @@index([tenantId, state])
   @@map("orders")
+  @@schema("sales")
+}
+
+/// P2D (ratified P2D-R1). The generic tenant->brand->branch precedence per
+/// P2A-R1 clause 7 — NOT platform, NOT country_pack, NOT terminal.
+enum ServiceChargePolicyLevel {
+  tenant
+  brand
+  branch
+
+  @@schema("sales")
+}
+
+/// ServiceChargePolicy — P2D (ratified P2D-R1). Sales-owned, IMMUTABLE,
+/// effective-dated tenant/brand/branch service-charge CONFIGURATION
+/// substrate — FR-PLT-028's service-charge sub-obligation, FR-POS-055's
+/// percentage/order-type/guest-count configuration.
+///
+/// Each row is ONE complete, atomic policy VERSION: `locked` lives directly
+/// on the row (P2A-R1 clause 8 — never a separate lock table), and `rules`
+/// is the WHOLE typed rule-set for that version (P2C2 §2) — never a child
+/// table, so a rule can never be altered independently of the immutable
+/// version it belongs to.
+///
+/// `targetId` carries NO database FK — its meaning depends on `level` (the
+/// tenant id itself / an `org.brands.id` / an `org.branches.id`), exactly
+/// the `platform.setting_values.target_id` precedent: validating it against
+/// the correct Organisation-owned table is an APPLICATION-level check via
+/// `organisation/contract`, never a raw cross-schema FK substitute for it.
+///
+/// DOES NOT compute or apply a service charge to any Order — that is P2E.
+/// FR-PLT-028 remains PARTIAL until P2E makes this configuration actually
+/// affect a real, non-zero financial computation (P2D-R1 clause 9).
+model ServiceChargePolicy {
+  id       String                   @id @db.Uuid
+  tenantId String                   @map("tenant_id") @db.Uuid
+  level    ServiceChargePolicyLevel
+  /// Meaning depends on `level` — see model docblock. No DB FK.
+  targetId String                   @map("target_id") @db.Uuid
+  /// P2D-R1 clause 3 — one atomic, typed rule-set for this version:
+  /// `{ orderType: OrderType | null, minGuestCount: int | null,
+  /// ratePercent: exact-decimal string }[]`. `[]` is a valid, meaningful
+  /// "explicitly no service charge at this level" configuration — never
+  /// confused with "no row" (unconfigured, inherits from the level above).
+  /// Application-validated (see `service-charge-policy-rules.ts`); backed
+  /// by a `jsonb_typeof` CHECK only as a structural safety net.
+  rules  Json    @db.JsonB
+  locked Boolean @default(false)
+  /// Anti-backdating (P2A-R1 clauses 13-14, `ck_ccp_no_backdating`
+  /// precedent verbatim): `DEFAULT statement_timestamp()`, identical
+  /// within one INSERT to `createdAt`'s own default (Postgres evaluates
+  /// `statement_timestamp()` once per statement), so an "effective
+  /// immediately" write satisfies `ck_scp_no_backdating` by equality using
+  /// DATABASE time only.
+  effectiveFrom DateTime @default(dbgenerated("statement_timestamp()")) @map("effective_from") @db.Timestamptz(6)
+  createdBy     String   @map("created_by") @db.Uuid
+  createdAt     DateTime @default(dbgenerated("statement_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdByUser User   @relation(fields: [createdBy], references: [id])
+  /// P2D back-relation only (virtual; no DDL impact on this model) — every
+  /// Order whose openedAt-governed resolve pinned THIS version.
+  orders        Order[]
+
+  @@unique([tenantId, id])
+  /// One version per (level, target) per instant — the deterministic
+  /// conflict for a concurrent same-scope, same-`effectiveFrom` race (the
+  /// `uq_ccp_branch_effective_from` precedent), extended with `level`
+  /// since one `targetId` value is only unique WITHIN one level (a brand
+  /// id and a branch id are drawn from disjoint id spaces in practice, but
+  /// `level` makes the constraint's intent explicit either way).
+  @@unique([tenantId, level, targetId, effectiveFrom], map: "uq_scp_scope_effective_from")
+  /// The resolver's only access path: latest version effective at or
+  /// before some `at` instant, for one (level, target).
+  @@index([tenantId, level, targetId, effectiveFrom(sort: Desc)], map: "service_charge_policies_resolve_idx")
+  @@map("service_charge_policies")
   @@schema("sales")
 }
 

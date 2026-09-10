@@ -1194,6 +1194,25 @@
         ],
         "type": "object"
       },
+      "CreateServiceChargePolicyDto": {
+        "properties": {
+          "effectiveFrom": {
+            "description": "Omitted = effective immediately (resolved to DATABASE time, never this\nprocess's clock). A past instant is rejected — enforced by the DB\nCHECK (`ck_scp_no_backdating`), not merely this validator.",
+            "type": "string"
+          },
+          "locked": {
+            "description": "Omitted = unlocked (`false`).",
+            "type": "boolean"
+          },
+          "rules": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "type": "object"
+      },
       "CreateStationDto": {
         "properties": {
           "capacityConfig": {
@@ -33048,6 +33067,727 @@
         "summary": "Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names).",
         "tags": [
           "reporting"
+        ]
+      }
+    },
+    "/service-charge-policy/branch/{branchId}": {
+      "post": {
+        "operationId": "ServiceChargePolicyController_createBranchPolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceChargePolicyDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "level": {
+                      "enum": [
+                        "tenant",
+                        "brand",
+                        "branch"
+                      ],
+                      "type": "string"
+                    },
+                    "locked": {
+                      "type": "boolean"
+                    },
+                    "rules": {
+                      "items": {
+                        "properties": {
+                          "minGuestCount": {
+                            "description": "null = no guest-count condition; otherwise Order.guestCount >= minGuestCount.",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "orderType": {
+                            "description": "null = applies to all order types.",
+                            "enum": [
+                              "dine_in",
+                              "takeaway",
+                              "delivery",
+                              "drive_thru",
+                              "pickup",
+                              "aggregator",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "ratePercent": {
+                            "description": "Exact-decimal percentage string, e.g. \"12.5\". Never a JSON number.",
+                            "example": "12.5",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "targetId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The newly created branch-level service-charge policy version."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/over-long Idempotency-Key, an invalid rules array, or a past effectiveFrom."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown branch."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A version with this exact effective time already exists for this scope."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/service-charge-policy/brand/{brandId}": {
+      "post": {
+        "operationId": "ServiceChargePolicyController_createBrandPolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "brandId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceChargePolicyDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "level": {
+                      "enum": [
+                        "tenant",
+                        "brand",
+                        "branch"
+                      ],
+                      "type": "string"
+                    },
+                    "locked": {
+                      "type": "boolean"
+                    },
+                    "rules": {
+                      "items": {
+                        "properties": {
+                          "minGuestCount": {
+                            "description": "null = no guest-count condition; otherwise Order.guestCount >= minGuestCount.",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "orderType": {
+                            "description": "null = applies to all order types.",
+                            "enum": [
+                              "dine_in",
+                              "takeaway",
+                              "delivery",
+                              "drive_thru",
+                              "pickup",
+                              "aggregator",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "ratePercent": {
+                            "description": "Exact-decimal percentage string, e.g. \"12.5\". Never a JSON number.",
+                            "example": "12.5",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "targetId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The newly created brand-level service-charge policy version."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/over-long Idempotency-Key, an invalid rules array, or a past effectiveFrom."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown brand."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A version with this exact effective time already exists for this scope."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/service-charge-policy/resolve": {
+      "get": {
+        "operationId": "ServiceChargePolicyController_resolve",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "brandId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`policy` is null if nothing is configured anywhere in scope."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The currently-effective version for a hierarchy context — `null` if\nnothing is configured anywhere in scope. `branchId` (when supplied)\ndetermines the authorization target; otherwise TENANT — the built-in\n`branchFromQueryOrTenant` primitive, no custom resolver needed. A\n`brandId`-only request (no `branchId`) is authorized at TENANT scope\n— safe (never more permissive than the dedicated multi-level resolver\n`PlatformSettingsController` uses would be), simpler, and avoids a\nnew Sales-owned `ScopeTargetResolver` for a narrow admin read.",
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/service-charge-policy/tenant": {
+      "post": {
+        "operationId": "ServiceChargePolicyController_createTenantPolicy",
+        "parameters": [
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceChargePolicyDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "createdBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "level": {
+                      "enum": [
+                        "tenant",
+                        "brand",
+                        "branch"
+                      ],
+                      "type": "string"
+                    },
+                    "locked": {
+                      "type": "boolean"
+                    },
+                    "rules": {
+                      "items": {
+                        "properties": {
+                          "minGuestCount": {
+                            "description": "null = no guest-count condition; otherwise Order.guestCount >= minGuestCount.",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "orderType": {
+                            "description": "null = applies to all order types.",
+                            "enum": [
+                              "dine_in",
+                              "takeaway",
+                              "delivery",
+                              "drive_thru",
+                              "pickup",
+                              "aggregator",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "ratePercent": {
+                            "description": "Exact-decimal percentage string, e.g. \"12.5\". Never a JSON number.",
+                            "example": "12.5",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "targetId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The newly created tenant-level service-charge policy version."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/over-long Idempotency-Key, an invalid rules array, or a past effectiveFrom."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A version with this exact effective time already exists for this scope."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/service-charge-policy/versions": {
+      "get": {
+        "operationId": "ServiceChargePolicyController_listVersions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "level",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every version for the given (level, targetId) scope, newest first."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Every version for ONE exact scope, newest first — including\nfuture-scheduled ones `resolve` cannot show. See\n`ServiceChargePolicyService.listVersions`'s own docblock for why this\nminimal surface exists.",
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/service-charge-policy/versions/{versionId}": {
+      "delete": {
+        "operationId": "ServiceChargePolicyController_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "versionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown version."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "That version is already effective (or just became effective) and can no longer be cancelled."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancel a still-future version. `RequireAnyPermission` here is a\nCOARSE gate only — the actual, scope-precise authorization decision\nhappens inside `ServiceChargePolicyService.cancel`, after the row's\nown level is known (see that method's docblock).",
+        "tags": [
+          "sales"
         ]
       }
     },

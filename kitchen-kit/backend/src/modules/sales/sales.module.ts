@@ -32,6 +32,13 @@ import { PosReasonCodesService } from './orders/pos-reason-codes.service';
 import { SalesDomainExceptionFilter } from './sales-domain-exception.filter';
 import { OrderTargetResolver } from './orders/scope-target.resolver';
 import { SALES_ORDER_TARGET_RESOLVER } from './contract';
+import { ServiceChargePolicyController } from './service-charge-policy/service-charge-policy.controller';
+import { ServiceChargePolicyResolver } from './service-charge-policy/service-charge-policy.resolver';
+import { ServiceChargePolicyService } from './service-charge-policy/service-charge-policy.service';
+import {
+  ServiceChargePolicyTargetResolver,
+  SERVICE_CHARGE_POLICY_TARGET_RESOLVER,
+} from './service-charge-policy/service-charge-policy-target.resolver';
 
 /**
  * Sales bounded context.
@@ -122,10 +129,21 @@ import { SALES_ORDER_TARGET_RESOLVER } from './contract';
     // discount/refund thresholds itself and calls the generic runtime).
     GovernanceModule,
   ],
-  controllers: [OrdersController],
+  controllers: [OrdersController, ServiceChargePolicyController],
   providers: [
     OrderTargetResolver,
     { provide: SALES_ORDER_TARGET_RESOLVER, useExisting: OrderTargetResolver },
+    // P2D (ratified P2D-R1) — ServiceChargePolicy configuration substrate.
+    // ServiceChargePolicyTargetResolver is Sales-PRIVATE (never published
+    // through `sales/contract`); its DI token is only ever consumed by
+    // this module's own cancel route.
+    ServiceChargePolicyResolver,
+    ServiceChargePolicyService,
+    ServiceChargePolicyTargetResolver,
+    {
+      provide: SERVICE_CHARGE_POLICY_TARGET_RESOLVER,
+      useExisting: ServiceChargePolicyTargetResolver,
+    },
     OrdersService,
     OrderLinesService,
     SalesFireService,

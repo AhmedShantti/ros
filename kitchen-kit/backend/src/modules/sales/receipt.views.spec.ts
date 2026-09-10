@@ -96,6 +96,7 @@ describe('toReceiptView', () => {
     idempotencyKey: 'k-1',
     aggregatorRef: null,
     countryPackVersion: '2026.1',
+    serviceChargePolicyVersionId: null,
     notes: null,
     metadata: {},
     version: 3,
