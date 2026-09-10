@@ -406,13 +406,16 @@ inclusion (both empty-diff). No push. A second, docs-only follow-up commit
 records the resulting hash into this report, per this session's
 established convention.
 
-`IMPLEMENTATION_COMMIT`: *(recorded after commit — see §15)*
+`IMPLEMENTATION_COMMIT`: `aece939`
 
 ---
 
 ## 15. Post-commit hash record
 
-*(Updated by the docs-only follow-up commit.)*
+Implementation, tests, this report, and `INDEX.md` were committed as
+`aece939` on `full-srs/lane-d4-reporting-demo` (starting from `c0a14df`).
+This section is amended by a second, docs-only follow-up commit recording
+that hash, matching this session's established convention.
 
 ---
 
