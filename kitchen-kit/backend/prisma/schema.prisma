@@ -302,6 +302,13 @@ model Tenant {
   suppliers                  Supplier[]
   supplierItemLinks          SupplierItemLink[]
   supplierPriceEntries       SupplierPriceEntry[]
+  /// FULL-SRS-PRC-PURCHASE-ORDERS-P2 — back-relations only; no column, no
+  /// behaviour change on `identity.tenants`.
+  purchaseRequisitions       PurchaseRequisition[]
+  purchaseRequisitionLines   PurchaseRequisitionLine[]
+  purchaseOrders             PurchaseOrder[]
+  purchaseOrderLines         PurchaseOrderLine[]
+  purchaseOrderAmendments    PurchaseOrderAmendment[]
 
   @@map("tenants")
   @@schema("identity")
@@ -5371,9 +5378,13 @@ model Supplier {
   createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  itemLinks    SupplierItemLink[]
-  priceEntries SupplierPriceEntry[]
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  itemLinks        SupplierItemLink[]
+  priceEntries     SupplierPriceEntry[]
+  /// FULL-SRS-PRC-PURCHASE-ORDERS-P2 back-relations only; no column, no
+  /// behaviour change on `suppliers`.
+  requisitionLines PurchaseRequisitionLine[]
+  purchaseOrders   PurchaseOrder[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code], map: "uq_supplier_code")
@@ -5468,9 +5479,318 @@ model SupplierPriceEntry {
   /// (see its own doc comment) — structurally guarantees `supplierId` above
   /// is the link's own supplier.
   supplierItemLink SupplierItemLink @relation(fields: [tenantId, supplierId, supplierItemLinkId], references: [tenantId, supplierId, id], onDelete: Restrict)
+  /// FULL-SRS-PRC-PURCHASE-ORDERS-P2 — back-relation only; no column, no
+  /// behaviour change on `supplier_price_entries`.
+  poLines PurchaseOrderLine[]
 
   @@unique([tenantId, id])
   @@index([tenantId, supplierItemLinkId, purchaseUnitId, validFrom])
   @@map("supplier_price_entries")
+  @@schema("procurement")
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FULL-SRS-PRC-PURCHASE-ORDERS-P2 — Requisitions, Purchase Orders,
+// Approval, Amendments (FR-PRC-015/016/017/018/019/023).
+// ═══════════════════════════════════════════════════════════════════════
+
+/// FR-PRC-015 §minimum lifecycle. No requisition-level approval is modelled
+/// (mission brief §1: "do not invent complex requisition approval if not
+/// required for creating the PO" — approval lives on the PurchaseOrder).
+enum PurchaseRequisitionStatus {
+  draft
+  submitted
+  converted
+
+  @@schema("procurement")
+}
+
+/// PurchaseRequisition — FR-PRC-015 [S]. Tenant-scoped, branch-attributed
+/// purchasing request. Converted into one or more PurchaseOrder lines by
+/// FR-PRC-016 consolidation; becomes `converted` only when every one of its
+/// lines has been consumed by some PurchaseOrderLine (mission brief §2 —
+/// never silently half-converted).
+model PurchaseRequisition {
+  id                 String                    @id @db.Uuid
+  tenantId           String                    @map("tenant_id") @db.Uuid
+  /// Recorded Organisation `org.branches.id` — no DB FK (module boundary);
+  /// validated tenant-safe + active via Organisation's published contract.
+  requestingBranchId String                    @map("requesting_branch_id") @db.Uuid
+  /// Recorded Identity `identity.users.id` — no DB FK, same posture as
+  /// Governance's `approval_requests.requested_by` (no FK gives tenant
+  /// safety anyway since a user has no tenant column of its own).
+  requestedBy        String                    @map("requested_by") @db.Uuid
+  status             PurchaseRequisitionStatus @default(draft)
+  notes              String?
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  submittedAt        DateTime?                 @map("submitted_at") @db.Timestamptz(6)
+
+  tenant Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lines  PurchaseRequisitionLine[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+  @@index([tenantId, requestingBranchId])
+  @@map("purchase_requisitions")
+  @@schema("procurement")
+}
+
+/// PurchaseRequisitionLine — FR-PRC-015. A submitted requisition has >= 1
+/// line (application-enforced at `submit`, mission brief §1 invariant).
+/// "Consumed" state (whether a PO line already sourced this one) is derived
+/// by querying `PurchaseOrderLine.sourceRequisitionLineId`, never stored
+/// redundantly here — `PurchaseOrderLine`'s own
+/// `uq_po_line_source_requisition_line` unique index is the single source of
+/// truth (at most one PO line may ever cite a given requisition line).
+model PurchaseRequisitionLine {
+  id                  String   @id @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+  requisitionId       String   @map("requisition_id") @db.Uuid
+  /// Recorded Inventory `stock_items.id` — no DB FK; validated via
+  /// Inventory's published `STOCK_ITEM_PURCHASING_FACTS_QUERY`.
+  stockItemId         String   @map("stock_item_id") @db.Uuid
+  /// Six-decimal Quantity convention (BR-CORE-003).
+  quantity            Decimal  @db.Decimal(18, 6)
+  /// Recorded Inventory purchase-unit id (base UOM or PackagingUnit) — no DB
+  /// FK; validated as a member of the stock item's own purchase units.
+  purchaseUnitId      String   @map("purchase_unit_id") @db.Uuid
+  preferredSupplierId String?  @map("preferred_supplier_id") @db.Uuid
+  notes               String?
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  requisition       PurchaseRequisition @relation(fields: [tenantId, requisitionId], references: [tenantId, id], onDelete: Cascade)
+  /// Composite FK to `Supplier` — same module, so a real DB FK is used
+  /// (unlike the cross-module `stockItemId`/`purchaseUnitId` above).
+  preferredSupplier Supplier?           @relation(fields: [tenantId, preferredSupplierId], references: [tenantId, id], onDelete: Restrict)
+  sourcedByPoLine   PurchaseOrderLine?  @relation("RequisitionLineSourcedByPoLine")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, requisitionId])
+  @@map("purchase_requisition_lines")
+  @@schema("procurement")
+}
+
+/// FR-PRC-017 §6. The smallest coherent lifecycle actually implemented —
+/// `sent` is deliberately absent (mission brief §6: no fake transmission
+/// state; FR-PRC-021 supplier transmission is out of scope for this slice).
+enum PurchaseOrderStatus {
+  draft
+  pending_approval
+  approved
+  rejected
+
+  @@schema("procurement")
+}
+
+/// FR-PRC-005 §5 delivery locations actually backed by a real aggregate
+/// (Organisation's unified `org.locations` registry) — mirrors
+/// `org.LocationType` exactly (mission brief §5: "do not invent a location
+/// type whose backing aggregate does not exist").
+enum PurchaseOrderDeliveryLocationType {
+  branch
+  warehouse
+  central_kitchen
+
+  @@schema("procurement")
+}
+
+/// FR-PRC-018 value bands. `auto` means "below threshold 1" — no ApprovalRequest
+/// is ever created for it (mission brief §7/§8: "auto-approval must require
+/// no fake human approver"). `tier_1/2/3` map 1:1 onto SRS §15.2's
+/// `purchase.order.approve_tier_1/2/3`, which the ratified Governance
+/// Decision Register (D-5, "Multi-Level Approval Chains", 2026-08-17)
+/// establishes as the permission-based encoding of `FR-PRC-018`'s
+/// "Branch Manager / Operations Director / Tenant Owner" prose bands —
+/// single-step, not a chain (same ratification).
+enum PurchaseOrderApprovalBand {
+  auto
+  tier_1
+  tier_2
+  tier_3
+
+  @@schema("procurement")
+}
+
+/// PurchaseOrder — FR-PRC-016/017/018/019/023. Header facts per mission
+/// brief §3, plus the FR-PRC-018 §7 approval-band snapshot (never
+/// live-re-resolved for an already-submitted PO) and the FR-PRC-023 §10
+/// Receiving seam (`receivingStartedAt` — no GoodsReceipt vocabulary, just
+/// the narrow guard a future Receiving slice will set).
+model PurchaseOrder {
+  id       String @id @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  supplierId String @map("supplier_id") @db.Uuid
+
+  deliveryLocationType PurchaseOrderDeliveryLocationType @map("delivery_location_type")
+  /// Recorded Organisation `org.locations.id` (the unified branch/warehouse/
+  /// central-kitchen registry `BRANCH_LOCATIONS_QUERY` already keys
+  /// Inventory lookups by) — no DB FK; validated tenant-safe via
+  /// Organisation's published `LOCATION_FACTS_QUERY`, and `locationType`
+  /// must agree with `deliveryLocationType` above.
+  deliveryLocationId   String                            @map("delivery_location_id") @db.Uuid
+
+  expectedDeliveryDate DateTime            @map("expected_delivery_date") @db.Date
+  /// ISO-4217. Governs every line's `unitPrice`/`netAmount`/`taxAmount`/
+  /// `lineTotal` and this header's own totals below.
+  currency             String              @db.Char(3)
+  status               PurchaseOrderStatus @default(draft)
+  /// Recorded Identity `identity.users.id` — the requester (SoD's
+  /// `excludedApproverUserId` when a manual ApprovalRequest is created).
+  requestedBy          String              @map("requested_by") @db.Uuid
+
+  /// Server-computed ONLY (mission brief §4: client-supplied totals are
+  /// never authoritative). `grandTotal == subtotal + taxTotal ==
+  /// SUM(lines.lineTotal)`, enforced by `recomputePurchaseOrderTotals`.
+  subtotal   BigInt @default(0) @map("subtotal")
+  taxTotal   BigInt @default(0) @map("tax_total")
+  grandTotal BigInt @default(0) @map("grand_total")
+
+  /// §7 — the band EVALUATED at the most recent submission/amendment
+  /// (persisted, never live-recomputed for an unchanged PO).
+  approvalBand               PurchaseOrderApprovalBand? @map("approval_band")
+  /// The exact SRS §15.2 permission code an approver must hold for the
+  /// evaluated band (null while `auto`/`draft`).
+  approvalRequiredPermission String?                    @map("approval_required_permission") @db.VarChar(64)
+  /// Opaque snapshot of the resolved `procurement.po_approval_thresholds`
+  /// setting at evaluation time: `{ threshold1Minor, threshold2Minor,
+  /// threshold3Minor, effectiveSourceLevel, isLocked, resolvedAt }` — "why
+  /// this band was selected", mission brief §7.
+  approvalThresholdsSnapshot Json?                      @map("approval_thresholds_snapshot") @db.JsonB
+  /// `grandTotal` at the instant the band above was evaluated.
+  evaluatedTotalAtSubmission BigInt?                    @map("evaluated_total_at_submission")
+  /// Recorded `governance.approval_requests.id` for the CURRENT pending (or
+  /// most recently decided) manual approval request — no DB FK (Governance
+  /// is a separate bounded context; see `procurement-errors.ts` module
+  /// boundary discipline).
+  approvalRequestId          String?                    @map("approval_request_id") @db.Uuid
+
+  /// The band this PO is CURRENTLY approved under (null unless
+  /// `status = 'approved'`). Distinct from `approvalBand` above: an
+  /// amendment that decreases value leaves this unchanged even though
+  /// `approvalBand` is re-evaluated (mission brief §10 — no invented
+  /// mandatory reapproval on a decrease).
+  approvedBand PurchaseOrderApprovalBand? @map("approved_band")
+  approvedAt   DateTime?                  @map("approved_at") @db.Timestamptz(6)
+  /// Recorded Identity user id. NULL for an `auto` approval — no fake human
+  /// approver (mission brief §8).
+  approvedBy   String?                    @map("approved_by") @db.Uuid
+
+  rejectedAt DateTime? @map("rejected_at") @db.Timestamptz(6)
+  rejectedBy String?   @map("rejected_by") @db.Uuid
+
+  /// FR-PRC-023 §10 Receiving seam. NULL until a future Receiving slice sets
+  /// it; amendment is refused once non-null. No other GoodsReceipt
+  /// vocabulary is introduced (mission brief §15/§22 scope fence).
+  receivingStartedAt DateTime? @map("receiving_started_at") @db.Timestamptz(6)
+
+  /// Optimistic concurrency (SRS §24.6.4 convention, mirrors `Order.version`).
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier   Supplier                 @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  lines      PurchaseOrderLine[]
+  amendments PurchaseOrderAmendment[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+  @@index([tenantId, supplierId])
+  @@map("purchase_orders")
+  @@schema("procurement")
+}
+
+/// PurchaseOrderLine — FR-PRC-016/017. `sourceRequisitionLineId` +
+/// `attributionBranchId` (mission brief §2/§3) let a future Goods Receipt /
+/// cost-allocation slice reconstruct exactly which requisition/branch each
+/// line came from, without merging distinct requisition lines together.
+model PurchaseOrderLine {
+  id              String @id @db.Uuid
+  tenantId        String @map("tenant_id") @db.Uuid
+  purchaseOrderId String @map("purchase_order_id") @db.Uuid
+
+  /// Recorded Inventory `stock_items.id` — no DB FK; validated via
+  /// `STOCK_ITEM_PURCHASING_FACTS_QUERY`.
+  stockItemId    String  @map("stock_item_id") @db.Uuid
+  /// Recorded Inventory purchase-unit id — no DB FK; validated as a member
+  /// of the stock item's own purchase units.
+  purchaseUnitId String  @map("purchase_unit_id") @db.Uuid
+  /// Six-decimal Quantity convention.
+  quantity       Decimal @db.Decimal(18, 6)
+
+  /// Minor units of the PARENT PurchaseOrder's `currency`. Never a float.
+  unitPrice BigInt @map("unit_price")
+  /// `round(unitPrice * quantity)` — the repository's single rounding point
+  /// (`divideRounded`), computed once, never re-derived from `lineTotal`.
+  netAmount BigInt @map("net_amount")
+  taxAmount BigInt @default(0) @map("tax_amount")
+  /// `netAmount + taxAmount`. `PurchaseOrder.grandTotal` == SUM of this
+  /// column across the order's lines (mission brief §4 invariant).
+  lineTotal BigInt @map("line_total")
+
+  /// The agreed SupplierPriceEntry this line's price was snapshotted from,
+  /// when one was resolved automatically (mission brief §3 — "do not later
+  /// reinterpret historical PO lines from today's supplier price"). NULL
+  /// when the caller supplied an explicit, authorised negotiated price.
+  supplierPriceEntryId    String? @map("supplier_price_entry_id") @db.Uuid
+  /// The PurchaseRequisitionLine this line was consolidated from (FR-PRC-016
+  /// §2), NULL for a manually-added line. At most one PurchaseOrderLine may
+  /// ever cite a given requisition line (`uq_po_line_source_requisition_line`).
+  sourceRequisitionLineId String? @unique @map("source_requisition_line_id") @db.Uuid
+  /// Recorded Organisation `org.branches.id` — the branch this line is
+  /// attributed to (the source requisition's `requestingBranchId` for a
+  /// consolidated line; caller-supplied and validated for a manual line).
+  /// No DB FK (module boundary); validated via Organisation's contract.
+  attributionBranchId     String  @map("attribution_branch_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant                Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchaseOrder         PurchaseOrder            @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: Cascade)
+  supplierPriceEntry    SupplierPriceEntry?      @relation(fields: [tenantId, supplierPriceEntryId], references: [tenantId, id], onDelete: Restrict)
+  sourceRequisitionLine PurchaseRequisitionLine? @relation("RequisitionLineSourcedByPoLine", fields: [tenantId, sourceRequisitionLineId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceRequisitionLineId], map: "uq_po_line_source_requisition_line")
+  @@index([tenantId, purchaseOrderId])
+  @@map("purchase_order_lines")
+  @@schema("procurement")
+}
+
+/// PurchaseOrderAmendment — FR-PRC-023. Append-only history (no `update`
+/// write path exists on the service, and the DB grant is SELECT/INSERT
+/// only — the same immutable-ledger posture as `SupplierPriceEntry`).
+model PurchaseOrderAmendment {
+  id              String   @id @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  purchaseOrderId String   @map("purchase_order_id") @db.Uuid
+  /// 1-based, per-PO sequence (`uq_po_amendment_number` below).
+  amendmentNumber Int      @map("amendment_number")
+  changedBy       String   @map("changed_by") @db.Uuid
+  changedAt       DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
+  reason          String
+
+  /// Full line + total snapshot immediately before/after this amendment —
+  /// `{ lines: [...], subtotal, taxTotal, grandTotal }`, decimal/BigInt
+  /// fields rendered as strings (mission brief §10).
+  beforeSnapshot Json @map("before_snapshot") @db.JsonB
+  afterSnapshot  Json @map("after_snapshot") @db.JsonB
+
+  oldTotal BigInt @map("old_total")
+  newTotal BigInt @map("new_total")
+
+  oldApprovalBand PurchaseOrderApprovalBand? @map("old_approval_band")
+  newApprovalBand PurchaseOrderApprovalBand? @map("new_approval_band")
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchaseOrder PurchaseOrder @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, purchaseOrderId, amendmentNumber], map: "uq_po_amendment_number")
+  @@index([tenantId, purchaseOrderId])
+  @@map("purchase_order_amendments")
   @@schema("procurement")
 }

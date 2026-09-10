@@ -324,6 +324,22 @@ export const AUDIT_ACTION = {
   SUPPLIER_ITEM_LINK_CREATED: 'SUPPLIER_ITEM_LINK_CREATED',
   SUPPLIER_ITEM_LINK_UPDATED: 'SUPPLIER_ITEM_LINK_UPDATED',
   SUPPLIER_PRICE_ENTRY_CREATED: 'SUPPLIER_PRICE_ENTRY_CREATED',
+
+  // FULL-SRS-PRC-PURCHASE-ORDERS-P2 — Requisitions, Purchase Orders,
+  // Approval, Amendments (FR-AUD-006 "configuration changes" + business
+  // transitions). The approval DECISION itself is Governance's own
+  // immutable `ApprovalDecision` record (not duplicated here — mission
+  // brief §17: "Approval audit should not duplicate the immutable
+  // ApprovalDecision record's purpose"); these verbs record the PROCUREMENT
+  // business transition and reference the approval request/decision ids.
+  PURCHASE_REQUISITION_CREATED: 'PURCHASE_REQUISITION_CREATED',
+  PURCHASE_REQUISITION_SUBMITTED: 'PURCHASE_REQUISITION_SUBMITTED',
+  PURCHASE_ORDER_CREATED: 'PURCHASE_ORDER_CREATED',
+  PURCHASE_ORDER_UPDATED: 'PURCHASE_ORDER_UPDATED',
+  PURCHASE_ORDER_SUBMITTED: 'PURCHASE_ORDER_SUBMITTED',
+  PURCHASE_ORDER_APPROVED: 'PURCHASE_ORDER_APPROVED',
+  PURCHASE_ORDER_REJECTED: 'PURCHASE_ORDER_REJECTED',
+  PURCHASE_ORDER_AMENDED: 'PURCHASE_ORDER_AMENDED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -428,4 +444,9 @@ export const AUDIT_ENTITY = {
   SUPPLIER: 'supplier',
   SUPPLIER_ITEM_LINK: 'supplier_item_link',
   SUPPLIER_PRICE_ENTRY: 'supplier_price_entry',
+
+  // FULL-SRS-PRC-PURCHASE-ORDERS-P2 — Procurement entities.
+  PURCHASE_REQUISITION: 'purchase_requisition',
+  PURCHASE_ORDER: 'purchase_order',
+  PURCHASE_ORDER_AMENDMENT: 'purchase_order_amendment',
 } as const;

@@ -20,6 +20,11 @@ export * from './kds-branch-config.query';
 export * from './branch-reporting-scope.query';
 export * from './branch-brand.query';
 export * from './branch-locations.query';
+/**
+ * FULL-SRS-PRC-PURCHASE-ORDERS-P2 §5 — `org.locations` existence/kind facts
+ * for an arbitrary location id (Purchase Order delivery-location validation).
+ */
+export * from './location-facts.query';
 export * from './scope-target.resolvers';
 /**
  * SIGNUP-1 — thin re-export of the existing Organisation permission catalog,

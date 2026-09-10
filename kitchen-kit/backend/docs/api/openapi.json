@@ -178,6 +178,44 @@
         ],
         "type": "object"
       },
+      "AmendPurchaseOrderDto": {
+        "properties": {
+          "deliveryLocationId": {
+            "type": "string"
+          },
+          "deliveryLocationType": {
+            "enum": [
+              "branch",
+              "warehouse",
+              "central_kitchen"
+            ],
+            "type": "string"
+          },
+          "expectedDeliveryDate": {
+            "type": "string"
+          },
+          "expectedVersion": {
+            "type": "number"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderLineDto"
+            },
+            "maxItems": 500,
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "reason"
+        ],
+        "type": "object"
+      },
       "ApplyCompDto": {
         "properties": {
           "id": {
@@ -1158,6 +1196,45 @@
         ],
         "type": "object"
       },
+      "CreatePurchaseOrderDto": {
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "deliveryLocationId": {
+            "type": "string"
+          },
+          "deliveryLocationType": {
+            "enum": [
+              "branch",
+              "warehouse",
+              "central_kitchen"
+            ],
+            "type": "string"
+          },
+          "expectedDeliveryDate": {
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderLineDto"
+            },
+            "maxItems": 500,
+            "type": "array"
+          },
+          "supplierId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "supplierId",
+          "deliveryLocationType",
+          "deliveryLocationId",
+          "expectedDeliveryDate",
+          "currency"
+        ],
+        "type": "object"
+      },
       "CreateReasonCodeDto": {
         "properties": {
           "category": {
@@ -1260,6 +1337,56 @@
         "required": [
           "yieldQuantity",
           "yieldUnitId"
+        ],
+        "type": "object"
+      },
+      "CreateRequisitionDto": {
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/CreateRequisitionLineDto"
+            },
+            "maxItems": 200,
+            "type": "array"
+          },
+          "notes": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "requestingBranchId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestingBranchId"
+        ],
+        "type": "object"
+      },
+      "CreateRequisitionLineDto": {
+        "properties": {
+          "notes": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "preferredSupplierId": {
+            "type": "string"
+          },
+          "purchaseUnitId": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "stockItemId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stockItemId",
+          "quantity",
+          "purchaseUnitId"
         ],
         "type": "object"
       },
@@ -1701,6 +1828,43 @@
         "required": [
           "status",
           "reason"
+        ],
+        "type": "object"
+      },
+      "DecidePurchaseOrderDto": {
+        "properties": {
+          "approvalDecisionId": {
+            "description": "FR-OFF-015-style client-generated permanent id for THIS decision.",
+            "type": "string"
+          },
+          "comment": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "employeeCode": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expectedVersion": {
+            "type": "number"
+          },
+          "pin": {
+            "maxLength": 12,
+            "minLength": 4,
+            "type": "string"
+          },
+          "terminalId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "approvalDecisionId",
+          "terminalId",
+          "employeeCode",
+          "pin"
         ],
         "type": "object"
       },
@@ -2215,6 +2379,34 @@
         ],
         "type": "object"
       },
+      "PurchaseOrderLineDto": {
+        "properties": {
+          "attributionBranchId": {
+            "type": "string"
+          },
+          "purchaseUnitId": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "sourceRequisitionLineId": {
+            "description": "Present to consolidate from a submitted requisition line; when set,\n `stockItemId`/`purchaseUnitId`/`quantity`/`attributionBranchId` are all\n taken from the requisition line and MUST NOT also be supplied.",
+            "type": "string"
+          },
+          "stockItemId": {
+            "type": "string"
+          },
+          "taxAmount": {
+            "type": "string"
+          },
+          "unitPrice": {
+            "description": "Explicit, authorised negotiated price (minor units). Omit to resolve\n the current agreed SupplierPriceEntry automatically (mission brief §3).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ReassignBrandDto": {
         "properties": {
           "brandId": {
@@ -2679,6 +2871,17 @@
         ],
         "type": "object"
       },
+      "SubmitPurchaseOrderDto": {
+        "properties": {
+          "expectedVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "expectedVersion"
+        ],
+        "type": "object"
+      },
       "SyncBatchDto": {
         "properties": {
           "batchId": {
@@ -3071,6 +3274,38 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "UpdatePurchaseOrderDto": {
+        "properties": {
+          "deliveryLocationId": {
+            "type": "string"
+          },
+          "deliveryLocationType": {
+            "enum": [
+              "branch",
+              "warehouse",
+              "central_kitchen"
+            ],
+            "type": "string"
+          },
+          "expectedDeliveryDate": {
+            "type": "string"
+          },
+          "expectedVersion": {
+            "type": "number"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderLineDto"
+            },
+            "maxItems": 500,
+            "type": "array"
+          }
+        },
+        "required": [
+          "expectedVersion"
         ],
         "type": "object"
       },
@@ -31766,6 +32001,1561 @@
                     "type": "object"
                   },
                   "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/purchase-orders": {
+      "get": {
+        "operationId": "PurchaseOrdersController_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "draft",
+                "pending_approval",
+                "approved",
+                "rejected"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "supplierId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "approvalBand": {
+                        "enum": [
+                          "auto",
+                          "tier_1",
+                          "tier_2",
+                          "tier_3",
+                          null
+                        ],
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "approvedBand": {
+                        "enum": [
+                          "auto",
+                          "tier_1",
+                          "tier_2",
+                          "tier_3",
+                          null
+                        ],
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "deliveryLocationId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "deliveryLocationType": {
+                        "enum": [
+                          "branch",
+                          "warehouse",
+                          "central_kitchen"
+                        ],
+                        "type": "string"
+                      },
+                      "expectedDeliveryDate": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "grandTotal": {
+                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "lines": {
+                        "items": {
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "requestedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "draft",
+                          "pending_approval",
+                          "approved",
+                          "rejected"
+                        ],
+                        "type": "string"
+                      },
+                      "subtotal": {
+                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": "string"
+                      },
+                      "supplierId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "taxTotal": {
+                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      },
+      "post": {
+        "operationId": "PurchaseOrdersController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePurchaseOrderDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approvedBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "deliveryLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "deliveryLocationType": {
+                      "enum": [
+                        "branch",
+                        "warehouse",
+                        "central_kitchen"
+                      ],
+                      "type": "string"
+                    },
+                    "expectedDeliveryDate": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "grandTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "pending_approval",
+                        "approved",
+                        "rejected"
+                      ],
+                      "type": "string"
+                    },
+                    "subtotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "supplierId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "taxTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/purchase-orders/{id}": {
+      "get": {
+        "operationId": "PurchaseOrdersController_getById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approvedBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "deliveryLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "deliveryLocationType": {
+                      "enum": [
+                        "branch",
+                        "warehouse",
+                        "central_kitchen"
+                      ],
+                      "type": "string"
+                    },
+                    "expectedDeliveryDate": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "grandTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "pending_approval",
+                        "approved",
+                        "rejected"
+                      ],
+                      "type": "string"
+                    },
+                    "subtotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "supplierId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "taxTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      },
+      "patch": {
+        "operationId": "PurchaseOrdersController_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePurchaseOrderDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approvedBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "deliveryLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "deliveryLocationType": {
+                      "enum": [
+                        "branch",
+                        "warehouse",
+                        "central_kitchen"
+                      ],
+                      "type": "string"
+                    },
+                    "expectedDeliveryDate": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "grandTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "pending_approval",
+                        "approved",
+                        "rejected"
+                      ],
+                      "type": "string"
+                    },
+                    "subtotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "supplierId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "taxTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/purchase-orders/{id}/amend": {
+      "post": {
+        "operationId": "PurchaseOrdersController_amend",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AmendPurchaseOrderDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approvedBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "deliveryLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "deliveryLocationType": {
+                      "enum": [
+                        "branch",
+                        "warehouse",
+                        "central_kitchen"
+                      ],
+                      "type": "string"
+                    },
+                    "expectedDeliveryDate": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "grandTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "pending_approval",
+                        "approved",
+                        "rejected"
+                      ],
+                      "type": "string"
+                    },
+                    "subtotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "supplierId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "taxTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/purchase-orders/{id}/amendments": {
+      "get": {
+        "operationId": "PurchaseOrdersController_listAmendments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/purchase-orders/{id}/approve": {
+      "post": {
+        "operationId": "PurchaseOrdersController_approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecidePurchaseOrderDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approvedBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "deliveryLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "deliveryLocationType": {
+                      "enum": [
+                        "branch",
+                        "warehouse",
+                        "central_kitchen"
+                      ],
+                      "type": "string"
+                    },
+                    "expectedDeliveryDate": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "grandTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "pending_approval",
+                        "approved",
+                        "rejected"
+                      ],
+                      "type": "string"
+                    },
+                    "subtotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "supplierId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "taxTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/purchase-orders/{id}/reject": {
+      "post": {
+        "operationId": "PurchaseOrdersController_reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecidePurchaseOrderDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approvedBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "deliveryLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "deliveryLocationType": {
+                      "enum": [
+                        "branch",
+                        "warehouse",
+                        "central_kitchen"
+                      ],
+                      "type": "string"
+                    },
+                    "expectedDeliveryDate": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "grandTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "pending_approval",
+                        "approved",
+                        "rejected"
+                      ],
+                      "type": "string"
+                    },
+                    "subtotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "supplierId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "taxTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/purchase-orders/{id}/submit": {
+      "post": {
+        "operationId": "PurchaseOrdersController_submit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitPurchaseOrderDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approvedBand": {
+                      "enum": [
+                        "auto",
+                        "tier_1",
+                        "tier_2",
+                        "tier_3",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "deliveryLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "deliveryLocationType": {
+                      "enum": [
+                        "branch",
+                        "warehouse",
+                        "central_kitchen"
+                      ],
+                      "type": "string"
+                    },
+                    "expectedDeliveryDate": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "grandTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "pending_approval",
+                        "approved",
+                        "rejected"
+                      ],
+                      "type": "string"
+                    },
+                    "subtotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "supplierId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "taxTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/requisitions": {
+      "get": {
+        "operationId": "RequisitionsController_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "draft",
+                "submitted",
+                "converted"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "requestingBranchId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "createdAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "lines": {
+                        "items": {
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "notes": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "requestedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "requestingBranchId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "draft",
+                          "submitted",
+                          "converted"
+                        ],
+                        "type": "string"
+                      },
+                      "submittedAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      },
+      "post": {
+        "operationId": "RequisitionsController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRequisitionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "notes": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "requestingBranchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "submitted",
+                        "converted"
+                      ],
+                      "type": "string"
+                    },
+                    "submittedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/requisitions/{id}": {
+      "get": {
+        "operationId": "RequisitionsController_getById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "notes": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "requestingBranchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "submitted",
+                        "converted"
+                      ],
+                      "type": "string"
+                    },
+                    "submittedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "procurement"
+        ]
+      }
+    },
+    "/procurement/requisitions/{id}/submit": {
+      "post": {
+        "operationId": "RequisitionsController_submit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "lines": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "notes": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "requestedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "requestingBranchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "draft",
+                        "submitted",
+                        "converted"
+                      ],
+                      "type": "string"
+                    },
+                    "submittedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
                 }
               }
             },

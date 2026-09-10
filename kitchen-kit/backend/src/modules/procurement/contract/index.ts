@@ -6,6 +6,11 @@
  */
 export * from './procurement-facts.query';
 /**
+ * FULL-SRS-PRC-PURCHASE-ORDERS-P2 — the `purchase_order.approved` domain
+ * event this module publishes.
+ */
+export * from './events';
+/**
  * Thin re-export of the Procurement permission catalog, mirroring
  * Inventory/Kitchen/Workforce's own `contract/index.ts` re-export pattern.
  * Consumed by Identity's production-safe permission-catalog aggregator
@@ -14,4 +19,5 @@ export * from './procurement-facts.query';
 export {
   PROCUREMENT_PERMISSIONS,
   PROCUREMENT_PERMISSION_DEFS,
+  PURCHASE_ORDER_CREATE_PERMISSION,
 } from '../procurement.permissions';

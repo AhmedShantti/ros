@@ -4,6 +4,7 @@ import { CATALOGUE_PERMISSIONS } from '../../catalogue/contract';
 import { INVENTORY_PERMISSIONS } from '../../inventory/contract';
 import { KDS_PERMISSIONS } from '../../kitchen/contract';
 import { ORGANISATION_PERMISSIONS } from '../../organisation/contract';
+import { PROCUREMENT_PERMISSIONS } from '../../procurement/contract';
 import { REPORTING_PERMISSIONS } from '../../reporting/contract';
 import { SALES_PERMISSIONS } from '../../sales/contract';
 import { TREASURY_PERMISSIONS } from '../../treasury/contract';
@@ -31,10 +32,7 @@ import { WORKFORCE_PERMISSIONS } from '../../workforce/contract';
  * already established for the full catalog aggregation.
  */
 export type CanonicalRoleTemplateKey =
-  | 'cashier'
-  | 'branch_manager'
-  | 'shift_supervisor'
-  | 'kitchen_staff';
+  'cashier' | 'branch_manager' | 'shift_supervisor' | 'kitchen_staff';
 
 export interface CanonicalRoleTemplate {
   readonly key: CanonicalRoleTemplateKey;
@@ -135,6 +133,20 @@ const BRANCH_MANAGER_PERMISSION_CODES = [
   WORKFORCE_PERMISSIONS.EMPLOYEE_MANAGE,
   REPORTING_PERMISSIONS.VIEW_SALES,
   REPORTING_PERMISSIONS.VIEW_FINANCIAL,
+  // FULL-SRS-PRC-PURCHASE-ORDERS-P2 — FR-PRC-018's own value-band table
+  // names "Branch Manager" as the threshold-1..2 tier's approver; this is
+  // the only band whose prose name matches an existing canonical role in
+  // this codebase. Tiers 2/3 ("Operations Director"/"Tenant Owner") have no
+  // canonical role template here — no such template exists anywhere in this
+  // repository yet (only Cashier/Branch Manager/Shift Supervisor/Kitchen
+  // Staff do), and inventing one is out of this slice's scope (mission
+  // brief §8: "map value bands... using CURRENT role templates" — not
+  // author new ones). Those two codes are seeded and independently grantable
+  // via a tenant-created custom role, exactly like any other catalogue code
+  // with no canonical-template attachment yet.
+  PROCUREMENT_PERMISSIONS.REQUISITION_CREATE,
+  PROCUREMENT_PERMISSIONS.PURCHASE_ORDER_CREATE,
+  PROCUREMENT_PERMISSIONS.PURCHASE_ORDER_APPROVE_TIER_1,
 ] as const;
 
 /**
@@ -186,8 +198,7 @@ export const CANONICAL_ROLE_TEMPLATES: Readonly<
   cashier: {
     key: 'cashier',
     name: 'Cashier',
-    description:
-      'POS order capture, own-shift cash session, payment capture.',
+    description: 'POS order capture, own-shift cash session, payment capture.',
     permissionCodes: CASHIER_PERMISSION_CODES,
   },
   branch_manager: {
@@ -211,13 +222,15 @@ export const CANONICAL_ROLE_TEMPLATES: Readonly<
   },
 };
 
-const CANONICAL_ROLE_KEY_BY_NAME: ReadonlyMap<string, CanonicalRoleTemplateKey> =
-  new Map(
-    Object.values(CANONICAL_ROLE_TEMPLATES).map((template) => [
-      template.name,
-      template.key,
-    ]),
-  );
+const CANONICAL_ROLE_KEY_BY_NAME: ReadonlyMap<
+  string,
+  CanonicalRoleTemplateKey
+> = new Map(
+  Object.values(CANONICAL_ROLE_TEMPLATES).map((template) => [
+    template.name,
+    template.key,
+  ]),
+);
 
 /**
  * DEMO-OPS-HOTFIX-2 — identify whether an existing `Role.name` is one of the

@@ -7,6 +7,7 @@ import { BranchBrandQueryService } from './branches/branch-brand.query.service';
 import { BranchReportingScopeQueryService } from './branches/branch-reporting-scope.query.service';
 import { BranchesService } from './branches/branches.service';
 import { BranchLocationsQueryService } from './locations/branch-locations.query.service';
+import { LocationFactsQueryService } from './locations/location-facts.query.service';
 import {
   LocationTargetResolver,
   StationTargetResolver,
@@ -26,6 +27,7 @@ import {
   BRANCH_LOCATIONS_QUERY,
   BRANCH_REPORTING_SCOPE_QUERY,
   KDS_BRANCH_CONFIG_QUERY,
+  LOCATION_FACTS_QUERY,
   ROUTING_CONFIG_QUERY,
   STATION_DISPLAY_BINDING_QUERY,
   TABLE_DISPLAY_QUERY,
@@ -121,6 +123,11 @@ import { WarehousesService } from './warehouses/warehouses.service';
       provide: BRANCH_LOCATIONS_QUERY,
       useExisting: BranchLocationsQueryService,
     },
+    // FULL-SRS-PRC-PURCHASE-ORDERS-P2 §5 — Purchase Order delivery-location
+    // validation (existence/kind of an arbitrary `org.locations` row). Not
+    // authorization; grants nothing.
+    LocationFactsQueryService,
+    { provide: LOCATION_FACTS_QUERY, useExisting: LocationFactsQueryService },
     // B1-3 resource-derived authorization targets. These answer "what does this
     // row belong to?"; they never decide authorization.
     StationTargetResolver,
@@ -161,6 +168,7 @@ import { WarehousesService } from './warehouses/warehouses.service';
     BRANCH_REPORTING_SCOPE_QUERY,
     BRANCH_BRAND_QUERY,
     BRANCH_LOCATIONS_QUERY,
+    LOCATION_FACTS_QUERY,
     ORG_STATION_TARGET_RESOLVER,
     ORG_TABLE_TARGET_RESOLVER,
     ORG_WAREHOUSE_TARGET_RESOLVER,
