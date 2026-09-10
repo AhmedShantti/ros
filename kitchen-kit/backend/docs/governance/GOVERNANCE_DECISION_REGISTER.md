@@ -8924,4 +8924,247 @@ amended ONLY as clause 3 states; D-19 and D-20 are unchanged; no other
 numbered or lettered decision in this register is reopened, reinterpreted, or
 amended by this entry.**
 
+## P2A-R1 — Financial Settings Governance Ratification (Country Pack Generic
+Lock Representation & FR-PLT-028 Effective-Dated Financial-Policy Storage) —
+2026-09-10
+
+> **RECORDED 2026-09-10 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **P1C / P1G-1 /
+> RCPT-R1 / D1-1 / AUD-R1** convention.
+>
+> This entry ratifies the governance decision proposed and progressively
+> corrected across three non-authoritative design-gate reports, occasioned by
+> `docs/reports/claude/2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-GOVERNANCE-GATE-P2A.md`,
+> `docs/reports/claude/2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-GOVERNANCE-CORRECTION-P2A2.md`,
+> and `docs/reports/claude/2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-GOVERNANCE-CORRECTION-P2A3.md`.
+> Those three reports each internally labelled the proposal a placeholder
+> **"D-22"**; per this repository's established convention (no numbered
+> decision has been added since D-20), that placeholder is **NOT** adopted.
+> **P2A3 is the controlling design text among the three; where P2A or P2A2
+> differ from P2A3 (the setting-key ownership split that removes a
+> Localisation→PlatformSettings cycle, the lock-on-immutable-version-row
+> model, the RLS future-only-deletion mechanism, and the anti-backdating
+> invariant all reach their final form only in P2A2/P2A3), P2A3 governs.**
+> All three reports are non-authoritative evidence; this entry is the
+> binding record.
+
+### The question
+
+FR-PLT-025/026/027's hierarchical settings resolver (SRS §6.4) was already
+implemented and committed (`6f12c62`, corrected by `656c354`) before this
+entry, leaving two open design gaps neither implementation slice nor any
+prior governance entry had resolved: (1) `FR-PLT-026` [M] requires a setting
+to be markable as locked "at any level," and Country Pack is one of the six
+named levels, but the signed `CountryPack` document format has no field to
+express a generic settings-key lock; (2) `FR-PLT-028` [M] requires financial
+settings ("tax class, rounding policy, service charge") to be "versioned with
+effective dates," with historical transactions interpreted under the version
+in force at their transaction time, and no storage, ownership model, locking
+model, anti-backdating guarantee, or transaction-pinning model existed for
+this anywhere in the codebase. `docs/reports/claude/2026-09-09_FULL-SRS-PLT-SETTINGS-CORRECTION-P1C.md`'s
+own `GOVERNANCE_STILL_REQUIRED` named the Country-Pack lock question as
+governance-blocked; the three P2A reports were commissioned to design and
+progressively correct the answer to both gaps before ratification.
+
+### RATIFICATION — P2A-R1 FINANCIAL SETTINGS GOVERNANCE (2026-09-10)
+
+**RATIFIED — the following eighteen clauses are binding**, reproduced from
+`2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-GOVERNANCE-CORRECTION-P2A3.md`'s
+own D-22 REVISION 3 text (that report's placeholder decision identifier is
+struck; the substantive clauses are ratified verbatim):
+
+1. **Country Pack gains an OPTIONAL signed field** `settingsLocks: readonly
+   string[]`. Absence means `[]` — nothing locked — and this is the field's
+   explicitly defined meaning for every pack signed before this decision. A
+   pack may lock only a settings-hierarchy key it itself authoritatively
+   contributes a value for; a pack naming a key it does not define, or a key
+   outside the closed vocabulary below, is a parser-time validation error.
+   This field is part of the RFC-8785 canonicalised, signed payload like
+   every other pack field (P1C-3's ratified v1 signing scheme, unchanged);
+   no already-signed pack requires re-signing because of this addition.
+2. **The settings-hierarchy key vocabulary is split by kind of concern, with
+   no `Localisation → PlatformSettings` dependency created in either
+   direction beyond the one that already exists** (`platform-settings →
+   localisation`, via the published `COUNTRY_PACK_SETTING_FACT_QUERY`
+   contract, unaffected by this decision): the generic, business-logic-free
+   SYNTAX of a settings-hierarchy key string lives in `src/common/settings-key.ts`
+   (this repository's established shared-kernel location, structurally
+   outside `module-boundaries.spec.ts`'s tracked module graph — the same
+   home as `Currency`/`RoundingMode`/`UUID_PATTERN`); the CLOSED SET of keys
+   Country Pack may ever contribute, and the per-pack "does this pack
+   actually define this key" check, remain entirely Localisation-owned.
+3. **Effective-dated financial-policy storage is DOMAIN-OWNED, not a generic
+   `SettingValue` version.** Consistent with **D-13** (RATIFIED
+   2026-08-17, option (b): thresholds/values are domain-owned, Governance/
+   generic-settings stays generic). The generic `platform.setting_values`/
+   `platform.platform_default_settings` tables (FR-PLT-025/026's existing,
+   correct, current-state-only substrate) are NOT extended with versioning
+   or effective-dating of any kind by this decision.
+4. **Tax rate, tax component, and tax/line-level rounding mode/precision
+   remain Country-Pack-owned** — never moved into a generic or domain
+   `SettingValue`-shaped table. `Order.countryPackVersion`'s existing
+   pinning mechanism (unmodified, unweakened) already satisfies
+   `FR-PLT-028`'s effective-dating requirement for this concern.
+5. **Tax-class identity (`fiscal.tax_classes`) requires no new temporal
+   Platform storage.** The identity mapping (which semantic class an item
+   is assigned to) is non-temporal by nature and already snapshotted
+   per-order-line (`OrderLine.taxClassId`, BR-POS-004); the temporal half of
+   "tax class" (what a class code's rate means at a point in time) is
+   already fully served by Country-Pack version pinning (clause 4).
+6. **Service-charge taxability remains Country-Pack-owned**
+   (`CountryPack.tax.serviceChargeTaxable`, existing, dormant field) —
+   `FR-POS-058`'s "differs by jurisdiction" language places this fact with
+   Country Pack, never with tenant/branch configuration.
+7. **Service-charge rate/configuration is Sales/POS-owned** and, once
+   implemented, uses an effective-dated, immutable, append-only domain
+   policy table (shaped after `treasury.cash_close_policies`), scoped to
+   the SRS-named override tiers only (tenant/brand/branch — `FR-POS-055`
+   names branch as the minimum configurable granularity; Platform Default,
+   Country Pack, and Terminal are not named override points for this
+   concern and are not modelled as such).
+8. **Every domain-owned, effective-dated financial-policy table carries its
+   own `locked` boolean AS A COLUMN ON EACH IMMUTABLE VERSION ROW** — never
+   on a separate lock table, and never sourced from the generic,
+   current-state-only `SettingValue`/`PlatformDefaultSetting` tables.
+9. **Point-in-time precedence for a domain-owned financial policy (e.g.
+   service charge) is `tenant → brand → branch`**: for a transaction
+   governed at instant T, one version per level is independently resolved
+   as the row with the greatest `effectiveFrom <= T`, then the three
+   resolved entries are walked high-to-low exactly as
+   `SettingsResolverService.computeEffective` already walks the six live
+   settings-hierarchy levels — the walk stops at the first resolved entry
+   whose OWN `locked` value (as recorded on that version row) is `true`,
+   and nothing lower may then override it.
+10. **Transaction persistence uses BOTH** the computed monetary snapshot
+    (e.g. `Order.serviceChargeTotal`, an existing, currently-dormant column)
+    **and** the exact winning policy-version identity (a new
+    `Order.serviceChargePolicyId`-shaped reference, at implementation time)
+    — mirroring `Order.countryPackVersion`'s already-ratified precedent of
+    pinning both a computed result and a version identity together. The
+    full precedence/lock breakdown is not separately snapshotted; it is
+    guaranteed deterministically reconstructable forever by re-running the
+    same point-in-time query against the order's own pinned governing
+    instant, because clauses 8/11/12/13/14 together make it impossible for
+    any row affecting a fixed past instant's result to be altered, removed,
+    or newly introduced after the fact.
+11. **A future-scheduled (not-yet-effective) financial-policy version may be
+    cancelled only while `effective_from > statement_timestamp()`**,
+    enforced by a Row-Level Security `DELETE` policy comparing the row's
+    `effective_from` to the exact instant of the delete statement — never
+    by a database trigger (this repository has none, anywhere, and this
+    decision does not introduce the first one) and never by an
+    unenforceable conditional `GRANT`.
+12. **`UPDATE` is never granted** on any domain-owned, effective-dated
+    financial-policy table, for any row, at any time — a version, once
+    inserted, can only ever be superseded by inserting a new, later version
+    or (while still not-yet-effective) removed per clause 11; it can never
+    be altered in place.
+13. **Every effective-dated financial-policy table must additionally record
+    `createdAt TIMESTAMPTZ DEFAULT statement_timestamp()` and enforce, by a
+    database `CHECK` constraint, `effectiveFrom >= createdAt`** —
+    reusing `treasury.cash_close_policies`' own `ck_ccp_no_backdating`
+    pattern verbatim (RATIFIED in substance by that table's own migration;
+    this clause makes its reuse for financial-policy tables explicit and
+    binding). `statement_timestamp()` is evaluated once per SQL statement,
+    so an "effective immediately" INSERT (no explicit `effectiveFrom`
+    supplied) satisfies the CHECK by equality between the two columns'
+    identical database-generated defaults, using database time only.
+14. **The application `INSERT` grant on such a table MUST be column-scoped
+    and MUST EXCLUDE `created_at`**, so the application role can never
+    supply its own value for it — without this exclusion, both columns
+    could be forged to an identical, arbitrary past instant, satisfying
+    clause 13's `CHECK` while still genuinely backdating the row relative
+    to true wall-clock time. Combined, clauses 13-14 make it structurally
+    impossible for any application code path — correct or buggy — to
+    introduce a financial-policy version whose `effectiveFrom` predates its
+    own true insertion instant.
+15. **Every successful financial-policy version create action, and every
+    successful future-version cancellation (clause 11), is audited in the
+    SAME transaction** as the data mutation — the established
+    `AuditService.record(tx, event)` pattern (`FR-AUD-006`), mirroring
+    `SETTING_VALUE_UPSERTED`/`UNSET` and `CASH_CLOSE_POLICY_VERSION_CREATED`.
+    Verb names are minted at implementation time.
+16. **Historical financial-computation reconstruction must never consult
+    today's mutable, current-state-only `SettingValue`/
+    `PlatformDefaultSetting` rows.** Every reference on a historical order
+    names an immutable, already-materialised row (a Country Pack version,
+    per clause 4, or a domain financial-policy version, per clauses 8-14) —
+    reconstruction reads only rows that were fixed at the transaction's own
+    governing instant and can never change afterward.
+17. **Already-signed Country Packs remain valid, unmodified, without
+    re-signing.** RFC-8785 canonicalisation of an already-signed document is
+    unaffected by a field (`settingsLocks`, clause 1) that document never
+    had; the parser treats its absence as the explicitly defined `[]`.
+18. **ACT-01 Platform Administrator remains a separate, open governance
+    item** (SRS Chapter 3 names the actor; §15.2/§15.3 give it no permission
+    codes or role, Appendix C being absent from the available SRS) and
+    **does NOT block either `FR-PLT-026` or `FR-PLT-028`** — it blocks only
+    a future cross-tenant HTTP write path for `PlatformDefaultSetting`
+    administration, unaffected by and unrelated to this entry's eighteen
+    clauses.
+
+### Requirement impact
+
+**`FR-PLT-026`: remains PARTIAL after this ratification.** The governance
+blocker identified in the P1C report (no ratified representation for a
+Country-Pack lock) is REMOVED by clause 1 above. Implementation (the parser/
+model/resolver changes clause 1 describes) is still required and is NOT
+performed by this entry. This entry does not itself change any running
+code, and `FR-PLT-026` is NOT reclassified COMPLETE by governance action
+alone.
+
+**`FR-PLT-028`: remains NOT_IMPLEMENTED after this ratification.** The
+design/governance blockers identified across the three P2A reports (storage
+architecture, ownership matrix, lock model, anti-backdating invariant,
+transaction-pinning model) are REMOVED by clauses 3-16 above. Implementation
+(the new `sales.service_charge_policies`-shaped table, the domain resolver,
+the new `Order` pinning column(s), and the full FR-POS-055..058 computation
+logic) is still required and is NOT performed by this entry. `FR-PLT-028` is
+NOT reclassified COMPLETE, or PARTIAL, by governance action alone — it
+remains classified exactly as the P2A reports found it, minus the design
+uncertainty that previously blocked starting implementation.
+
+**Explicitly unaffected by this entry:** `FR-PLT-025` and `FR-PLT-027`,
+already independently reassessed COMPLETE by `2026-09-09_FULL-SRS-PLT-SETTINGS-CORRECTION-P1C.md`
+on implementation evidence (not governance action) — this entry neither
+touches nor relies on that classification. `D-13` is referenced (clause 3)
+but not reopened, reinterpreted, or amended. No other numbered or lettered
+decision, and no prior carried-item/ratification entry in this register, is
+reopened, reinterpreted, or amended by this entry.
+
+### What is ratified now, what remains implementation, what remains out of scope
+
+**RATIFIED NOW (architectural decisions only):** clauses 1-18 above.
+**REMAINS IMPLEMENTATION, NOT AUTHORIZED BY THIS ENTRY:** `CountryPack.settingsLocks`
+(parser/model/signing-compatibility/resolver wiring); the `src/common/settings-key.ts`
+extraction and Localisation-side key-vocabulary consolidation; any Prisma
+migration for a domain-owned financial-policy table (`sales.service_charge_policies`
+or equivalent); the domain point-in-time resolver; new `Order` columns for
+service-charge pinning; the full `FR-POS-055/056/057/058` computation
+logic; any new audit verb. **REMAINS OUT OF SCOPE:** the ACT-01 Platform
+Administrator authorization model (clause 18); tip pooling/distribution;
+the exact triggering instant (open/fire/completion) for service-charge
+policy resolution, left to the implementation slice.
+
+### Evidence (non-authoritative)
+
+`docs/reports/claude/2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-GOVERNANCE-GATE-P2A.md`,
+`docs/reports/claude/2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-GOVERNANCE-CORRECTION-P2A2.md`,
+`docs/reports/claude/2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-GOVERNANCE-CORRECTION-P2A3.md`,
+and `docs/reports/claude/2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-D22-RATIFICATION.md`
+(the report recording this ratification action). This register entry is the
+authoritative outcome; where any of those reports' own narrative differs
+from the eighteen clauses above, THESE CLAUSES GOVERN.
+
+**Status:** **RATIFIED — clauses 1-18 above are binding, by explicit user
+governance action on 2026-09-10. `D-13` is referenced, not reopened,
+reinterpreted, or amended; no other numbered or lettered decision in this
+register is reopened, reinterpreted, or amended by this entry.
+`FR-PLT-026` remains PARTIAL; `FR-PLT-028` remains NOT_IMPLEMENTED — this
+entry removes the governance blocker for both and authorizes their
+implementation to proceed (P2B onward), but does NOT itself implement,
+and does NOT authorize itself as, that implementation.**
+
 **The Design Gate has NOT been created. Implementation is NOT authorized.**
