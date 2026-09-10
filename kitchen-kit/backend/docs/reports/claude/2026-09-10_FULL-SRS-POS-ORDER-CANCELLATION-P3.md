@@ -493,3 +493,11 @@ smallest change needed to expose the already-existing domain logic through a rea
 
 No new `KNOWN_DEVIATIONS.md`-style entry was required — nothing here changes an existing
 documented deviation, and no new architectural shortcut was taken.
+
+---
+
+## 20. Commit record
+
+Implementation + tests + regenerated OpenAPI + this report + `INDEX.md` were committed as
+`9130e0e1f270ce530744d869066cbf72e22c3d3a` on `full-srs/lane-d4-reporting-demo`. No push, no
+merge, no pull.
