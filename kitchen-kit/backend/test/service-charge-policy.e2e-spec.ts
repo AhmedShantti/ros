@@ -441,6 +441,29 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
     });
   });
 
+  // ============================================== anti-backdating (P2D-CORRECTION §3)
+  // Three INDEPENDENT layers of evidence, kept distinct on purpose:
+  //   SERVICE_BACKDATED_WRITE  — the friendly, service-layer 400 (below).
+  //   DB_RAW_BACKDATED_INSERT  — the real database CHECK boundary, proven
+  //     by bypassing the service entirely (test B, below, in "database
+  //     boundary").
+  //   CREATED_AT_FORGERY_BLOCKED — the granted-column-set boundary that
+  //     makes DB_RAW_BACKDATED_INSERT's evidence meaningful in the first
+  //     place: a caller cannot forge `created_at` to dodge the CHECK
+  //     (test F, below, in "database boundary").
+  describe('anti-backdating — service-layer rejection (SERVICE_BACKDATED_WRITE)', () => {
+    it('rejects a past effectiveFrom with a friendly 400, before any DB write is attempted', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+      const res = await create(ownerTokenA, 'tenant', {
+        rules: [],
+        effectiveFrom: past,
+      }).expect(400);
+      expect(bodyOf<ErrorBody>(res).message).toMatch(
+        /effectiveFrom must not be in the past/,
+      );
+    });
+  });
+
   // ==================================================================== DB boundary
   describe('database boundary (RLS / privileges)', () => {
     it('A: tenant A row invisible under tenant B RLS context', async () => {
@@ -480,7 +503,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
             )
           `,
         ),
-      ).rejects.toThrow();
+      ).rejects.toThrow(/ck_scp_no_backdating/);
     });
 
     it('C: a direct UPDATE through the application role fails (no UPDATE grant)', async () => {
@@ -953,6 +976,38 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
       expect(order.openedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
       expect(order.openedAt.getTime()).not.toBe(
         new Date('2019-01-01T00:00:00.000Z').getTime(),
+      );
+    });
+
+    // P2D-CORRECTION — explicit proof of the exact pair the correction task
+    // requires, isolated from every earlier test's tenant-level state via a
+    // fresh `mkOrderScope()`. MUST run last in this file: a LOCKED
+    // tenant-level version, once created, governs every subsequent order
+    // for `tenantA` that has no branch/brand-level override of its own.
+    it('H: a LOCKED tenant version wins over a configured (unlocked) branch version — the lock stops the walk at tenant, never reaching branch', async () => {
+      const scope = await mkOrderScope();
+      const branchV = await create(
+        ownerTokenA,
+        { branchId: scope.branchId },
+        {
+          rules: [{ orderType: null, minGuestCount: null, ratePercent: '55' }],
+        },
+      ).expect(201);
+      const lockedTenantV = await create(ownerTokenA, 'tenant', {
+        rules: [{ orderType: null, minGuestCount: null, ratePercent: '90' }],
+        locked: true,
+      }).expect(201);
+
+      const order = await mkOrder({
+        terminalId: scope.terminalId,
+        openedByEmployeeId: scope.employeeId,
+        idempotencyKey: `scp-order-h-${newId()}`,
+      });
+      expect(order.serviceChargePolicyVersionId).toBe(
+        bodyOf<PolicyView>(lockedTenantV).id,
+      );
+      expect(order.serviceChargePolicyVersionId).not.toBe(
+        bodyOf<PolicyView>(branchV).id,
       );
     });
   });
