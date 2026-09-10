@@ -9168,3 +9168,374 @@ implementation to proceed (P2B onward), but does NOT itself implement,
 and does NOT authorize itself as, that implementation.**
 
 **The Design Gate has NOT been created. Implementation is NOT authorized.**
+
+---
+## P2C1-R1 — Cash-Rounding Settings Ownership Clarification — RATIFIED 2026-09-10
+
+> **RECORDED 2026-09-10 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **P1C / P1G-1 /
+> RCPT-R1 / D1-1 / AUD-R1 / P2A-R1** convention.
+>
+> This entry ratifies the cash-rounding settings-ownership clarification
+> proposed across `docs/reports/claude/2026-09-10_FULL-SRS-PLT-CASH-
+> ROUNDING-SETTINGS-COHERENCE-GATE-P2C1.md` (original draft, "P2C1-R1",
+> §8) and corrected by `docs/reports/claude/2026-09-10_FULL-SRS-PLT-
+> SERVICE-CHARGE-CONFIG-SHAPE-AND-LOCK-COHERENCE-P2C2.md` §6 (two precise
+> corrections: a distinct, non-"locked" rejection message; an explicit
+> requirement-status-impact statement). **`P2C2` is the controlling design
+> report for this decision. Its corrected §6 text supersedes the earlier
+> P2C1 draft wherever the two differ.** Both reports are non-authoritative
+> evidence; this entry is the binding record. It amends no numbered
+> decision, creates no permission code, creates no Prisma migration, and
+> does not reopen `P2A-R1` (it narrows/clarifies exactly one settings-key's
+> overridability within `P2A-R1`'s own already-ratified FR-PLT-025/026
+> mechanism, per `P2A-R1` clause 2's ownership split — `P2A-R1`'s eighteen
+> clauses are otherwise unchanged and unreopened).
+
+### The question
+
+The `2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-P2C.md` requirement-closure
+gate found that `payments.cash_rounding_policy` — the one Country-Pack-
+sourced key `COUNTRY_PACK_SETTING_FACT_QUERY` publishes into the generic
+FR-PLT-025 settings hierarchy — exhibits a split-brain: a tenant/brand/
+branch/terminal `SettingValue` override for this key can be written and
+reported as `effective` by `GET /platform/settings/resolve`/`/inspect`
+today (whenever the active Country Pack does not itself declare a
+`settingsLocks` entry for it), while the real cash-rounding computation
+(`SalesPaymentService`, FR-POS-063) reads exclusively from the PINNED
+Country Pack via `PINNED_PAYMENT_POLICY_QUERY` and never consults the
+generic resolver at all — `EFFECTIVE_SETTING_QUERY`, the contract
+published for exactly this cross-module read, has zero consumers anywhere
+in the codebase. `docs/reports/claude/2026-09-10_FULL-SRS-PLT-CASH-
+ROUNDING-SETTINGS-COHERENCE-GATE-P2C1.md` traced this independently from
+source (confirming all three claims: such a write succeeds; the resolver
+reports it as effective; the real computation structurally cannot see it)
+and read the governing authority text — `FR-POS-063` [M] ("apply **the
+country pack's** cash rounding rule"), `FR-FIN-035` [M] ("specified by the
+country pack ... applied **consistently**"), `BR-FIN-004` (a jurisdiction
+fact), `FR-LOC-020` [M] ("**All** jurisdiction-specific behaviour SHALL be
+driven by the country pack") — none of which contemplates a tenant/brand/
+branch override for this specific computation. No prior register entry,
+including `P2A-R1`, ever addressed whether a lower-level override of this
+key is itself legitimate; `P2A-R1`'s own controlling design text (`...
+-GOVERNANCE-CORRECTION-P2A3.md`) contains zero mentions of
+`SalesPaymentService`, `PINNED_PAYMENT_POLICY_QUERY`, or cash-rounding
+computation. This is genuinely new territory, not a re-litigation of
+`P2A-R1`.
+
+---
+
+### RATIFICATION — P2C1-R1 CASH-ROUNDING SETTINGS OWNERSHIP (2026-09-10)
+
+**RATIFIED — the following six clauses are binding**, reproduced in
+substance from `P2C2`'s corrected §6 draft:
+
+1. **`payments.cash_rounding_policy` is PROVIDER-EXCLUSIVE.** Country Pack
+   is the sole authority for actual cash-rounding configuration, grounded
+   in `FR-POS-063`, `FR-FIN-035`, `BR-FIN-004`, and `FR-LOC-020`.
+   Platform/tenant/brand/branch/terminal generic-setting overrides for
+   this key are INVALID and MUST never affect computation, regardless of
+   whether the currently-effective Country Pack declares a
+   `settingsLocks` entry for it (`P2A-R1` clause 1, unaffected).
+2. **Invalid lower-level writes are rejected server-side with HTTP 409**,
+   reusing the existing `ConflictException` CLASS and STATUS-CODE
+   convention `assertNotBlockedByHigherLock` already uses for a locked
+   override. The error MESSAGE **MUST be provider-exclusivity-specific**
+   and **MUST NOT** claim, imply, or use the word "locked" — a distinct
+   message text from the existing lock-conflict message is required.
+3. **Provider exclusivity is structurally distinct from `FR-PLT-026`
+   locking.** `isProviderExclusive` (or the exact project-convention
+   equivalent name) is a STATIC, per-key, always-true capability grounded
+   in that key's own governing SRS requirement — never sourced from, and
+   never fabricated as, `locked: true`. `CountryPack.settingsLocks`
+   (`P2A-R1` clause 1) remains the DYNAMIC, OPTIONAL, per-pack signed lock
+   declaration, entirely unchanged and unaffected by this entry — a pack
+   MAY still declare `settingsLocks: ['payments.cash_rounding_policy']`,
+   and doing so remains truthful (it reflects a real signed fact), even
+   though it is no longer the thing that stops a lower-level override
+   (provider exclusivity does that unconditionally).
+4. **This clarification applies only to `payments.cash_rounding_policy`,**
+   at ratification time. It is NOT a blanket rule that every present or
+   future Country-Pack-contributed key is automatically provider-
+   exclusive — each key's overridability remains a per-key judgment
+   grounded in that key's own governing SRS text, exactly as this key's
+   judgment is grounded in `FR-POS-063` specifically.
+5. **No data migration is required by this decision.** No production or
+   seed pathway has ever written a lower-level override for this key
+   (verified by source trace, `P2C1` §4); any lower-level row, if one
+   existed, is made ineligible by resolver semantics (an `eligible: false`
+   entry at every level below `country_pack`) without needing to be
+   located or deleted.
+6. **Formal requirement statuses do NOT change because of this
+   clarification:**
+   `FR-PLT-025` = COMPLETE, `FR-PLT-026` = COMPLETE, `FR-PLT-027` =
+   COMPLETE, `FR-PLT-028` = PARTIAL, `BR-FIN-004` = COMPLETE — all exactly
+   as independently assessed in `P2C`/`P2C1`/`P2C2` on implementation
+   evidence, not by this governance action. This is a scope-narrowing
+   clarification within the existing `FR-PLT-025` mechanism, not a new
+   obligation, and not a violated one. `FR-PLT-027`'s own inspector is
+   noted (non-status-changing) to have been capable, before this
+   correction lands, of reporting a value as "effective" that had zero
+   real effect for this one key — the practical reason this clarification
+   was sought, not a reopening of `FR-PLT-027`'s formal status.
+
+### Implementation/testing note (recorded, non-blocking)
+
+Once provider exclusivity for `payments.cash_rounding_policy` is
+implemented, a rejected lower-level write for that key can no longer, by
+itself, prove `FR-PLT-026` LOCK causality (provider exclusivity rejects
+the same write whether or not the active pack declares a lock).
+Implementation tests MUST distinguish, per `P2C2` §7:
+
+- **Case A** (provider-exclusive key, UNLOCKED pack): lower write still
+  rejected (409); resolver reports `isLocked: false`,
+  `lockedAtLevel: null`.
+- **Case B** (provider-exclusive key, LOCKED pack): lower write still
+  rejected (409); resolver reports `isLocked: true`,
+  `lockedAtLevel: 'country_pack'`. The pre-existing `2026-09-10_FULL-SRS-
+  PLT-COUNTRY-PACK-LOCK-P2B.md` e2e test's write-rejection assertions/
+  comments (which currently attribute the 409 to the Country-Pack lock)
+  MUST be corrected to stop claiming lock-causality for the WRITE half
+  once this correction lands — the READ-side assertions (`isLocked`/
+  `lockedAtLevel`) remain fully accurate and unchanged.
+- **Case C** — an INDEPENDENT proof that the generic `country_pack`-level
+  lock-walk mechanism (`computeEffective`) causally stops lower resolution
+  on its own, decoupled from provider-exclusivity, using a **test-only DI
+  substitute** for `COUNTRY_PACK_SETTING_FACT_QUERY` and a **synthetic,
+  non-production settingKey**. Implementation MUST NOT add a fake
+  production Country-Pack key and MUST NOT weaken
+  `COUNTRY_PACK_SETTING_KEYS`'s closed vocabulary to manufacture this
+  proof.
+
+**This note does not alter `FR-PLT-026`'s status — it remains COMPLETE.**
+It is recorded so the implementation slice does not need to independently
+rediscover the causality-proof requirement.
+
+### Not decided by this entry
+
+Exact TypeScript symbol/method names (`isProviderExclusive` or an
+equivalent); the exact HTTP error message text (constrained to "distinct
+from the lock message, no use of the word 'locked'," not fixed verbatim);
+whether `isProviderExclusive` is published as a new method on
+`CountryPackSettingFactQuery` or another shape — all Design-Gate/
+implementation details, consistent with how `P1G-1`/`P2A-R1` treated the
+same class of item. **`REMAINS IMPLEMENTATION, NOT AUTHORIZED BY THIS
+ENTRY`:** the `isProviderExclusive` capability itself; the
+`SettingsResolverService`/`SettingsAdminService` consult-site changes; the
+corrected/split e2e test cases (A/B/C above); any code change of any kind.
+**No source, Prisma schema, or OpenAPI file is touched by this entry.**
+
+### Preservation
+
+`P2A-R1`'s eighteen clauses are UNCHANGED and UNREOPENED — this entry
+narrows the overridability of exactly one settings key within the
+mechanism `P2A-R1` clauses 1-2 already ratified; it does not touch
+`P2A-R1` clauses 3-18 (the FR-PLT-028 domain-owned financial-policy model)
+in any way. `FR-PLT-025`/`026`/`027` remain COMPLETE, already independently
+assessed on implementation evidence (P1C, P2B) before this entry, which
+neither touches nor relies on that classification beyond restating it
+unchanged. `FR-PLT-028` remains PARTIAL, for the pre-existing
+service-charge reason (`P2C` §8), not for any reason this entry
+introduces.
+
+### Evidence (non-authoritative)
+
+`docs/reports/claude/2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-P2C.md`,
+`docs/reports/claude/2026-09-10_FULL-SRS-PLT-CASH-ROUNDING-SETTINGS-COHERENCE-GATE-P2C1.md`,
+and `docs/reports/claude/2026-09-10_FULL-SRS-PLT-SERVICE-CHARGE-CONFIG-SHAPE-AND-LOCK-COHERENCE-P2C2.md`
+(§6, the controlling corrected text), plus
+`docs/reports/claude/2026-09-10_FULL-SRS-PLT-P2C1-P2D-GOVERNANCE-RATIFICATION.md`
+(the report recording this ratification action). This register entry is
+the authoritative outcome; where any of those reports' own narrative
+differs from the six clauses above, THESE CLAUSES GOVERN.
+
+**Status:** **RATIFIED — CLOSED, by explicit user governance action on
+2026-09-10. `FR-PLT-025` = COMPLETE, `FR-PLT-026` = COMPLETE, `FR-PLT-027`
+= COMPLETE, `FR-PLT-028` = PARTIAL, `BR-FIN-004` = COMPLETE — none changed
+by this entry. This entry removes the governance blocker for the
+cash-rounding provider-exclusivity correction and authorizes its
+implementation to proceed, but does NOT itself implement, and does NOT
+authorize itself as, that implementation.**
+
+---
+## P2D-R1 — ServiceChargePolicy Configuration/Version Semantics Ratification — RATIFIED 2026-09-10
+
+> **RECORDED 2026-09-10 by explicit user governance action.**
+> **NOT a new numbered decision — no D-21 is created and the 20-decision
+> tally is unchanged (17 RATIFIED · 1 IN PART · 1 BLOCKED · 1 OPEN).**
+> Recorded as an unnumbered ratified entry, matching the **P1C / P1G-1 /
+> RCPT-R1 / D1-1 / AUD-R1 / P2A-R1 / P2C1-R1** convention.
+>
+> This entry ratifies the `ServiceChargePolicy` configuration/version
+> semantics designed in `docs/reports/claude/2026-09-10_FULL-SRS-PLT-
+> FINANCIAL-SETTINGS-P2C.md` §9 and refined/finalised by `docs/reports/
+> claude/2026-09-10_FULL-SRS-PLT-SERVICE-CHARGE-CONFIG-SHAPE-AND-LOCK-
+> COHERENCE-P2C2.md` §2-§5/§8 ("P2D-R1", drafted). **`P2C2` is the
+> controlling design report for this decision.** Both reports, and `P2C`,
+> are non-authoritative evidence; this entry is the binding record. It
+> amends no numbered decision, creates no permission code, creates no
+> Prisma migration, and does not reopen `P2A-R1` — it is the
+> IMPLEMENTATION-CONTRACT-LEVEL specification `P2A-R1` clauses 3, 7-16
+> already anticipated ("a future ServiceChargePolicy-shaped table," "at
+> implementation time") without itself deciding the exact rule-set shape
+> or governing instant, both of which this entry now settles.
+
+### The question
+
+`P2A-R1` clauses 3 and 7-16 ratify that service-charge rate/configuration
+is Sales-owned, domain-owned (not generic `SettingValue`), effective-dated,
+immutable, and precedence/lock-walked tenant→brand→branch — but leave
+three concrete, implementation-blocking questions open: (1) the EXACT
+content and storage shape of one policy VERSION, given `FR-POS-055`'s
+"percentage... configurable per branch, per order type, and conditional on
+guest count" names THREE distinct configuration dimensions, not one flat
+rate; (2) whether "which policy version governs an order" and "which rule
+inside that version matches the order" are the same question or must be
+kept structurally separate; (3) the exact governing instant an `Order`
+pins its winning policy version at. `docs/reports/claude/2026-09-10_FULL-
+SRS-PLT-FINANCIAL-SETTINGS-P2C.md` §9 first proposed answers; `docs/
+reports/claude/2026-09-10_FULL-SRS-PLT-SERVICE-CHARGE-CONFIG-SHAPE-AND-
+LOCK-COHERENCE-P2C2.md` §1-§5 independently re-derived and confirmed them
+from source (order-lifecycle immutability of `orderType`/`guestCount`, the
+`Order.countryPackVersion`/`CashClosePolicy` open-time-pinning precedents,
+and a storage-approach evaluation against this repository's own JSON/JSONB
+conventions), finding no remaining ambiguity.
+
+---
+
+### RATIFICATION — P2D-R1 SERVICE-CHARGE POLICY CONFIGURATION/VERSION SEMANTICS (2026-09-10)
+
+**RATIFIED — the following twelve clauses are binding**, reproduced in
+substance from `P2C2` §8:
+
+1. **Ownership.** `ServiceChargePolicy` is Sales-owned
+   (`sales.service_charge_policies`). It is NOT generic Platform
+   `SettingValue` storage (`P2A-R1` clause 3, unaffected).
+2. **Hierarchy.** `tenant → brand → branch` only. No `platform` /
+   `country_pack` / `terminal` policy levels. For each level, resolve the
+   latest version satisfying `effectiveFrom <= governingInstant`; walk
+   high-to-low and stop at a locked level (`P2A-R1` clause 9).
+3. **Version content.** One immutable policy VERSION contains the
+   COMPLETE configuration needed for future computation: `rules`,
+   `locked`, `level`, `targetId`, `effectiveFrom`, `createdAt`. `rules` is
+   ONE typed JSONB array; each rule contains `orderType` (an existing
+   valid `OrderType` value, or `null`), `minGuestCount` (integer, or
+   `null`), `ratePercent` (exact-decimal string). Additionally ratified:
+   `minGuestCount` means the rule applies when `Order.guestCount >=
+   minGuestCount`; `null` means no guest-count minimum; `orderType: null`
+   means all order types; `rules: []` means explicitly NO service charge
+   at that configured level. `maxGuestCount`/ranges are explicitly NOT
+   invented in P2D. Order-type values MUST be validated against the
+   existing authoritative `OrderType` vocabulary/model — arbitrary strings
+   are not accepted.
+4. **Storage model.** One immutable version row with `rules JSONB NOT
+   NULL`. No child-rule table. Application structural validation plus an
+   appropriate `jsonb_typeof` CHECK backstop. Exact-decimal parsing
+   follows this repository's existing financial-decimal discipline
+   (ADR-008 — exact-decimal strings, never a JS/JSON float).
+5. **Immutability / effective dating** — carried forward from `P2A-R1`
+   exactly: `effectiveFrom` defaults from database `statement_timestamp()`;
+   `createdAt` defaults from database `statement_timestamp()`; a `CHECK`
+   equivalent to `effective_from >= created_at`; the application `INSERT`
+   grant excludes `created_at`; no `UPDATE` grant, ever; future `DELETE`
+   allowed only when `effective_from > statement_timestamp()`, enforced
+   through tenant-scoped RLS; once effective, a version can never be
+   altered or deleted.
+6. **Locking.** `locked` lives directly on EACH immutable policy-version
+   row. It must never be sourced from current, mutable, generic
+   `SettingValue` storage. Historical hierarchy/lock reconstruction uses
+   only immutable `ServiceChargePolicy` versions.
+7. **Governing instant.** `Order.openedAt` — specifically the SAME
+   server-clock instant already used by Order creation to pin
+   `Order.countryPackVersion`. The policy version MUST be selected and
+   pinned during Order creation. Offline `originDeviceTime` does NOT
+   replace `Order.openedAt` for this policy.
+8. **Order pinning.** `Order` gains a nullable
+   `serviceChargePolicyVersionId` (or the exact project-convention
+   equivalent name) pointing to the winning immutable
+   `ServiceChargePolicy` version, tenant-leading composite FK protected:
+   `(tenant_id, service_charge_policy_version_id) -> (tenant_id,
+   service_charge_policy.id)`, `ON DELETE RESTRICT`. `NULL` means no
+   configured `ServiceChargePolicy` existed for that Order's scope at
+   `openedAt`.
+9. **P2D / P2E boundary.** P2D implements the COMPLETE VERSIONED
+   CONFIGURATION substrate: storage, complete rule-set, tenant/brand/
+   branch precedence, locking, effective dating, anti-backdating, future
+   cancellation, RLS, admin create/cancel/read, audit, Order pinning, and
+   deterministic historical policy reconstruction. P2D does NOT:
+   select/match a rule inside the pinned rule-set for financial
+   computation; calculate a non-zero `serviceChargeTotal`; apply
+   `CountryPack.serviceChargeTaxable`; implement tips; implement
+   discount/service-charge interaction; implement receipt/event
+   consequences. Those remain P2E. **`FR-PLT-028` remains PARTIAL after
+   P2D and becomes eligible for COMPLETE only after P2E proves real
+   transaction computation uses the pinned policy** — a versioned-but-
+   never-computed setting does not yet, in `FR-PLT-028`'s own literal
+   text ("historical transactionS SHALL be interpreted..."), "affect
+   financial computation."
+10. **Audit.** Create, and each successful future-cancel, writes exactly
+    one same-transaction audit event. Expected action names, unless
+    existing naming conventions require an equivalent:
+    `SERVICE_CHARGE_POLICY_VERSION_CREATED`,
+    `SERVICE_CHARGE_POLICY_VERSION_CANCELLED`.
+11. **Permissions.** Reuse existing `ORGANISATION_PERMISSIONS.TENANT_MANAGE`
+    and `ORGANISATION_PERMISSIONS.BRANCH_MANAGE`, according to target
+    scope. Do not mint a new service-charge permission.
+12. **Inspector.** Full `FR-PLT-027` generic inspector integration is NOT
+    required by P2D. A narrow, domain-owned "current/effective policy"
+    read surface is sufficient.
+
+### Not decided by this entry
+
+The exact table/column/index names beyond what clauses 3-8 above fix; the
+exact RLS predicate SQL; the exact audit-action literal (constrained to
+the names in clause 10 "unless existing naming conventions require an
+equivalent"); the rule-matching/tie-breaking algorithm P2E will need when
+more than one rule in a pinned version could match a given order (a P2E
+evaluation-logic decision, not a P2D storage-shape decision); the exact
+route URLs — all Design-Gate/implementation details, consistent with how
+`P1G-1`/`P2A-R1` treated the same class of item. **`REMAINS
+IMPLEMENTATION, NOT AUTHORIZED BY THIS ENTRY`:** the Prisma migration for
+`sales.service_charge_policies`; `Order.serviceChargePolicyVersionId`; the
+domain resolver; the admin write/read surfaces; any audit action; any
+test. **No source, Prisma schema, or OpenAPI file is touched by this
+entry.**
+
+### Preservation
+
+`P2A-R1`'s eighteen clauses are UNCHANGED and UNREOPENED — this entry is
+the concrete implementation-contract specification of what `P2A-R1`
+clauses 3, 7-16 already committed to in principle, settling only the rule-
+set shape (clause 3 above) and the governing instant (clause 7 above),
+neither of which `P2A-R1` itself decided. `ACT-01` Platform Administrator
+(`P2A-R1` clause 18) remains a separate, non-blocking open item, untouched.
+`FR-PLT-025`/`026`/`027` remain COMPLETE, unaffected. `FR-PLT-028` remains
+PARTIAL — clause 9 above states explicitly that this entry does not, and
+cannot, reclassify it COMPLETE; that reclassification is reserved for a
+future P2E-era entry/report, once real computation exists to prove.
+
+### Evidence (non-authoritative)
+
+`docs/reports/claude/2026-09-10_FULL-SRS-PLT-FINANCIAL-SETTINGS-P2C.md`
+(§9, original proposal), `docs/reports/claude/2026-09-10_FULL-SRS-PLT-
+SERVICE-CHARGE-CONFIG-SHAPE-AND-LOCK-COHERENCE-P2C2.md` (§1-§5/§8, the
+controlling, finalised design), and `docs/reports/claude/2026-09-10_FULL-
+SRS-PLT-P2C1-P2D-GOVERNANCE-RATIFICATION.md` (the report recording this
+ratification action). This register entry is the authoritative outcome;
+where any of those reports' own narrative differs from the twelve clauses
+above, THESE CLAUSES GOVERN.
+
+**Status:** **RATIFIED — CLOSED, by explicit user governance action on
+2026-09-10. `FR-PLT-025` = COMPLETE, `FR-PLT-026` = COMPLETE, `FR-PLT-027`
+= COMPLETE, `FR-PLT-028` = PARTIAL — unchanged by this entry; `FR-PLT-028`
+becomes eligible for COMPLETE only after a future P2E slice proves real
+service-charge computation against a pinned policy version. This entry
+removes the governance blocker for the `ServiceChargePolicy` configuration
+substrate (P2D) and authorizes its implementation to proceed, but does NOT
+itself implement, and does NOT authorize itself as, that implementation.**
+
+**Neither the P2D implementation nor the P2C1 cash-rounding correction has
+been created by this entry. Implementation of either is NOT authorized
+beyond this ratification.**
