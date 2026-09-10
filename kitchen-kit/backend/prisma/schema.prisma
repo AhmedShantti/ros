@@ -13,7 +13,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["catalogue", "fiscal", "governance", "identity", "inventory", "kitchen", "org", "platform", "production", "sales", "sync", "treasury", "workforce"]
+  schemas  = ["catalogue", "fiscal", "governance", "identity", "inventory", "kitchen", "org", "platform", "procurement", "production", "sales", "sync", "treasury", "workforce"]
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +297,11 @@ model Tenant {
   /// FR-PLT-025/026 — back-relation only; no column, no behaviour change on
   /// `identity.tenants`.
   settingValues              SettingValue[]
+  /// FULL-SRS-PRC-SUPPLIER-FOUNDATION-P1 — back-relations only; no column, no
+  /// behaviour change on `identity.tenants`.
+  suppliers                  Supplier[]
+  supplierItemLinks          SupplierItemLink[]
+  supplierPriceEntries       SupplierPriceEntry[]
 
   @@map("tenants")
   @@schema("identity")
@@ -5306,4 +5311,166 @@ model SettingValue {
   @@index([tenantId, settingKey])
   @@map("setting_values")
   @@schema("platform")
+}
+
+// ---------------------------------------------------------------------------
+// FULL-SRS-PRC-SUPPLIER-FOUNDATION-P1 — Procurement: Supplier master, Item
+// sourcing, Price lists (FR-PRC-005/006/007/008 [partial], FR-INV-005).
+//
+// `stockItemId` (SupplierItemLink) and `purchaseUnitId` (SupplierPriceEntry)
+// are recorded Inventory ids with NO cross-schema FK — the same pattern
+// `sales.order_lines.menu_item_id`/`variant_id` and
+// `inventory.packaging_units.supplier_id` already use for a module boundary
+// that must be crossed at the application layer only (validated through
+// Inventory's published `contract/` query, never a private table read or a
+// DB-level FK). See `module-boundaries.spec.ts`.
+// ---------------------------------------------------------------------------
+
+/// Supplier lifecycle (FR-PRC-005). Deliberately the minimal two-state form
+/// (mission brief §2): no approval/suspension workflow is invented, and no
+/// richer vocabulary is given by the SRS or this repository's existing
+/// conventions (mirrors `BranchStatus`'s own "no lifecycle is defined, so
+/// there are no transitions" reasoning).
+enum SupplierStatus {
+  active
+  inactive
+
+  @@schema("procurement")
+}
+
+/// Supplier — FR-PRC-005 [M]. Tenant-scoped business-partner master record.
+/// `code` is the supplier's tenant-local human business identifier, distinct
+/// from `id`, unique per tenant.
+model Supplier {
+  id                    String         @id @db.Uuid
+  tenantId              String         @map("tenant_id") @db.Uuid
+  code                  String         @db.VarChar(32)
+  legalName             String         @map("legal_name") @db.VarChar(255)
+  tradingName           String?        @map("trading_name") @db.VarChar(255)
+  taxRegistrationNumber String?        @map("tax_registration_number") @db.VarChar(64)
+  /// Array of `{ line1, line2?, city?, state?, postalCode?, countryCode?, isPrimary? }`.
+  /// No fixed address schema is SRS-given; structurally validated at the DTO layer.
+  addresses             Json           @default("[]") @map("addresses") @db.JsonB
+  /// Array of `{ name, role?, phone?, email?, isPrimary? }`.
+  contacts              Json           @default("[]") @map("contacts") @db.JsonB
+  /// Smallest STRUCTURED payment-terms representation this slice needs
+  /// (mission brief §3) — net-days only. Richer FR-PRC-045 payment-proposal
+  /// semantics (early-settlement discounts, etc.) remain later work.
+  paymentTermsNetDays   Int            @map("payment_terms_net_days")
+  /// ISO-4217. Governs `minimumOrderValue`'s minor-unit meaning, and is this
+  /// supplier's currency-compatibility anchor for its own price entries (§5).
+  currency              String         @db.Char(3)
+  deliveryLeadTimeDays  Int            @map("delivery_lead_time_days")
+  /// Minor units of `currency` above. Never a float (BR-CORE money rule).
+  minimumOrderValue     BigInt         @map("minimum_order_value")
+  /// ISO weekday numbers this supplier actually delivers on, 0 (Sunday)
+  /// through 6 (Saturday). Structurally validated (distinct, in-range) at
+  /// the DTO layer.
+  deliveryDays          Int[]          @map("delivery_days")
+  status                SupplierStatus @default(active)
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  itemLinks    SupplierItemLink[]
+  priceEntries SupplierPriceEntry[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code], map: "uq_supplier_code")
+  @@index([tenantId])
+  @@map("suppliers")
+  @@schema("procurement")
+}
+
+/// SupplierItemLink — FR-PRC-007 / FR-INV-005. Tenant-scoped Supplier <->
+/// StockItem sourcing relationship: the natural foundation of comparative
+/// pricing (PRC-007) and supplier-specific item codes/barcodes (INV-005).
+model SupplierItemLink {
+  id       String  @id @db.Uuid
+  tenantId String  @map("tenant_id") @db.Uuid
+
+  supplierId String @map("supplier_id") @db.Uuid
+  /// Recorded Inventory `stock_items.id` — no DB FK (module boundary above).
+  /// Validated tenant-safe + active through Inventory's published purchasing
+  /// facts contract at write time.
+  stockItemId String @map("stock_item_id") @db.Uuid
+
+  /// The SUPPLIER's own item code — never the ROS `stock_items.sku` (§4
+  /// invariant: must not be treated as the ROS StockItem SKU).
+  supplierItemCode String? @map("supplier_item_code") @db.VarChar(64)
+  /// Supplier-issued barcode(s) for this item, e.g. a case barcode distinct
+  /// from any consumer-facing barcode. Never confused with a ROS SKU.
+  supplierBarcodes String[] @map("supplier_barcodes")
+  /// Deterministic ordering key for comparative pricing (§9). Lower = more
+  /// preferred, mirroring `catalogue.price_lists.priority`'s convention.
+  preferenceRank Int @default(0) @db.SmallInt @map("preference_rank")
+  isActive       Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+
+  priceEntries SupplierPriceEntry[]
+
+  @@unique([tenantId, id])
+  /// FK-integrity aid for `SupplierPriceEntry` (D-16 precedent, e.g.
+  /// `stock_batches_tenant_id_id_item_location_key`): lets a price entry's
+  /// composite FK structurally guarantee its `supplierId` matches its
+  /// sourcing link's own supplier, with no service-layer cross-check needed.
+  @@unique([tenantId, supplierId, id], map: "uq_supplier_item_link_supplier_scope")
+  @@unique([tenantId, supplierId, stockItemId], map: "uq_supplier_item_link")
+  @@index([tenantId, stockItemId])
+  @@map("supplier_item_links")
+  @@schema("procurement")
+}
+
+/// SupplierPriceEntry — FR-PRC-006. One historical, IMMUTABLE agreed-price
+/// record per sourcing relationship per validity window (§7: a new agreed
+/// price is a NEW row, never an update — this table has no `update` write
+/// path). `ex_supplier_price_entry_no_overlap` (migration SQL) makes two
+/// simultaneously-effective prices for the same
+/// (supplier item link, purchase unit) unrepresentable at the database.
+model SupplierPriceEntry {
+  id                 String  @id @db.Uuid
+  tenantId           String  @map("tenant_id") @db.Uuid
+  supplierId         String  @map("supplier_id") @db.Uuid
+  supplierItemLinkId String  @map("supplier_item_link_id") @db.Uuid
+  /// Recorded Inventory purchase-unit id — either the base `inventory.uom.id`
+  /// or an `inventory.packaging_units.id` belonging to the sourced stock
+  /// item. No DB FK (module boundary above); validated (existence + owned by
+  /// this stock item) through Inventory's published contract at write time.
+  purchaseUnitId String @map("purchase_unit_id") @db.Uuid
+  /// Six-decimal precision (BR-CORE-003), this repository's Quantity
+  /// convention (e.g. `inventory.packaging_units.conversion_factor_to_base`).
+  packSize Decimal @map("pack_size") @db.Decimal(18, 6)
+  /// Minor units of `currency` below. Never a float.
+  unitPrice BigInt @map("unit_price")
+  /// PINNED at creation (§5) — preserved even if the supplier's own
+  /// configured currency later changes. Compatibility with the supplier's
+  /// current currency is enforced at write time, not stored as a rule.
+  currency String @db.Char(3)
+
+  validFrom  DateTime  @map("valid_from") @db.Timestamptz(6)
+  validUntil DateTime? @map("valid_until") @db.Timestamptz(6)
+
+  /// Optional array of `{ minimumQuantity: string, unitPriceMinor: string }`,
+  /// strictly increasing `minimumQuantity`, validated at the DTO/service
+  /// layer (§8). NULL/empty = no volume pricing for this entry.
+  volumeTiers Json? @map("volume_tiers") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  /// Composite target `[tenantId, supplierId, id]` on `SupplierItemLink`
+  /// (see its own doc comment) — structurally guarantees `supplierId` above
+  /// is the link's own supplier.
+  supplierItemLink SupplierItemLink @relation(fields: [tenantId, supplierId, supplierItemLinkId], references: [tenantId, supplierId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, supplierItemLinkId, purchaseUnitId, validFrom])
+  @@map("supplier_price_entries")
+  @@schema("procurement")
 }

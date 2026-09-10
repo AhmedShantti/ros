@@ -12,6 +12,8 @@ import { TransfersService } from './movements/transfers.service';
 import { InventoryDailyReconciliationJob } from './reconciliation/daily-reconciliation.job';
 import { ReconciliationService } from './reconciliation/reconciliation.service';
 import { BranchInventorySnapshotQueryService } from './reconciliation/branch-inventory-snapshot.query.service';
+import { STOCK_ITEM_PURCHASING_FACTS_QUERY } from './contract/purchasing-facts.query';
+import { StockItemPurchasingFactsQueryService } from './stock-items/stock-item-purchasing-facts.query.service';
 import { SaleDepletionService } from './sale-depletion/sale-depletion.service';
 import { StockItemsService } from './stock-items/stock-items.service';
 import { WasteService } from './waste/waste.service';
@@ -94,6 +96,14 @@ import { PlatformModule } from '../platform/platform.module';
       provide: BRANCH_INVENTORY_SNAPSHOT_QUERY,
       useExisting: BranchInventorySnapshotQueryService,
     },
+    // FULL-SRS-PRC-SUPPLIER-FOUNDATION-P1 — the narrow "is this purchase
+    // unit valid for this stock item" query Procurement needs. Read-only;
+    // invents no new unit-of-measure semantics.
+    StockItemPurchasingFactsQueryService,
+    {
+      provide: STOCK_ITEM_PURCHASING_FACTS_QUERY,
+      useExisting: StockItemPurchasingFactsQueryService,
+    },
   ],
   exports: [
     StockItemsService,
@@ -106,6 +116,7 @@ import { PlatformModule } from '../platform/platform.module';
     SALE_DEPLETION_COMMAND,
     POST_FIRE_VOID_DISPOSITION_COMMAND,
     BRANCH_INVENTORY_SNAPSHOT_QUERY,
+    STOCK_ITEM_PURCHASING_FACTS_QUERY,
   ],
 })
 export class InventoryModule {}

@@ -98,6 +98,36 @@ components:
       required:
         - stockItemId
       type: object
+    AddressDto:
+      properties:
+        city:
+          maxLength: 120
+          minLength: 1
+          type: string
+        countryCode:
+          pattern: ^[A-Z]{2}$
+          type: string
+        isPrimary:
+          type: boolean
+        line1:
+          maxLength: 255
+          minLength: 1
+          type: string
+        line2:
+          maxLength: 255
+          minLength: 1
+          type: string
+        postalCode:
+          maxLength: 20
+          minLength: 1
+          type: string
+        state:
+          maxLength: 120
+          minLength: 1
+          type: string
+      required:
+        - line1
+      type: object
     ApplyCompDto:
       properties:
         id:
@@ -294,6 +324,29 @@ components:
       properties:
         gps:
           $ref: '#/components/schemas/GpsDto'
+      type: object
+    ContactDto:
+      properties:
+        email:
+          maxLength: 160
+          minLength: 1
+          type: string
+        isPrimary:
+          type: boolean
+        name:
+          maxLength: 120
+          minLength: 1
+          type: string
+        phone:
+          maxLength: 32
+          minLength: 1
+          type: string
+        role:
+          maxLength: 64
+          minLength: 1
+          type: string
+      required:
+        - name
       type: object
     CorrectAttendanceDto:
       properties:
@@ -1012,6 +1065,110 @@ components:
           type: array
       required:
         - name
+      type: object
+    CreateSupplierDto:
+      properties:
+        addresses:
+          items:
+            $ref: '#/components/schemas/AddressDto'
+          maxItems: 20
+          type: array
+        code:
+          maxLength: 32
+          minLength: 1
+          type: string
+        contacts:
+          items:
+            $ref: '#/components/schemas/ContactDto'
+          maxItems: 20
+          type: array
+        currency:
+          type: string
+        deliveryDays:
+          items:
+            maximum: 6
+            minimum: 0
+            type: number
+          maxItems: 7
+          type: array
+        deliveryLeadTimeDays:
+          minimum: 0
+          type: number
+        legalName:
+          maxLength: 255
+          minLength: 1
+          type: string
+        minimumOrderValue:
+          type: string
+        paymentTermsNetDays:
+          minimum: 0
+          type: number
+        taxRegistrationNumber:
+          maxLength: 64
+          minLength: 1
+          type: string
+        tradingName:
+          maxLength: 255
+          minLength: 1
+          type: string
+      required:
+        - code
+        - legalName
+        - paymentTermsNetDays
+        - currency
+        - deliveryLeadTimeDays
+        - minimumOrderValue
+      type: object
+    CreateSupplierItemLinkDto:
+      properties:
+        preferenceRank:
+          minimum: 0
+          type: number
+        stockItemId:
+          type: string
+        supplierBarcodes:
+          items:
+            type: string
+          maxItems: 20
+          type: array
+        supplierId:
+          type: string
+        supplierItemCode:
+          maxLength: 64
+          minLength: 1
+          type: string
+      required:
+        - supplierId
+        - stockItemId
+      type: object
+    CreateSupplierPriceEntryDto:
+      properties:
+        currency:
+          type: string
+        packSize:
+          type: string
+        purchaseUnitId:
+          type: string
+        supplierItemLinkId:
+          type: string
+        unitPrice:
+          type: string
+        validFrom:
+          type: string
+        validUntil:
+          type: string
+        volumeTiers:
+          items:
+            $ref: '#/components/schemas/VolumeTierDto'
+          maxItems: 20
+          type: array
+      required:
+        - supplierItemLinkId
+        - purchaseUnitId
+        - packSize
+        - unitPrice
+        - currency
+        - validFrom
       type: object
     CreateTableDto:
       properties:
@@ -1768,6 +1925,16 @@ components:
         - reorderPoint
         - reorderQuantity
       type: object
+    SetSupplierStatusDto:
+      properties:
+        status:
+          enum:
+            - active
+            - inactive
+          type: string
+      required:
+        - status
+      type: object
     SetTerminalStatusDto:
       properties:
         status:
@@ -2097,6 +2264,69 @@ components:
           minLength: 1
           type: string
       type: object
+    UpdateSupplierDto:
+      properties:
+        addresses:
+          items:
+            $ref: '#/components/schemas/AddressDto'
+          maxItems: 20
+          type: array
+        code:
+          maxLength: 32
+          minLength: 1
+          type: string
+        contacts:
+          items:
+            $ref: '#/components/schemas/ContactDto'
+          maxItems: 20
+          type: array
+        currency:
+          type: string
+        deliveryDays:
+          items:
+            maximum: 6
+            minimum: 0
+            type: number
+          maxItems: 7
+          type: array
+        deliveryLeadTimeDays:
+          minimum: 0
+          type: number
+        legalName:
+          maxLength: 255
+          minLength: 1
+          type: string
+        minimumOrderValue:
+          type: string
+        paymentTermsNetDays:
+          minimum: 0
+          type: number
+        taxRegistrationNumber:
+          maxLength: 64
+          minLength: 1
+          type: string
+        tradingName:
+          maxLength: 255
+          minLength: 1
+          type: string
+      type: object
+    UpdateSupplierItemLinkDto:
+      properties:
+        isActive:
+          type: boolean
+        preferenceRank:
+          minimum: 0
+          type: number
+        supplierBarcodes:
+          items:
+            type: string
+          maxItems: 20
+          type: array
+        supplierItemCode:
+          maxLength: 64
+          minLength: 1
+          type: string
+      type: object
     UpdateTableDto:
       properties:
         label:
@@ -2166,6 +2396,16 @@ components:
       required:
         - reasonCodeId
         - disposition
+      type: object
+    VolumeTierDto:
+      properties:
+        minimumQuantity:
+          type: string
+        unitPriceMinor:
+          type: string
+      required:
+        - minimumQuantity
+        - unitPriceMinor
       type: object
     WasteLineDto:
       properties:
@@ -21317,6 +21557,890 @@ paths:
         - bearer: []
       tags:
         - platform-settings
+  /procurement/comparative-pricing:
+    get:
+      operationId: ProcurementController_comparativePricing
+      parameters:
+        - in: query
+          name: stockItemId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: at
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: quantity
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  properties:
+                    currency:
+                      type: string
+                    packSize:
+                      description: Decimal quantity as a string (preserves exact precision).
+                      example: '2.5'
+                      pattern: ^-?\d+(\.\d+)?$
+                      type: string
+                    preferenceRank:
+                      type: integer
+                    purchaseUnitId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    selectedTier:
+                      type:
+                        - object
+                        - 'null'
+                    supplierCode:
+                      type: string
+                    supplierId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    supplierItemCode:
+                      type:
+                        - string
+                        - 'null'
+                    supplierItemLinkId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    supplierName:
+                      type: string
+                    supplierStatus:
+                      enum:
+                        - active
+                        - inactive
+                      type: string
+                    unitPrice:
+                      description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                      example: '1250'
+                      pattern: ^-?\d+$
+                      type: string
+                    validFrom:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    validUntil:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type:
+                        - string
+                        - 'null'
+                    volumeTiers:
+                      items:
+                        type: object
+                      type:
+                        - array
+                        - 'null'
+                  type: object
+                type: array
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+  /procurement/supplier-item-links:
+    get:
+      operationId: ProcurementController_listSourcingLinks
+      parameters:
+        - in: query
+          name: supplierId
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: stockItemId
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: isActive
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  properties:
+                    createdAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    id:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    isActive:
+                      type: boolean
+                    preferenceRank:
+                      type: integer
+                    stockItemId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    supplierBarcodes:
+                      items:
+                        type: string
+                      type: array
+                    supplierId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    supplierItemCode:
+                      type:
+                        - string
+                        - 'null'
+                    updatedAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                  type: object
+                type: array
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+    post:
+      operationId: ProcurementController_createSourcingLink
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSupplierItemLinkDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  id:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  isActive:
+                    type: boolean
+                  preferenceRank:
+                    type: integer
+                  stockItemId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  supplierBarcodes:
+                    items:
+                      type: string
+                    type: array
+                  supplierId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  supplierItemCode:
+                    type:
+                      - string
+                      - 'null'
+                  updatedAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                type: object
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+  /procurement/supplier-item-links/{id}:
+    patch:
+      operationId: ProcurementController_updateSourcingLink
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSupplierItemLinkDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  id:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  isActive:
+                    type: boolean
+                  preferenceRank:
+                    type: integer
+                  stockItemId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  supplierBarcodes:
+                    items:
+                      type: string
+                    type: array
+                  supplierId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  supplierItemCode:
+                    type:
+                      - string
+                      - 'null'
+                  updatedAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                type: object
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+  /procurement/supplier-price-entries:
+    get:
+      operationId: ProcurementController_priceHistory
+      parameters:
+        - in: query
+          name: supplierItemLinkId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  properties:
+                    createdAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    currency:
+                      type: string
+                    id:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    packSize:
+                      description: Decimal quantity as a string (preserves exact precision).
+                      example: '2.5'
+                      pattern: ^-?\d+(\.\d+)?$
+                      type: string
+                    purchaseUnitId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    supplierId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    supplierItemLinkId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    unitPrice:
+                      description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                      example: '1250'
+                      pattern: ^-?\d+$
+                      type: string
+                    validFrom:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    validUntil:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type:
+                        - string
+                        - 'null'
+                    volumeTiers:
+                      items:
+                        type: object
+                      type:
+                        - array
+                        - 'null'
+                  type: object
+                type: array
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+    post:
+      operationId: ProcurementController_createPriceEntry
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSupplierPriceEntryDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  currency:
+                    type: string
+                  id:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  packSize:
+                    description: Decimal quantity as a string (preserves exact precision).
+                    example: '2.5'
+                    pattern: ^-?\d+(\.\d+)?$
+                    type: string
+                  purchaseUnitId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  supplierId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  supplierItemLinkId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  unitPrice:
+                    description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                    example: '1250'
+                    pattern: ^-?\d+$
+                    type: string
+                  validFrom:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  validUntil:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type:
+                      - string
+                      - 'null'
+                  volumeTiers:
+                    items:
+                      type: object
+                    type:
+                      - array
+                      - 'null'
+                type: object
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+  /procurement/supplier-price-entries/effective:
+    get:
+      operationId: ProcurementController_effectivePrice
+      parameters:
+        - in: query
+          name: supplierItemLinkId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: purchaseUnitId
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: at
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  properties:
+                    createdAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    currency:
+                      type: string
+                    id:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    packSize:
+                      description: Decimal quantity as a string (preserves exact precision).
+                      example: '2.5'
+                      pattern: ^-?\d+(\.\d+)?$
+                      type: string
+                    purchaseUnitId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    supplierId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    supplierItemLinkId:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    unitPrice:
+                      description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                      example: '1250'
+                      pattern: ^-?\d+$
+                      type: string
+                    validFrom:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    validUntil:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type:
+                        - string
+                        - 'null'
+                    volumeTiers:
+                      items:
+                        type: object
+                      type:
+                        - array
+                        - 'null'
+                  type: object
+                type: array
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+  /procurement/suppliers:
+    get:
+      operationId: ProcurementController_listSuppliers
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            enum:
+              - active
+              - inactive
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  properties:
+                    addresses:
+                      items:
+                        type: object
+                      type: array
+                    code:
+                      type: string
+                    contacts:
+                      items:
+                        type: object
+                      type: array
+                    createdAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                    currency:
+                      example: AED
+                      type: string
+                    deliveryDays:
+                      items:
+                        type: integer
+                      type: array
+                    deliveryLeadTimeDays:
+                      type: integer
+                    id:
+                      example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      format: uuid
+                      type: string
+                    legalName:
+                      type: string
+                    minimumOrderValue:
+                      description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                      example: '1250'
+                      pattern: ^-?\d+$
+                      type: string
+                    paymentTermsNetDays:
+                      type: integer
+                    status:
+                      enum:
+                        - active
+                        - inactive
+                      type: string
+                    taxRegistrationNumber:
+                      type:
+                        - string
+                        - 'null'
+                    tradingName:
+                      type:
+                        - string
+                        - 'null'
+                    updatedAt:
+                      example: '2026-08-23T14:30:00.000Z'
+                      format: date-time
+                      type: string
+                  type: object
+                type: array
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+    post:
+      operationId: ProcurementController_createSupplier
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSupplierDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  addresses:
+                    items:
+                      type: object
+                    type: array
+                  code:
+                    type: string
+                  contacts:
+                    items:
+                      type: object
+                    type: array
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  currency:
+                    example: AED
+                    type: string
+                  deliveryDays:
+                    items:
+                      type: integer
+                    type: array
+                  deliveryLeadTimeDays:
+                    type: integer
+                  id:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  legalName:
+                    type: string
+                  minimumOrderValue:
+                    description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                    example: '1250'
+                    pattern: ^-?\d+$
+                    type: string
+                  paymentTermsNetDays:
+                    type: integer
+                  status:
+                    enum:
+                      - active
+                      - inactive
+                    type: string
+                  taxRegistrationNumber:
+                    type:
+                      - string
+                      - 'null'
+                  tradingName:
+                    type:
+                      - string
+                      - 'null'
+                  updatedAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                type: object
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+  /procurement/suppliers/{id}:
+    get:
+      operationId: ProcurementController_getSupplier
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  addresses:
+                    items:
+                      type: object
+                    type: array
+                  code:
+                    type: string
+                  contacts:
+                    items:
+                      type: object
+                    type: array
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  currency:
+                    example: AED
+                    type: string
+                  deliveryDays:
+                    items:
+                      type: integer
+                    type: array
+                  deliveryLeadTimeDays:
+                    type: integer
+                  id:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  legalName:
+                    type: string
+                  minimumOrderValue:
+                    description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                    example: '1250'
+                    pattern: ^-?\d+$
+                    type: string
+                  paymentTermsNetDays:
+                    type: integer
+                  status:
+                    enum:
+                      - active
+                      - inactive
+                    type: string
+                  taxRegistrationNumber:
+                    type:
+                      - string
+                      - 'null'
+                  tradingName:
+                    type:
+                      - string
+                      - 'null'
+                  updatedAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                type: object
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+    patch:
+      operationId: ProcurementController_updateSupplier
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSupplierDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  addresses:
+                    items:
+                      type: object
+                    type: array
+                  code:
+                    type: string
+                  contacts:
+                    items:
+                      type: object
+                    type: array
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  currency:
+                    example: AED
+                    type: string
+                  deliveryDays:
+                    items:
+                      type: integer
+                    type: array
+                  deliveryLeadTimeDays:
+                    type: integer
+                  id:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  legalName:
+                    type: string
+                  minimumOrderValue:
+                    description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                    example: '1250'
+                    pattern: ^-?\d+$
+                    type: string
+                  paymentTermsNetDays:
+                    type: integer
+                  status:
+                    enum:
+                      - active
+                      - inactive
+                    type: string
+                  taxRegistrationNumber:
+                    type:
+                      - string
+                      - 'null'
+                  tradingName:
+                    type:
+                      - string
+                      - 'null'
+                  updatedAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                type: object
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
+  /procurement/suppliers/{id}/status:
+    patch:
+      operationId: ProcurementController_setSupplierStatus
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetSupplierStatusDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  addresses:
+                    items:
+                      type: object
+                    type: array
+                  code:
+                    type: string
+                  contacts:
+                    items:
+                      type: object
+                    type: array
+                  createdAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                  currency:
+                    example: AED
+                    type: string
+                  deliveryDays:
+                    items:
+                      type: integer
+                    type: array
+                  deliveryLeadTimeDays:
+                    type: integer
+                  id:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type: string
+                  legalName:
+                    type: string
+                  minimumOrderValue:
+                    description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                    example: '1250'
+                    pattern: ^-?\d+$
+                    type: string
+                  paymentTermsNetDays:
+                    type: integer
+                  status:
+                    enum:
+                      - active
+                      - inactive
+                    type: string
+                  taxRegistrationNumber:
+                    type:
+                      - string
+                      - 'null'
+                  tradingName:
+                    type:
+                      - string
+                      - 'null'
+                  updatedAt:
+                    example: '2026-08-23T14:30:00.000Z'
+                    format: date-time
+                    type: string
+                type: object
+          description: ''
+      security:
+        - bearer: []
+      tags:
+        - procurement
   /recipes:
     get:
       operationId: ProductionController_listRecipes

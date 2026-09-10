@@ -22,6 +22,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
+import { ProcurementModule } from './modules/procurement/procurement.module';
 
 @Module({
   imports: [
@@ -99,6 +100,10 @@ import { PlatformSettingsModule } from './modules/platform-settings/platform-set
     // Deliberately its own module, not an addition to PlatformModule — see
     // `platform-settings.module.ts`'s own docblock.
     PlatformSettingsModule,
+    // Procurement bounded context (FULL-SRS-PRC-SUPPLIER-FOUNDATION-P1) —
+    // Supplier master, Supplier<->StockItem sourcing, Supplier price lists.
+    // No Purchase Order, Goods Receipt or Supplier Invoice yet.
+    ProcurementModule,
   ],
 })
 export class AppModule {}

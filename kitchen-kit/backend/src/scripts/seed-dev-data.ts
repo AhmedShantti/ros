@@ -62,6 +62,7 @@ import {
   WORKFORCE_PERMISSIONS,
   WORKFORCE_PERMISSION_DEFS,
 } from '../modules/workforce/workforce.permissions';
+import { PROCUREMENT_PERMISSION_DEFS } from '../modules/procurement/procurement.permissions';
 
 /**
  * One-shot local-dev/demo data seeder — NOT wired to any HTTP route, run
@@ -133,6 +134,7 @@ async function main(): Promise<void> {
     ...REPORTING_PERMISSION_DEFS,
     ...AUDIT_PERMISSION_DEFS,
     ...WORKFORCE_PERMISSION_DEFS,
+    ...PROCUREMENT_PERMISSION_DEFS,
   ]);
 
   // ================================================== TENANT A: Demo Group ==

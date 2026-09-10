@@ -10,6 +10,7 @@ import { KDS_PERMISSION_DEFS } from '../../kitchen/contract';
 import { REPORTING_PERMISSION_DEFS } from '../../reporting/contract';
 import { AUDIT_PERMISSION_DEFS } from '../../governance/contract';
 import { WORKFORCE_PERMISSION_DEFS } from '../../workforce/contract';
+import { PROCUREMENT_PERMISSION_DEFS } from '../../procurement/contract';
 
 /**
  * SIGNUP-1 — the full, production-safe permission catalog.
@@ -40,6 +41,7 @@ export const ALL_PERMISSION_DEFS: PermissionDef[] = [
   ...REPORTING_PERMISSION_DEFS,
   ...AUDIT_PERMISSION_DEFS,
   ...WORKFORCE_PERMISSION_DEFS,
+  ...PROCUREMENT_PERMISSION_DEFS,
 ];
 
 export const ALL_PERMISSION_CODES: string[] = ALL_PERMISSION_DEFS.map(

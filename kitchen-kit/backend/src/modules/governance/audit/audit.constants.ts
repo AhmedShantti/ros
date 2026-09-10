@@ -303,6 +303,19 @@ export const AUDIT_ACTION = {
     'SERVICE_CHARGE_POLICY_VERSION_CREATED',
   SERVICE_CHARGE_POLICY_VERSION_CANCELLED:
     'SERVICE_CHARGE_POLICY_VERSION_CANCELLED',
+
+  // FULL-SRS-PRC-SUPPLIER-FOUNDATION-P1 — Procurement Supplier master,
+  // sourcing, and price-list mutations (FR-AUD-006 "configuration changes").
+  // `SUPPLIER_PRICE_ENTRY_CREATED` has no `_UPDATED`/`_CANCELLED` counterpart
+  // by design — mirrors `CASH_CLOSE_POLICY_VERSION_CREATED`/
+  // `SERVICE_CHARGE_POLICY_VERSION_CREATED`'s own "every write is a NEW
+  // immutable version, never an edit" convention (mission brief §7).
+  SUPPLIER_CREATED: 'SUPPLIER_CREATED',
+  SUPPLIER_UPDATED: 'SUPPLIER_UPDATED',
+  SUPPLIER_STATUS_CHANGED: 'SUPPLIER_STATUS_CHANGED',
+  SUPPLIER_ITEM_LINK_CREATED: 'SUPPLIER_ITEM_LINK_CREATED',
+  SUPPLIER_ITEM_LINK_UPDATED: 'SUPPLIER_ITEM_LINK_UPDATED',
+  SUPPLIER_PRICE_ENTRY_CREATED: 'SUPPLIER_PRICE_ENTRY_CREATED',
 } as const;
 
 export const AUDIT_ENTITY = {
@@ -402,4 +415,9 @@ export const AUDIT_ENTITY = {
 
   // P2D (ratified P2D-R1) — Sales ServiceChargePolicy.
   SERVICE_CHARGE_POLICY: 'service_charge_policy',
+
+  // FULL-SRS-PRC-SUPPLIER-FOUNDATION-P1 — Procurement entities.
+  SUPPLIER: 'supplier',
+  SUPPLIER_ITEM_LINK: 'supplier_item_link',
+  SUPPLIER_PRICE_ENTRY: 'supplier_price_entry',
 } as const;
