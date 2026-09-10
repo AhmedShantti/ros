@@ -313,6 +313,11 @@ Report + index:
 - `docs/reports/claude/2026-09-10_FULL-SRS-PLT-COUNTRY-PACK-LOCK-P2B.md` (this file)
 - `docs/reports/claude/INDEX.md` (new row)
 
+Committed as `7cd43e5` on `full-srs/lane-d4-reporting-demo` (implementation,
+tests, this report, and the INDEX row in one commit — matching this
+repository's usual convention of committing the report alongside its own
+implementation). No pull, merge, or push performed.
+
 ## RETURN block
 
 ```
@@ -349,7 +354,7 @@ OPENAPI: regenerated, empty diff — no semantic route change
 LINT: clean (7 pure-formatting auto-fixes applied, re-verified green after)
 
 FILES_CHANGED: see §14 above (8 implementation, 5 test, 2 report/index)
-COMMIT: recorded in a follow-up report once created, per repository convention (see this file's own git history after commit)
+COMMIT: 7cd43e5 (implementation + tests + report + INDEX row)
 SAFE_TO_INTEGRATE: yes — no pull/merge/push performed, per instruction
 BLOCKERS_OR_UNCERTAINTIES: none identified. FR-PLT-028 (effective-dated financial-policy storage) remains the next slice, per P2A-R1 clauses 3-16, explicitly out of scope here.
 ```
