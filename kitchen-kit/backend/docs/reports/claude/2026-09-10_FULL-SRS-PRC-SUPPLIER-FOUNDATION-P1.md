@@ -517,8 +517,8 @@ OPENAPI: regenerated, purely additive diff (2762 insertions / 0 deletions), 8 ne
 LINT: clean (eslint --fix on every changed/new file, zero remaining errors)
 
 FILES_CHANGED: see `git diff --stat` at commit time (new: prisma migration 20260910122221_procurement_supplier_foundation; ~20 new src/modules/procurement/* and src/modules/inventory/* files; edits to prisma/schema.prisma, src/app.module.ts, src/modules/governance/audit/audit.constants.ts, src/modules/identity/authz/permission-catalog.ts, src/modules/inventory/{inventory.module.ts,contract/index.ts}, src/scripts/seed-dev-data.ts, docs/api/{openapi.json,yaml}; new test/procurement-rls.e2e-spec.ts, test/procurement-supplier-foundation.e2e-spec.ts).
-IMPLEMENTATION_COMMIT: recorded in a follow-up docs-only commit per repository convention (see INDEX.md entry / follow-up commit hash).
-REPORT_HASH_COMMIT_IF_ANY: pending (one docs-only hash-record follow-up, per repository convention).
+IMPLEMENTATION_COMMIT: f3f9541fe3e17f16cf58bf03ade6f99921934cd8
+REPORT_HASH_COMMIT_IF_ANY: this edit is recorded in the docs-only hash-record follow-up commit (see INDEX.md).
 
 SUPPLIER_FOUNDATION_CLOSED: yes, for FR-PRC-005/006/007 and the FR-INV-005 sourcing-identifier portion. FR-PRC-008 remains PARTIAL by design (receiving not built).
 SAFE_TO_START_POS_ORDER_CANCELLATION: yes — this task did not touch Sales/Orders/POS in any way; zero files under src/modules/sales/ were read or modified.
