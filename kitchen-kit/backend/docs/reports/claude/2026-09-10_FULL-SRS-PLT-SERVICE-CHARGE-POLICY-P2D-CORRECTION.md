@@ -285,15 +285,15 @@ OpenAPI file was touched.
 Correction (two test files) + this report + `INDEX.md` committed together
 as `COMMIT` below, per this task's instruction. No push.
 
-`COMMIT`: *(recorded after commit — see §11)*
+`COMMIT`: `e304f8e`
 
 ---
 
 ## 11. Post-commit hash record
 
-*(Updated by this same commit's own final line, or a follow-up docs-only
-commit if the report needs to be amended after — matching this session's
-established convention.)*
+Correction, tests, this report, and `INDEX.md` were committed as `e304f8e`
+on `full-srs/lane-d4-reporting-demo` (starting from `aaa41ed`), matching
+this session's established convention.
 
 ---
 
