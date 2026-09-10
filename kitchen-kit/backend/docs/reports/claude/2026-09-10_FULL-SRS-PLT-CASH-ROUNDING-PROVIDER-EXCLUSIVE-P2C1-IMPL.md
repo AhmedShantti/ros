@@ -304,7 +304,7 @@ OPENAPI: regenerated, empty diff — no semantic route/schema change
 LINT: clean (all changed files, zero errors)
 
 FILES_CHANGED: 8 implementation/test files (localisation contract, localisation setting-keys + spec, localisation fact-query-service + spec, platform-settings resolver, platform-settings admin, sales order-totals comment, platform-settings e2e spec) + this report + INDEX.md row
-COMMIT: recorded after this report is written, this task's own commit hash
+COMMIT: b5f67d5
 SAFE_TO_INTEGRATE: yes — no pull/merge/push performed, per instruction
 BLOCKERS_OR_UNCERTAINTIES: none identified. ServiceChargePolicy (P2D) remains the next, entirely independent slice, per P2D-R1.
 ```
