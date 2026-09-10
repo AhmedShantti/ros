@@ -6,7 +6,10 @@ import type {
 } from '../contract/country-pack-setting-fact.query';
 import type { CountryPack } from './country-pack.model';
 import { CountryPackUnavailableError } from './country-pack.registry';
-import { COUNTRY_PACK_SETTING_KEYS } from './country-pack.setting-keys';
+import {
+  COUNTRY_PACK_SETTING_KEYS,
+  isProviderExclusiveSettingKey,
+} from './country-pack.setting-keys';
 import { CountryPackService } from './country-pack.service';
 
 /**
@@ -31,6 +34,10 @@ export class CountryPackSettingFactQueryService implements CountryPackSettingFac
 
   supportedSettingKeys(): readonly string[] {
     return COUNTRY_PACK_SETTING_KEYS;
+  }
+
+  isProviderExclusive(settingKey: string): boolean {
+    return isProviderExclusiveSettingKey(settingKey);
   }
 
   private resolveCashRoundingPolicy(

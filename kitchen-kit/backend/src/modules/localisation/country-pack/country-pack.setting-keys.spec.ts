@@ -5,6 +5,7 @@ import {
   COUNTRY_PACK_SETTING_KEYS,
   countryPackContributes,
   isCountryPackSettingKey,
+  isProviderExclusiveSettingKey,
 } from './country-pack.setting-keys';
 
 const parseOptions = { knownEngines: new TaxEngineRegistry().ids };
@@ -39,5 +40,33 @@ describe('Country Pack setting-key vocabulary (FR-PLT-026 / P2A-R1)', () => {
     expect(countryPackContributes(pack, 'payments.cash_rounding_policy')).toBe(
       true,
     );
+  });
+
+  /**
+   * P2C1-R1 — provider-exclusivity is a distinct, third question from
+   * `isCountryPackSettingKey` (is this key in the closed vocabulary at
+   * all?) and `countryPackContributes` (does THIS pack define it?): does
+   * this key admit a lower-level generic-settings override AT ALL, for
+   * ANY pack?
+   */
+  it('isProviderExclusiveSettingKey: payments.cash_rounding_policy is provider-exclusive (FR-POS-063)', () => {
+    expect(isProviderExclusiveSettingKey('payments.cash_rounding_policy')).toBe(
+      true,
+    );
+  });
+
+  it('isProviderExclusiveSettingKey: a key outside the closed vocabulary is not provider-exclusive', () => {
+    expect(isProviderExclusiveSettingKey('not.a.real.key')).toBe(false);
+  });
+
+  it('isProviderExclusiveSettingKey is not a blanket rule for every COUNTRY_PACK_SETTING_KEYS entry — only an individually-evidenced subset (none exist beyond the one key today)', () => {
+    for (const key of COUNTRY_PACK_SETTING_KEYS) {
+      // Today's closed vocabulary has exactly one entry, and it IS
+      // provider-exclusive — this assertion exists so that if a SECOND
+      // key is ever added to COUNTRY_PACK_SETTING_KEYS without its own
+      // deliberate provider-exclusivity judgment, this test forces that
+      // judgment to be made explicitly rather than silently inherited.
+      expect(isProviderExclusiveSettingKey(key)).toBe(true);
+    }
   });
 });

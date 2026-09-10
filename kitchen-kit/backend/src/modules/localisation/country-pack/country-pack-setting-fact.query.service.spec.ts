@@ -107,4 +107,13 @@ describe('CountryPackSettingFactQueryService', () => {
       'payments.cash_rounding_policy',
     ]);
   });
+
+  /** P2C1-R1 — delegates to the Localisation-owned classification. */
+  it('isProviderExclusive: payments.cash_rounding_policy is provider-exclusive; an unsupported key is not', async () => {
+    const service = await buildActivatedService();
+    expect(service.isProviderExclusive('payments.cash_rounding_policy')).toBe(
+      true,
+    );
+    expect(service.isProviderExclusive('some.unsupported.key')).toBe(false);
+  });
 });

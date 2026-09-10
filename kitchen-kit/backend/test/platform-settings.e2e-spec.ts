@@ -15,6 +15,12 @@ import { RolesService } from './../src/modules/identity/authz/roles.service';
 import { MembershipsService } from './../src/modules/identity/memberships/memberships.service';
 import { TenantsService } from './../src/modules/identity/tenants/tenants.service';
 import { UsersService } from './../src/modules/identity/users/users.service';
+import { COUNTRY_PACK_SETTING_FACT_QUERY } from './../src/modules/localisation/contract';
+import type {
+  CountryPackSettingFact,
+  CountryPackSettingFactInput,
+  CountryPackSettingFactQuery,
+} from './../src/modules/localisation/contract';
 import { withCurrency } from './../src/modules/localisation/country-pack/country-pack.fixture';
 import {
   generateReleaseKey,
@@ -24,6 +30,7 @@ import {
   ORGANISATION_PERMISSIONS,
   ORGANISATION_PERMISSION_DEFS,
 } from './../src/modules/organisation/organisation.permissions';
+import { SettingsInspectorService } from './../src/modules/platform-settings/settings-inspector.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { createMigratorClient } from './rls-admin';
 
@@ -138,10 +145,14 @@ interface InspectorBody {
   effective: EffectiveSettingBody;
   levels: InspectorLevelBody[];
 }
+interface ErrorBody {
+  message: string;
+}
 const effBody = (res: { body: unknown }): EffectiveSettingBody =>
   res.body as EffectiveSettingBody;
 const inspBody = (res: { body: unknown }): InspectorBody =>
   res.body as InspectorBody;
+const errBody = (res: { body: unknown }): ErrorBody => res.body as ErrorBody;
 
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -503,8 +514,14 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
   // `src/modules/localisation/country-pack/country-pack-setting-fact.query.service.spec.ts`.
   // This e2e test proves the OTHER honest half: with no pack activated, the
   // Country Pack tier correctly contributes nothing (never fabricates a
-  // value) and resolution falls through to Platform Default.
-  it('B: with no Country Pack activated, the tier honestly contributes nothing and platform default resolves', async () => {
+  // value). Pre-P2C1-R1 this fell through to Platform Default; POST-P2C1-R1,
+  // `payments.cash_rounding_policy` is provider-exclusive, so `platform` is
+  // ALSO ineligible for it (see Case A/B above) — a configured Platform
+  // Default row for this key is now correctly INERT, exactly like a stale
+  // tenant/brand/branch/terminal row, and resolution genuinely has no
+  // effective value at all. This is the platform-level half of P2C1-R1 §5's
+  // stale-row-behaviour requirement.
+  it('B: with no Country Pack activated, the tier honestly contributes nothing, and a configured Platform Default is inert (payments.cash_rounding_policy is provider-exclusive, P2C1-R1)', async () => {
     const key = 'payments.cash_rounding_policy';
     const creator = await admin.membership.findFirstOrThrow({
       where: { tenantId: tenantA },
@@ -521,15 +538,21 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
     });
 
     const res = await resolveKey(ownerTokenA, key).expect(200);
-    expect(effBody(res).effectiveSourceLevel).toBe('platform');
-    expect(effBody(res).effectiveValue).toEqual({ fromPlatformDefault: true });
+    expect(effBody(res).hasEffectiveValue).toBe(false);
+    expect(effBody(res).effectiveSourceLevel).toBeNull();
 
     const inspected = await inspectKey(ownerTokenA, key).expect(200);
-    const cpView = inspBody(inspected).levels.find(
-      (l) => l.level === 'country_pack',
+    const byLevel = new Map(
+      inspBody(inspected).levels.map((l) => [l.level, l]),
     );
-    expect(cpView?.eligible).toBe(true);
-    expect(cpView?.configuredValue).toBeNull();
+    // country_pack: eligible (the key IS supported), honestly unconfigured
+    // (no pack activated for tenantA's jurisdiction in this e2e run).
+    expect(byLevel.get('country_pack')?.eligible).toBe(true);
+    expect(byLevel.get('country_pack')?.configuredValue).toBeNull();
+    // platform: provider-exclusive — ineligible REGARDLESS of the row this
+    // test just configured; it is never read, never reported.
+    expect(byLevel.get('platform')?.eligible).toBe(false);
+    expect(byLevel.get('platform')?.configuredValue).toBeNull();
   });
 
   // ==================================================================== C-F
@@ -919,14 +942,85 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
     expect(terminalValue.cashRoundingEnabled).toBe(true);
   });
 
-  // ============================================== FULL-SRS-PLT-COUNTRY-PACK-LOCK-P2B
-  it('Country-Pack lock (FR-PLT-026 / P2A-R1): country_pack lock blocks every lower-level override, on read and on write, and the inspector shows it', async () => {
+  // ============================================== P2C1-R1 Case A
+  it('P2C1-R1 Case A: payments.cash_rounding_policy is provider-exclusive even when the active Country Pack declares NO settingsLocks', async () => {
+    const key = 'payments.cash_rounding_policy';
+
+    // jurisdiction Y's activated pack declares NO settingsLocks for this
+    // key (see activateTwoJurisdictionPacksBeforeBoot above) — the
+    // strongest possible proof that write-rejection is caused by
+    // provider-exclusivity, never by an FR-PLT-026 lock: there is no lock
+    // here at all.
+    const resolved = await resolveKey(ownerTokenC, key, {
+      branchId: branchCY,
+    }).expect(200);
+    expect(effBody(resolved).effectiveSourceLevel).toBe('country_pack');
+    expect(effBody(resolved).isLocked).toBe(false);
+    expect(effBody(resolved).lockedAtLevel).toBeNull();
+
+    const inspected = await inspectKey(ownerTokenC, key, {
+      branchId: branchCY,
+    }).expect(200);
+    const byLevel = new Map(
+      inspBody(inspected).levels.map((l) => [l.level, l]),
+    );
+    expect(byLevel.get('country_pack')?.eligible).toBe(true);
+    expect(byLevel.get('country_pack')?.isEffectiveSource).toBe(true);
+    expect(byLevel.get('country_pack')?.locked).toBe(false);
+    for (const level of ['platform', 'tenant', 'brand', 'branch', 'terminal']) {
+      expect(byLevel.get(level)?.eligible).toBe(false);
+    }
+
+    // Writes at every generic level reject 409 — due to
+    // provider-exclusivity, never a Country-Pack lock (this jurisdiction's
+    // pack declares none). The message identifies provider-exclusivity and
+    // never uses the word "locked".
+    const messageRe = /exclusively governed by the Country Pack/;
+    const tenantWrite = await putTenant(ownerTokenC, key, {
+      value: { tier: 'tenant' },
+    }).expect(409);
+    expect(errBody(tenantWrite).message).toMatch(messageRe);
+    expect(errBody(tenantWrite).message).not.toMatch(/locked/i);
+
+    const brandWrite = await putBrand(ownerTokenC, brandC, key, {
+      value: { tier: 'brand' },
+    }).expect(409);
+    expect(errBody(brandWrite).message).toMatch(messageRe);
+    expect(errBody(brandWrite).message).not.toMatch(/locked/i);
+
+    const branchWrite = await putBranch(ownerTokenC, branchCY, key, {
+      value: { tier: 'branch' },
+    }).expect(409);
+    expect(errBody(branchWrite).message).toMatch(messageRe);
+    expect(errBody(branchWrite).message).not.toMatch(/locked/i);
+
+    const terminalWrite = await putTerminal(ownerTokenC, terminalCY, key, {
+      value: { tier: 'terminal' },
+    }).expect(409);
+    expect(errBody(terminalWrite).message).toMatch(messageRe);
+    expect(errBody(terminalWrite).message).not.toMatch(/locked/i);
+
+    // unset/DELETE rejects for the same reason too — proving the
+    // provider-exclusivity check runs BEFORE the "no existing override"
+    // 404 path, even though no write could ever have created a row to
+    // unset in the first place.
+    const deleteResp = await deleteBranch(ownerTokenC, branchCY, key).expect(
+      409,
+    );
+    expect(errBody(deleteResp).message).toMatch(messageRe);
+    expect(errBody(deleteResp).message).not.toMatch(/locked/i);
+  });
+
+  // ============================================== P2C1-R1 Case B (supersedes FULL-SRS-PLT-COUNTRY-PACK-LOCK-P2B)
+  it('P2C1-R1 Case B: payments.cash_rounding_policy is STILL provider-exclusive when the active Country Pack DOES declare settingsLocks — the READ honestly reflects the signed lock, but the WRITE rejection is not, by itself, proof of lock causality (see Case C)', async () => {
     const key = 'payments.cash_rounding_policy';
 
     // jurisdiction X's activated pack declares
     // `settingsLocks: ['payments.cash_rounding_policy']` (see
-    // `activateTwoJurisdictionPacksBeforeBoot` above) — branchCX/tenantC both
-    // sit in jurisdiction X.
+    // `activateTwoJurisdictionPacksBeforeBoot` above) — branchCX/tenantC
+    // both sit in jurisdiction X. The READ side is unaffected by P2C1-R1:
+    // isLocked/lockedAtLevel still honestly reflect the pack's own signed
+    // settingsLocks declaration.
     const resolved = await resolveKey(ownerTokenC, key, {
       branchId: branchCX,
     }).expect(200);
@@ -934,13 +1028,20 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
     expect(effBody(resolved).isLocked).toBe(true);
     expect(effBody(resolved).lockedAtLevel).toBe('country_pack');
 
-    // Write: a tenant/brand/branch/terminal override beneath the
-    // Country-Pack lock is rejected server-side — the SAME generic
-    // higher-lock check tests G/H and the Platform-Default-lock test already
-    // prove for a tenant/platform lock, now proven for country_pack.
-    await putTenant(ownerTokenC, key, { value: { tier: 'tenant' } }).expect(
-      409,
-    );
+    // Write: tenant/brand/branch/terminal writes for this key still reject
+    // 409 here — but this is NOT, by itself, proof of Country-Pack lock
+    // causality: Case A above already proves provider-exclusivity alone
+    // rejects the identical write for a jurisdiction whose pack declares
+    // NO lock at all. The message here still identifies
+    // provider-exclusivity, not a lock, because that check fires first and
+    // unconditionally. Independent, causally-isolated proof that the
+    // GENERIC country_pack lock-walk mechanism itself works is Case C
+    // below, using a synthetic, non-production key.
+    const messageRe = /exclusively governed by the Country Pack/;
+    const tenantWrite = await putTenant(ownerTokenC, key, {
+      value: { tier: 'tenant' },
+    }).expect(409);
+    expect(errBody(tenantWrite).message).toMatch(messageRe);
     await putBrand(ownerTokenC, brandC, key, {
       value: { tier: 'brand' },
     }).expect(409);
@@ -951,13 +1052,14 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
       value: { tier: 'terminal' },
     }).expect(409);
 
-    // Inspector: a pre-existing lower-level row (inserted directly — the
-    // pack's lock is active for jurisdiction X from process boot, before any
-    // write could ever reach the ordinary admin write path unlocked, unlike
-    // the tenant/branch-lock tests above which apply their lock AFTER an
-    // earlier legitimate write; same technique the Platform-Default-lock
-    // test above uses for the same reason) is reported not-effective and
-    // blockedByHigherLock, exactly like that test's pre-existing tenant row.
+    // Stale-row behaviour (P2C1-R1 §5): a pre-existing branch-level row for
+    // this key — inserted directly, bypassing the (now always-rejecting)
+    // admin write path — is completely INERT: the branch level is
+    // `eligible: false` regardless of the row's physical existence, so it
+    // is never `blockedByHigherLock` (that would imply the resolver even
+    // looked at it) and never reports the stale value back. This is a
+    // STRONGER guarantee than "blocked": the row is structurally
+    // invisible, not merely outranked.
     const creator = await admin.membership.findFirstOrThrow({
       where: { tenantId: tenantC },
     });
@@ -987,24 +1089,136 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
     expect(cpView?.isEffectiveSource).toBe(true);
     expect(cpView?.locked).toBe(true);
 
-    const branchView = inspBody(inspected).levels.find(
-      (l) => l.level === 'branch',
-    );
-    expect(branchView?.configuredValue).toEqual({
-      tier: 'branch-preexisting',
-    });
-    expect(branchView?.blockedByHigherLock).toBe(true);
-    expect(branchView?.isEffectiveSource).toBe(false);
+    for (const level of ['platform', 'tenant', 'brand', 'branch', 'terminal']) {
+      const view = inspBody(inspected).levels.find((l) => l.level === level);
+      expect(view?.eligible).toBe(false);
+      expect(view?.configuredValue).toBeNull();
+      expect(view?.blockedByHigherLock).toBe(false);
+      expect(view?.isEffectiveSource).toBe(false);
+    }
 
     // Terminal-scoped case: branch-jurisdiction derivation
     // (`terminalCX -> branchCX -> jurisdiction X`,
     // `SettingsScopeService.deriveScope`) composes correctly with the
-    // Country-Pack lock.
+    // Country-Pack lock, and with provider-exclusivity.
     const resolvedTerminal = await resolveKey(ownerTokenC, key, {
       terminalId: terminalCX,
     }).expect(200);
     expect(effBody(resolvedTerminal).effectiveSourceLevel).toBe('country_pack');
     expect(effBody(resolvedTerminal).isLocked).toBe(true);
     expect(effBody(resolvedTerminal).lockedAtLevel).toBe('country_pack');
+  });
+});
+
+/**
+ * P2C1-R1 Case C — independent proof that the GENERIC `country_pack`-level
+ * lock-walk mechanism (`SettingsResolverService.computeEffective`, via
+ * `SettingsInspectorService`) causally stops lower resolution, decoupled
+ * from provider-exclusivity and from any real production Country-Pack key.
+ * Now that `payments.cash_rounding_policy` is provider-exclusive (Case A/B
+ * above), it can no longer serve as this proof — every write for it is
+ * rejected regardless of lock state. This describe block boots its OWN,
+ * SEPARATE Nest application with `COUNTRY_PACK_SETTING_FACT_QUERY`
+ * DI-overridden to a TEST-ONLY fake reporting a synthetic, non-production
+ * settingKey as configured+locked at `country_pack` and explicitly NOT
+ * provider-exclusive — proving the lock-walk stop on its own. The
+ * synthetic key is never added to `COUNTRY_PACK_SETTING_KEYS` and never
+ * touches the real Country-Pack parser's closed vocabulary; the override
+ * is scoped to this second, isolated app instance and cannot affect the
+ * shared app/describe block above.
+ */
+describe('Country-Pack lock causality (FR-PLT-026), independent of provider-exclusivity (P2C1-R1 Case C)', () => {
+  const SYNTHETIC_LOCKED_KEY = `test.plt_lock_causality_${Date.now()}`;
+
+  class FakeAlwaysLockedCountryPackSettingFactQuery implements CountryPackSettingFactQuery {
+    getSettingFact(
+      input: CountryPackSettingFactInput,
+    ): CountryPackSettingFact | null | undefined {
+      if (input.settingKey === SYNTHETIC_LOCKED_KEY) {
+        return { value: { synthetic: true }, locked: true };
+      }
+      return undefined;
+    }
+    supportedSettingKeys(): readonly string[] {
+      return [SYNTHETIC_LOCKED_KEY];
+    }
+    isProviderExclusive(): boolean {
+      return false;
+    }
+  }
+
+  let causalityApp: INestApplication<App>;
+  let causalityPrisma: PrismaService;
+  let tenantD: string;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(COUNTRY_PACK_SETTING_FACT_QUERY)
+      .useValue(new FakeAlwaysLockedCountryPackSettingFactQuery())
+      .compile();
+    causalityApp = moduleFixture.createNestApplication();
+    await causalityApp.init();
+    causalityPrisma = causalityApp.get(PrismaService);
+
+    const permissions = causalityApp.get(PermissionsService);
+    await permissions.ensureIdentityPermissions();
+
+    const tenants = causalityApp.get(TenantsService);
+    tenantD = (
+      await tenants.create({
+        slug: `plt-lockcause-${Date.now()}`,
+        legalName: 'PLT Lock-Causality Tenant',
+        defaultCurrency: 'EGP',
+        countryPackCode: 'EG',
+      })
+    ).id;
+  }, 60000);
+
+  afterAll(async () => {
+    await causalityApp.close();
+  });
+
+  it('country_pack-level lock stops lower resolution for a synthetic, non-production key — independent of provider-exclusivity', async () => {
+    // Pre-seed a tenant-level SettingValue row DIRECTLY (bypassing the
+    // admin write path, which would itself now reject any write beneath
+    // an already-locked country_pack level — the same "pre-existing row"
+    // technique Case B and the Platform-Default-lock test use).
+    const users = causalityApp.get(UsersService);
+    const creator = await users.createUser({
+      email: `plt-lockcause-${Date.now()}@example.com`,
+      password: 's3cure-passphrase',
+      displayName: 'Lock Causality Seed',
+    });
+    await causalityPrisma.withAuthContext({ tenantId: tenantD }, (tx) =>
+      tx.settingValue.create({
+        data: {
+          id: newId(),
+          tenantId: tenantD,
+          level: 'tenant',
+          targetId: tenantD,
+          settingKey: SYNTHETIC_LOCKED_KEY,
+          value: { tier: 'tenant-preexisting' },
+          createdBy: creator.id,
+        },
+      }),
+    );
+
+    const inspector = causalityApp.get(SettingsInspectorService);
+    const result = await inspector.inspect(tenantD, {
+      settingKey: SYNTHETIC_LOCKED_KEY,
+    });
+
+    expect(result.effective.effectiveSourceLevel).toBe('country_pack');
+    expect(result.effective.isLocked).toBe(true);
+    expect(result.effective.lockedAtLevel).toBe('country_pack');
+
+    const tenantView = result.levels.find((l) => l.level === 'tenant');
+    expect(tenantView?.configuredValue).toEqual({
+      tier: 'tenant-preexisting',
+    });
+    expect(tenantView?.blockedByHigherLock).toBe(true);
+    expect(tenantView?.isEffectiveSource).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,8 @@ import {
   AUDIT_ENTITY,
   AuditService,
 } from '../governance/contract';
+import { COUNTRY_PACK_SETTING_FACT_QUERY } from '../localisation/contract';
+import type { CountryPackSettingFactQuery } from '../localisation/contract';
 import { SettingsResolverService } from './settings-resolver.service';
 import { SettingsScopeService } from './settings-scope.service';
 import { assertValidSettingKey } from './settings-key.util';
@@ -72,6 +75,8 @@ export class SettingsAdminService {
     private readonly scope: SettingsScopeService,
     private readonly resolver: SettingsResolverService,
     private readonly audit: AuditService,
+    @Inject(COUNTRY_PACK_SETTING_FACT_QUERY)
+    private readonly countryPackFacts: CountryPackSettingFactQuery,
   ) {}
 
   async upsert(
@@ -84,6 +89,7 @@ export class SettingsAdminService {
     locked: boolean | undefined,
   ): Promise<SettingValueRecord> {
     assertValidSettingKey(settingKey);
+    this.assertNotProviderExclusive(settingKey, level);
     return this.prisma.withAuthContext({ tenantId }, async (tx) => {
       await this.validateTarget(tx, tenantId, level, targetId);
       await this.assertNotBlockedByHigherLock(
@@ -147,6 +153,7 @@ export class SettingsAdminService {
     settingKey: string,
   ): Promise<void> {
     assertValidSettingKey(settingKey);
+    this.assertNotProviderExclusive(settingKey, level);
     await this.prisma.withAuthContext({ tenantId }, async (tx) => {
       await this.validateTarget(tx, tenantId, level, targetId);
 
@@ -206,6 +213,35 @@ export class SettingsAdminService {
       tenantId,
       ancestorHintFor(level, targetId),
     );
+  }
+
+  /**
+   * P2C1-R1 — a PROVIDER-EXCLUSIVE key (e.g. `payments.cash_rounding_policy`)
+   * can never be configured at any generic-settings level; Country Pack is
+   * its sole authority (`FR-POS-063`). Checked BEFORE `validateTarget`/
+   * `assertNotBlockedByHigherLock` — a structural fact about the KEY
+   * itself, not a per-target or per-lock-state condition, so it is
+   * rejected as cheaply as possible, before any database access.
+   *
+   * Reuses the SAME `ConflictException`/409 convention
+   * `assertNotBlockedByHigherLock` uses for an illegal override — but the
+   * message is deliberately DISTINCT and never uses the word "locked":
+   * provider-exclusivity is a STATIC fact about the key, strictly separate
+   * from `FR-PLT-026` locking (`CountryPack.settingsLocks`, a DYNAMIC,
+   * per-pack, optional declaration) — conflating the two in the message
+   * would misrepresent WHY the write is refused, even though both
+   * currently produce the same HTTP status.
+   */
+  private assertNotProviderExclusive(
+    settingKey: string,
+    level: StorableSettingLevel,
+  ): void {
+    if (this.countryPackFacts.isProviderExclusive(settingKey)) {
+      throw new ConflictException(
+        `${settingKey} is exclusively governed by the Country Pack and ` +
+          `cannot be configured at ${level}.`,
+      );
+    }
   }
 
   /**

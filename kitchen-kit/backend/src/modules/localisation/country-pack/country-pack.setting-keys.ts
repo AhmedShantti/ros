@@ -65,3 +65,43 @@ export function countryPackContributes(
       return pack.currency !== undefined && pack.tax !== undefined;
   }
 }
+
+/**
+ * P2C1-R1 — the CLOSED, EXPLICIT subset of `COUNTRY_PACK_SETTING_KEYS`
+ * that is PROVIDER-EXCLUSIVE: no `platform`/`tenant`/`brand`/`branch`/
+ * `terminal` generic-settings override may ever be treated as effective
+ * for one of these keys, regardless of whether the active pack declares
+ * it in `settingsLocks`. This is a STATIC, structural fact about the key
+ * itself, grounded in that key's own governing SRS text — NOT a blanket
+ * "every Country-Pack-contributed key is automatically provider-
+ * exclusive" rule. Each entry below is an individual, evidenced
+ * Localisation judgment; a future key added to `COUNTRY_PACK_SETTING_KEYS`
+ * does NOT automatically join this set (P2C1-R1 clause 4) — it requires
+ * its own authority decision.
+ *
+ * `payments.cash_rounding_policy`: `FR-POS-063` [M] ("apply THE COUNTRY
+ * PACK'S cash rounding rule" — sole authority, no tenant/brand/branch
+ * override contemplated), `FR-FIN-035` [M] ("specified by the country
+ * pack ... applied CONSISTENTLY across POS, server, receipt, and fiscal
+ * submission"), `BR-FIN-004` (a jurisdiction fact — "where the
+ * jurisdiction has withdrawn small denominations"), `FR-LOC-020` [M]
+ * ("ALL jurisdiction-specific behaviour SHALL be driven by the country
+ * pack. No country-specific logic SHALL be compiled into core application
+ * code" — unconditional, no stated exception for a business override).
+ * Ratified: `docs/governance/GOVERNANCE_DECISION_REGISTER.md` `P2C1-R1`.
+ */
+const PROVIDER_EXCLUSIVE_SETTING_KEYS: ReadonlySet<string> = new Set([
+  'payments.cash_rounding_policy',
+] satisfies readonly CountryPackSettingKey[]);
+
+/**
+ * Distinct from `countryPackContributes` (whether a specific pack DEFINES
+ * a value for `key`) and from a pack's own `settingsLocks` (whether THIS
+ * pack chose to lock it). This answers a third, independent question:
+ * whether `key` may EVER be configured below `country_pack` at all, for
+ * ANY pack, ANY tenant. See `COUNTRY_PACK_SETTING_FACT_QUERY.isProviderExclusive`
+ * for the full contract this implements.
+ */
+export function isProviderExclusiveSettingKey(key: string): boolean {
+  return PROVIDER_EXCLUSIVE_SETTING_KEYS.has(key);
+}

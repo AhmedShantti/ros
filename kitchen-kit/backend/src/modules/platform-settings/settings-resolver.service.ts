@@ -128,6 +128,24 @@ export class SettingsResolverService {
     settingKey: string,
     at: Date,
   ): Promise<SettingLevelEntry> {
+    if (level === 'country_pack') {
+      return this.fetchCountryPackEntry(tx, scope, settingKey, at);
+    }
+
+    // P2C1-R1: a PROVIDER-EXCLUSIVE key (e.g. `payments.cash_rounding_policy`)
+    // is never eligible at any level OTHER than `country_pack` — Country
+    // Pack is its sole authority (FR-POS-063), regardless of whether the
+    // active pack declares a `settingsLocks` entry for it. This is a
+    // STATIC, structural fact about the key itself, checked BEFORE any
+    // database read and applied uniformly to `platform` and every storable
+    // level below — never fabricated as `locked` (that stays sourced
+    // exclusively from `country_pack`'s own entry, via `fetchCountryPackEntry`,
+    // untouched by this check), and never a branch inside `computeEffective`
+    // (unmodified — see that method's own docblock).
+    if (this.countryPackFacts.isProviderExclusive(settingKey)) {
+      return this.ineligibleEntry(level);
+    }
+
     if (level === 'platform') {
       const row = await tx.platformDefaultSetting.findUnique({
         where: { settingKey },
@@ -143,20 +161,9 @@ export class SettingsResolverService {
       };
     }
 
-    if (level === 'country_pack') {
-      return this.fetchCountryPackEntry(tx, scope, settingKey, at);
-    }
-
     const targetId = targetIdForStorableLevel(level, scope);
     if (targetId === null) {
-      return {
-        level,
-        eligible: false,
-        targetId: null,
-        hasConfiguredValue: false,
-        configuredValue: null,
-        locked: false,
-      };
+      return this.ineligibleEntry(level);
     }
 
     const row = await tx.settingValue.findUnique({
@@ -177,6 +184,21 @@ export class SettingsResolverService {
       hasConfiguredValue: row !== null,
       configuredValue: row?.value ?? null,
       locked: row?.locked ?? false,
+    };
+  }
+
+  /** The shared "not in play for this key" shape — an absent-id level, a
+   * key country_pack has no representation for, and (P2C1-R1) a
+   * provider-exclusive key at any level below `country_pack` all read
+   * identically: eligible: false, nothing configured, never locked. */
+  private ineligibleEntry(level: SettingHierarchyLevel): SettingLevelEntry {
+    return {
+      level,
+      eligible: false,
+      targetId: null,
+      hasConfiguredValue: false,
+      configuredValue: null,
+      locked: false,
     };
   }
 

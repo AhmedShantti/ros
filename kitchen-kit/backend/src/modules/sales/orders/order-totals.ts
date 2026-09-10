@@ -101,9 +101,16 @@ export async function recomputeOrderTotals(
   const orderLevelDiscountMinor = orderLevelDiscount._sum.amountMinor ?? 0n;
 
   // NOTE: `serviceChargeTotal` and `roundingAdjustment` are still NOT
-  // recomputed here — service charge and cash rounding (BR-FIN-004) are not
-  // implemented, so this function must not pretend to maintain them. They
-  // stay at their defaults of 0, exactly as before this slice.
+  // recomputed here, for two DIFFERENT reasons — this function must not
+  // pretend to maintain either. `serviceChargeTotal` stays 0: no
+  // service-charge computation exists anywhere yet (FR-PLT-028's
+  // service-charge configuration substrate is separately tracked, P2D/P2E).
+  // `roundingAdjustment` is NOT unimplemented — BR-FIN-004 cash rounding IS
+  // computed, correctly, in `SalesPaymentService` at PAYMENT CAPTURE time
+  // (using the pinned Country Pack's cash-rounding policy via
+  // `PINNED_PAYMENT_POLICY_QUERY`), which is the only instant a cash
+  // tender's rounding can be computed at; it is intentionally never
+  // recomputed here, from order LINES, on line add/void.
   return {
     subtotal,
     taxTotal,

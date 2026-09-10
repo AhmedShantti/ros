@@ -103,4 +103,28 @@ export interface CountryPackSettingFactQuery {
    * probing with a throwaway call.
    */
   supportedSettingKeys(): readonly string[];
+
+  /**
+   * P2C1-R1 — `true` when `settingKey` is a Country-Pack PROVIDER-EXCLUSIVE
+   * key: no `platform`/`tenant`/`brand`/`branch`/`terminal` generic-settings
+   * override may ever be treated as effective for it, REGARDLESS of
+   * whether the currently-active pack declares it in `settingsLocks`.
+   *
+   * This is a STATIC, structural fact about the key itself, grounded in
+   * that key's own governing SRS requirement (e.g. `FR-POS-063` for
+   * `payments.cash_rounding_policy` — "apply THE COUNTRY PACK'S cash
+   * rounding rule") — never a per-pack, per-tenant, or dynamic decision,
+   * and STRICTLY DISTINCT from `FR-PLT-026` locking
+   * (`CountryPack.settingsLocks`, P2A-R1 clause 1): a key can be
+   * provider-exclusive whether or not any pack ever locks it, and the two
+   * facts must never be conflated (never represented by fabricating
+   * `locked: true`).
+   *
+   * NOT every key in `supportedSettingKeys()` is automatically
+   * provider-exclusive — each key's classification is an explicit,
+   * individual Localisation judgment grounded in that key's own text
+   * (P2C1-R1 clause 4), never inferred from mere Country-Pack
+   * contribution.
+   */
+  isProviderExclusive(settingKey: string): boolean;
 }
