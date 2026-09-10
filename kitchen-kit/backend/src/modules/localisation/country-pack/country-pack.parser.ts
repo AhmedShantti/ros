@@ -18,6 +18,7 @@
  * same value in this repository is `"14.0"`.
  */
 
+import { isValidSettingKeySyntax } from '../../../common/settings-key';
 import { Currency, currencyWithExponent } from '../../../common/money/currency';
 import {
   ExactDecimal,
@@ -36,6 +37,11 @@ import {
   TaxComponentDef,
   TaxConfig,
 } from './country-pack.model';
+import {
+  COUNTRY_PACK_SETTING_KEYS,
+  countryPackContributes,
+  isCountryPackSettingKey,
+} from './country-pack.setting-keys';
 
 const CODE_PATTERN = /^[A-Z]{2,8}$/;
 const VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -506,6 +512,61 @@ function parseTax(
   };
 }
 
+// ------------------------------------------------------------ settingsLocks
+
+/**
+ * FR-PLT-026 / P2A-R1 clause 1 — validate `settingsLocks`.
+ *
+ * Absent is normalised to `[]` (the field's explicitly ratified meaning for
+ * every pack signed before this decision, and the honest "nothing locked"
+ * for every pack that simply chooses not to lock anything). Present, it must
+ * be an array of strings, each of which: (A) passes the shared settings-key
+ * SYNTAX check, (B) names a key in Country Pack's CLOSED supported-key set,
+ * and (C) is a key THIS pack actually, authoritatively contributes — a pack
+ * cannot lock a key it does not itself define. Duplicates are rejected
+ * rather than silently deduplicated: a pack author repeating an entry is a
+ * pack-authoring error, not a runtime decision to paper over.
+ */
+function parseSettingsLocks(
+  raw: unknown,
+  path: string,
+  pack: Pick<CountryPack, 'currency' | 'tax'>,
+): readonly string[] {
+  if (raw === undefined) return [];
+
+  const rawEntries = asArray(raw, path);
+  const seen = new Set<string>();
+  return rawEntries.map((entry, i) => {
+    const key = asString(entry, `${path}[${i}]`);
+
+    if (!isValidSettingKeySyntax(key)) {
+      fail(
+        `${path}[${i}]`,
+        `${JSON.stringify(key)} is not a valid settings-hierarchy key.`,
+      );
+    }
+    if (!isCountryPackSettingKey(key)) {
+      fail(
+        `${path}[${i}]`,
+        `${JSON.stringify(key)} is not a Country-Pack-supported settings ` +
+          `key. Supported: ${COUNTRY_PACK_SETTING_KEYS.join(', ')}.`,
+      );
+    }
+    if (!countryPackContributes(pack, key)) {
+      fail(
+        `${path}[${i}]`,
+        `this pack does not itself contribute a value for ${JSON.stringify(key)}, ` +
+          'so it may not lock it.',
+      );
+    }
+    if (seen.has(key)) {
+      fail(`${path}[${i}]`, `duplicate settings lock ${JSON.stringify(key)}.`);
+    }
+    seen.add(key);
+    return key;
+  });
+}
+
 // ------------------------------------------------------------------ export
 
 /**
@@ -553,6 +614,11 @@ export function parseCountryPack(
     currency.currency.exponent,
     options,
   );
+  const settingsLocks = parseSettingsLocks(
+    doc.settingsLocks,
+    'countryPack.settingsLocks',
+    { currency, tax },
+  );
 
-  return { code, version, effectiveFrom, currency, tax };
+  return { code, version, effectiveFrom, currency, tax, settingsLocks };
 }

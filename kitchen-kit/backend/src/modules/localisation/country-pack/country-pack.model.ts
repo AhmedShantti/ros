@@ -162,6 +162,18 @@ export interface CountryPack {
   readonly effectiveFrom: Date;
   readonly currency: CurrencyConfig;
   readonly tax: TaxConfig;
+  /**
+   * FR-PLT-026 / P2A-R1 clause 1 — the settings-hierarchy keys THIS pack
+   * declares locked at the Country Pack level. OPTIONAL in the signed
+   * document; absent is normalised to `[]` by the parser — "nothing locked"
+   * — which is exactly the field's meaning for every pack signed before this
+   * decision existed. A pack may only name a key it itself authoritatively
+   * contributes (`country-pack.setting-keys.ts`'s `countryPackContributes`);
+   * the parser rejects anything else at load time (`country-pack.parser.ts`).
+   * Ordinary signed document content — participates in RFC-8785
+   * canonicalisation/signature like every other field, no special-casing.
+   */
+  readonly settingsLocks: readonly string[];
 }
 
 /**

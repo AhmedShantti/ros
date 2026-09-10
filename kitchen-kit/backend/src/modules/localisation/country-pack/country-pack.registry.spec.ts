@@ -157,6 +157,33 @@ describe('Country Pack activation policy (FR-LOC-022 / FR-LOC-031)', () => {
     );
   });
 
+  it('activates and verifies a pack signed with no settingsLocks field at all (backward compatibility, P2A-R1 clause 1/17)', async () => {
+    // Simulates a pack signed BEFORE this decision existed: the document
+    // never had a `settingsLocks` key, so JCS canonicalisation of it is
+    // unaffected — no already-signed pack requires re-signing.
+    const registry = new CountryPackRegistry(trusted(), parseOptions);
+    const pack = await registry.activate(signed());
+    expect(pack.settingsLocks).toEqual([]);
+  });
+
+  it('activates and verifies a pack that DOES declare settingsLocks — the field participates in the signature like ordinary content, no special-casing', async () => {
+    const registry = new CountryPackRegistry(trusted(), parseOptions);
+    const pack = await registry.activate(
+      signed({ settingsLocks: ['payments.cash_rounding_policy'] }),
+    );
+    expect(pack.settingsLocks).toEqual(['payments.cash_rounding_policy']);
+  });
+
+  it('rejects a settingsLocks tampered with after signing, exactly like any other tampered field', async () => {
+    const registry = new CountryPackRegistry(trusted(), parseOptions);
+    const doc = signed({ settingsLocks: ['payments.cash_rounding_policy'] });
+
+    await expect(
+      registry.activate({ ...doc, settingsLocks: [] }),
+    ).rejects.toBeInstanceOf(CountryPackActivationError);
+    expect(registry.size).toBe(0);
+  });
+
   it('hands the verifier the document with the signature stripped', async () => {
     const verifier = new RecordingVerifier(realVerifier());
     const registry = new CountryPackRegistry(verifier, parseOptions);

@@ -61,7 +61,7 @@ describe('CountryPackSettingFactQueryService', () => {
     ).toBeNull();
   });
 
-  it('maps payments.cash_rounding_policy from a genuinely activated pack', async () => {
+  it('maps payments.cash_rounding_policy from a genuinely activated pack, unlocked when the pack declares no settingsLocks', async () => {
     const service = await buildActivatedService(
       withCurrency({ cashRounding: { enabled: true, stepMinorUnits: 25 } }),
     );
@@ -70,18 +70,35 @@ describe('CountryPackSettingFactQueryService', () => {
       settingKey: 'payments.cash_rounding_policy',
       at: new Date(),
     }) as {
-      currencyCode: string;
-      cashRoundingEnabled: boolean;
-      cashRoundingStepMinorUnits: string | null;
-      roundingMode: string;
-      roundingPrecision: number;
+      value: {
+        currencyCode: string;
+        cashRoundingEnabled: boolean;
+        cashRoundingStepMinorUnits: string | null;
+        roundingMode: string;
+        roundingPrecision: number;
+      };
+      locked: boolean;
     };
 
-    expect(fact.currencyCode).toBe('EGP');
-    expect(fact.cashRoundingEnabled).toBe(true);
-    expect(fact.cashRoundingStepMinorUnits).toBe('25');
-    expect(fact.roundingMode).toBe('HALF_UP');
-    expect(fact.roundingPrecision).toBe(2);
+    expect(fact.value.currencyCode).toBe('EGP');
+    expect(fact.value.cashRoundingEnabled).toBe(true);
+    expect(fact.value.cashRoundingStepMinorUnits).toBe('25');
+    expect(fact.value.roundingMode).toBe('HALF_UP');
+    expect(fact.value.roundingPrecision).toBe(2);
+    expect(fact.locked).toBe(false);
+  });
+
+  it('reports locked=true when the activated pack declares payments.cash_rounding_policy in settingsLocks (FR-PLT-026 / P2A-R1)', async () => {
+    const service = await buildActivatedService({
+      settingsLocks: ['payments.cash_rounding_policy'],
+    });
+    const fact = service.getSettingFact({
+      countryPackCode: 'EG',
+      settingKey: 'payments.cash_rounding_policy',
+      at: new Date(),
+    }) as { locked: boolean };
+
+    expect(fact.locked).toBe(true);
   });
 
   it('supportedSettingKeys names exactly the mapped keys', async () => {

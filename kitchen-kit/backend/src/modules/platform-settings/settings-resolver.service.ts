@@ -242,27 +242,13 @@ export class SettingsResolverService {
       level: 'country_pack',
       eligible: true,
       targetId: jurisdictionCode,
+      // FR-PLT-026 / P2A-R1 clause 1: the fact is `{ value, locked }` — the
+      // contributing pack's own signed `settingsLocks` decides `locked`, so
+      // this resolver honours a Country-Pack lock exactly as it does for
+      // every other level, through the SAME `computeEffective` walk below.
       hasConfiguredValue: fact !== null,
-      configuredValue: fact,
-      // FULL-SRS-PLT-SETTINGS-DESIGN-CORRECTION-GATE-P1B §2: this is a
-      // KNOWN, GOVERNANCE-BLOCKED GAP, not a settled architectural
-      // conclusion. The signed CountryPack document has no generic
-      // settings-key lock representation today (no field anywhere in
-      // `country-pack.model.ts`/`country-pack.parser.ts` expresses one), so
-      // this resolver CANNOT currently honour FR-PLT-026 ("a setting SHALL
-      // be markable as locked at any level") for Country-Pack-sourced
-      // values — it reports them unlocked because that is presently,
-      // literally true, not because the SRS or any ratified governance
-      // decision exempts Country Pack from lockability. A lower-level
-      // override therefore remains possible for a Country-Pack-sourced
-      // value until a governance decision extends the signed-pack format
-      // with a lock representation and this resolver is updated to honour
-      // it — see docs/reports/claude/
-      // 2026-09-09_FULL-SRS-PLT-SETTINGS-DESIGN-CORRECTION-GATE-P1B.md §2
-      // and docs/reports/claude/
-      // 2026-09-09_FULL-SRS-PLT-SETTINGS-CORRECTION-P1C.md
-      // COUNTRY_PACK_LOCK_DOCUMENTED_GAP.
-      locked: false,
+      configuredValue: fact?.value ?? null,
+      locked: fact?.locked ?? false,
     };
   }
 

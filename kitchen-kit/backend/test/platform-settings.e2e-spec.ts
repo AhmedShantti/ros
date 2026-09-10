@@ -58,7 +58,15 @@ function activateTwoJurisdictionPacksBeforeBoot(): {
   const packX = signPackDocument(
     withCurrency(
       { code: 'XPA', cashRounding: { enabled: false } },
-      { code: jurisdictionX, version: '1.0' },
+      {
+        code: jurisdictionX,
+        version: '1.0',
+        // FR-PLT-026 / P2A-R1 clause 1 — jurisdiction X's pack locks the one
+        // supported Country-Pack settings key, so the resolver e2e suite can
+        // prove country_pack-level locking end-to-end (see the dedicated
+        // "Country-Pack lock" test below).
+        settingsLocks: ['payments.cash_rounding_policy'],
+      },
     ),
     releaseKey,
   );
@@ -169,6 +177,7 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
   let brandC: string;
   let branchCX: string;
   let branchCY: string;
+  let terminalCX: string;
   let terminalCY: string;
   let ownerTokenC: string;
 
@@ -366,6 +375,17 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
       })
       .expect(201);
     terminalCY = (terminalCYRes.body as WithId).id;
+
+    const terminalCXRes = await request(http)
+      .post('/auth/terminals')
+      .set(auth(ownerTokenC))
+      .send({
+        branchId: branchCX,
+        name: `TCX-${shortStamp}`,
+        terminalType: 'pos',
+      })
+      .expect(201);
+    terminalCX = (terminalCXRes.body as WithId).id;
   }, 60000);
 
   afterAll(async () => {
@@ -897,5 +917,94 @@ describe('Platform settings resolver (e2e) — FR-PLT-025/026/027', () => {
       cashRoundingEnabled: boolean;
     };
     expect(terminalValue.cashRoundingEnabled).toBe(true);
+  });
+
+  // ============================================== FULL-SRS-PLT-COUNTRY-PACK-LOCK-P2B
+  it('Country-Pack lock (FR-PLT-026 / P2A-R1): country_pack lock blocks every lower-level override, on read and on write, and the inspector shows it', async () => {
+    const key = 'payments.cash_rounding_policy';
+
+    // jurisdiction X's activated pack declares
+    // `settingsLocks: ['payments.cash_rounding_policy']` (see
+    // `activateTwoJurisdictionPacksBeforeBoot` above) — branchCX/tenantC both
+    // sit in jurisdiction X.
+    const resolved = await resolveKey(ownerTokenC, key, {
+      branchId: branchCX,
+    }).expect(200);
+    expect(effBody(resolved).effectiveSourceLevel).toBe('country_pack');
+    expect(effBody(resolved).isLocked).toBe(true);
+    expect(effBody(resolved).lockedAtLevel).toBe('country_pack');
+
+    // Write: a tenant/brand/branch/terminal override beneath the
+    // Country-Pack lock is rejected server-side — the SAME generic
+    // higher-lock check tests G/H and the Platform-Default-lock test already
+    // prove for a tenant/platform lock, now proven for country_pack.
+    await putTenant(ownerTokenC, key, { value: { tier: 'tenant' } }).expect(
+      409,
+    );
+    await putBrand(ownerTokenC, brandC, key, {
+      value: { tier: 'brand' },
+    }).expect(409);
+    await putBranch(ownerTokenC, branchCX, key, {
+      value: { tier: 'branch' },
+    }).expect(409);
+    await putTerminal(ownerTokenC, terminalCX, key, {
+      value: { tier: 'terminal' },
+    }).expect(409);
+
+    // Inspector: a pre-existing lower-level row (inserted directly — the
+    // pack's lock is active for jurisdiction X from process boot, before any
+    // write could ever reach the ordinary admin write path unlocked, unlike
+    // the tenant/branch-lock tests above which apply their lock AFTER an
+    // earlier legitimate write; same technique the Platform-Default-lock
+    // test above uses for the same reason) is reported not-effective and
+    // blockedByHigherLock, exactly like that test's pre-existing tenant row.
+    const creator = await admin.membership.findFirstOrThrow({
+      where: { tenantId: tenantC },
+    });
+    await appPrisma.withAuthContext({ tenantId: tenantC }, (tx) =>
+      tx.settingValue.create({
+        data: {
+          id: newId(),
+          tenantId: tenantC,
+          level: 'branch',
+          targetId: branchCX,
+          settingKey: key,
+          value: { tier: 'branch-preexisting' },
+          createdBy: creator.userId,
+        },
+      }),
+    );
+
+    const inspected = await inspectKey(ownerTokenC, key, {
+      branchId: branchCX,
+    }).expect(200);
+    expect(inspBody(inspected).effective.effectiveSourceLevel).toBe(
+      'country_pack',
+    );
+    const cpView = inspBody(inspected).levels.find(
+      (l) => l.level === 'country_pack',
+    );
+    expect(cpView?.isEffectiveSource).toBe(true);
+    expect(cpView?.locked).toBe(true);
+
+    const branchView = inspBody(inspected).levels.find(
+      (l) => l.level === 'branch',
+    );
+    expect(branchView?.configuredValue).toEqual({
+      tier: 'branch-preexisting',
+    });
+    expect(branchView?.blockedByHigherLock).toBe(true);
+    expect(branchView?.isEffectiveSource).toBe(false);
+
+    // Terminal-scoped case: branch-jurisdiction derivation
+    // (`terminalCX -> branchCX -> jurisdiction X`,
+    // `SettingsScopeService.deriveScope`) composes correctly with the
+    // Country-Pack lock.
+    const resolvedTerminal = await resolveKey(ownerTokenC, key, {
+      terminalId: terminalCX,
+    }).expect(200);
+    expect(effBody(resolvedTerminal).effectiveSourceLevel).toBe('country_pack');
+    expect(effBody(resolvedTerminal).isLocked).toBe(true);
+    expect(effBody(resolvedTerminal).lockedAtLevel).toBe('country_pack');
   });
 });

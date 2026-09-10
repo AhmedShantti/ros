@@ -275,3 +275,85 @@ describe('Country Pack parser (FR-LOC-020/021/023/025)', () => {
     expect(pack.code).toBe('EG');
   });
 });
+
+/**
+ * FR-PLT-026 / P2A-R1 clause 1 — `settingsLocks`. Backward compatibility
+ * (§7) and every invalid-pack case (§8) this slice requires.
+ */
+describe('Country Pack parser — settingsLocks (FR-PLT-026 / P2A-R1)', () => {
+  // -------------------------------------------------------- backward compat
+  it('an old pack with no settingsLocks parses, and settingsLocks is exactly []', () => {
+    const pack = parse(makePackDocument());
+    expect(pack.settingsLocks).toEqual([]);
+  });
+
+  it('an explicit empty settingsLocks means nothing locked, same as absent', () => {
+    const pack = parse(makePackDocument({ settingsLocks: [] }));
+    expect(pack.settingsLocks).toEqual([]);
+  });
+
+  // ------------------------------------------------------------- valid case
+  it('accepts a lock on a key this pack actually contributes', () => {
+    const pack = parse(
+      makePackDocument({ settingsLocks: ['payments.cash_rounding_policy'] }),
+    );
+    expect(pack.settingsLocks).toEqual(['payments.cash_rounding_policy']);
+  });
+
+  // ------------------------------------------------------------ A: unknown key
+  it('A: rejects a settings lock naming a key outside the Country-Pack closed vocabulary', () => {
+    expect(() =>
+      parse(
+        makePackDocument({ settingsLocks: ['payments.service_charge_policy'] }),
+      ),
+    ).toThrow(/not a Country-Pack-supported settings key/);
+  });
+
+  // ------------------------------------------------------- B: invalid syntax
+  it('B: rejects a syntactically invalid settings-key string', () => {
+    expect(() =>
+      parse(makePackDocument({ settingsLocks: ['Payments.CashRounding'] })),
+    ).toThrow(/not a valid settings-hierarchy key/);
+    expect(() =>
+      parse(makePackDocument({ settingsLocks: ['.leading.dot'] })),
+    ).toThrow(/not a valid settings-hierarchy key/);
+  });
+
+  // ---------------------------------------------------------- C: duplicate
+  it('C: rejects a duplicate lock key', () => {
+    expect(() =>
+      parse(
+        makePackDocument({
+          settingsLocks: [
+            'payments.cash_rounding_policy',
+            'payments.cash_rounding_policy',
+          ],
+        }),
+      ),
+    ).toThrow(/duplicate settings lock/);
+  });
+
+  // ------------------------------------------------- D: not authoritatively contributed
+  // See `country-pack.setting-keys.spec.ts` — every currently valid pack
+  // unconditionally contributes the sole supported key
+  // (`currency.cashRounding`/`tax.roundingMode` are mandatory fields), so
+  // this branch is not reachable through a production pack document today.
+  // The contribution predicate itself is proven directly there instead of
+  // fabricating an unsupported pack shape here to force it false.
+
+  // -------------------------------------------------------- E: non-array
+  it('E: rejects a non-array settingsLocks', () => {
+    expect(() =>
+      parse(
+        makePackDocument({ settingsLocks: 'payments.cash_rounding_policy' }),
+      ),
+    ).toThrow(/countryPack\.settingsLocks/);
+  });
+
+  // ---------------------------------------------------- F: non-string member
+  it('F: rejects a non-string settingsLocks member', () => {
+    expect(() => parse(makePackDocument({ settingsLocks: [42] }))).toThrow(
+      /countryPack\.settingsLocks\[0\]/,
+    );
+  });
+});

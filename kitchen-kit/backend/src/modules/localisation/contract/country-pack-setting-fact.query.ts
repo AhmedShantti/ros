@@ -65,6 +65,20 @@ export interface CountryPackSettingFactInput {
   readonly at: Date;
 }
 
+/**
+ * FR-PLT-026 / P2A-R1 clause 1 — a Country-Pack-sourced contribution PLUS
+ * whether the contributing pack declares that key locked (its signed
+ * `settingsLocks`). Never exposes the whole `CountryPack` document, or any
+ * signature/provider/internal metadata — only the two facts the settings
+ * resolver needs.
+ */
+export interface CountryPackSettingFact {
+  /** The JSON-serializable contributed value. */
+  readonly value: unknown;
+  /** Whether the contributing pack's `settingsLocks` names this key. */
+  readonly locked: boolean;
+}
+
 export interface CountryPackSettingFactQuery {
   /**
    * The Country-Pack-sourced contribution for one generic settings-hierarchy
@@ -75,10 +89,12 @@ export interface CountryPackSettingFactQuery {
    * when the key IS a supported Country Pack key but no pack is currently
    * activated/effective for `countryPackCode` at `at` (an honest "eligible,
    * but unconfigured right now" — the resolver treats this exactly like an
-   * absent row at any other level). Otherwise returns the JSON-serializable
-   * value.
+   * absent row at any other level). Otherwise returns the fact, `{ value,
+   * locked }`.
    */
-  getSettingFact(input: CountryPackSettingFactInput): unknown;
+  getSettingFact(
+    input: CountryPackSettingFactInput,
+  ): CountryPackSettingFact | null | undefined;
 
   /**
    * The fixed allow-list of settingKeys this query can ever answer for —
