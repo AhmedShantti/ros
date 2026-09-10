@@ -35,10 +35,14 @@ export type TaxPresentation =
  * it at read time would reintroduce exactly the historical-drift risk this
  * projection exists to avoid (design gate §J.2).
  *
- * `UNDETERMINED` is structurally unreachable under the current runtime
- * (Order.complete()'s own arithmetic guarantees one of the two equalities
- * holds whenever `taxTotal != 0`); it exists so a historically anomalous
- * row still yields an honest label instead of failing a read.
+ * `UNDETERMINED` is genuinely reachable — not merely a defensive fallback —
+ * for any order carrying a line-level discount (POS-FIN-1) or a non-zero
+ * `serviceChargeTotal` (P2E): both make `grandTotal` diverge from the two
+ * simple equalities below by construction, honestly, without corrupting
+ * `grandTotal` itself. This field narrowly answers "is the unit PRICE
+ * tax-inclusive or -exclusive", a question those two amounts do not bear
+ * on; it exists so such a row still yields an honest label instead of a
+ * wrong INCLUSIVE/EXCLUSIVE guess or a failed read.
  */
 export function deriveTaxPresentation(totals: {
   readonly subtotal: bigint;

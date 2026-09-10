@@ -36,6 +36,7 @@ import {
   AUDIT_ENTITY,
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
+import { CountryPackService } from '../../localisation/country-pack/country-pack.service';
 import { PRODUCTION_CONSUMPTION_QUERY } from '../../production/contract';
 import type {
   PlanConsumptionLineInput,
@@ -72,6 +73,7 @@ export class PostFireVoidService {
   constructor(
     private readonly unitOfWork: UnitOfWork,
     private readonly audit: AuditService,
+    private readonly countryPacks: CountryPackService,
     @Inject(PRODUCTION_CONSUMPTION_QUERY)
     private readonly consumption: ProductionConsumptionQuery,
     @Inject(POST_FIRE_VOID_DISPOSITION_COMMAND)
@@ -213,6 +215,7 @@ export class PostFireVoidService {
           order.id,
           businessDay,
           order.currency,
+          this.countryPacks,
         );
         // CAS on `version` — see `discounts.service.ts`'s identical
         // reasoning; a plain PK update would let two concurrent order

@@ -444,6 +444,7 @@ export class OrderLinesService {
           order.id,
           businessDay,
           order.currency,
+          this.countryPacks,
         );
 
         const updated = await tx.order.update({
@@ -578,6 +579,7 @@ export class OrderLinesService {
           order.id,
           businessDay,
           order.currency,
+          this.countryPacks,
         );
         const updated = await tx.order.update({
           where: { id_businessDay: { id: order.id, businessDay } },

@@ -243,6 +243,7 @@ export class DiscountsService {
           order.id,
           businessDay,
           order.currency,
+          this.countryPacks,
         );
         // CAS on `version` — never a plain PK update. Two concurrent
         // discount attempts on the same order must not both silently apply
@@ -461,6 +462,7 @@ export class DiscountsService {
           order.id,
           businessDay,
           order.currency,
+          this.countryPacks,
         );
         // CAS on `version` — never a plain PK update. Two concurrent
         // discount attempts on the same order must not both silently apply
@@ -586,6 +588,7 @@ export class DiscountsService {
           order.id,
           businessDay,
           order.currency,
+          this.countryPacks,
         );
         // CAS on `version` — never a plain PK update. Two concurrent
         // discount attempts on the same order must not both silently apply
