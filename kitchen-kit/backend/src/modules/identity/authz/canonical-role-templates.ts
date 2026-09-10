@@ -86,11 +86,20 @@ export interface CanonicalRoleTemplate {
  * requiring Manager-or-higher authority"), so it cannot be granted to
  * Cashier regardless of route-reachability; both live on
  * `SHIFT_SUPERVISOR_PERMISSION_CODES` instead.
+ *
+ * `pos.order.cancel` (FULL-SRS-POS-ORDER-CANCELLATION-P3) is included so a
+ * Cashier can cancel an ORDINARY (unproduced) order — the same base-tier
+ * posture as `pos.order.void_line_prefire`. `pos.order.cancel_after_
+ * production` (BR-POS-003's elevated-approval permission) is deliberately
+ * WITHHELD here for the identical CLARIFICATION C reason
+ * `pos.order.void_line_postfire` is — it lives on
+ * `SHIFT_SUPERVISOR_PERMISSION_CODES` instead.
  */
 const CASHIER_PERMISSION_CODES = [
   SALES_PERMISSIONS.ORDER_CREATE,
   SALES_PERMISSIONS.ORDER_FIRE,
   SALES_PERMISSIONS.ORDER_VOID_LINE_PREFIRE,
+  SALES_PERMISSIONS.ORDER_CANCEL,
   SALES_PERMISSIONS.PAYMENT_CAPTURE,
   SALES_PERMISSIONS.DISCOUNT_APPLY,
   SALES_PERMISSIONS.COMP_APPLY,
@@ -148,6 +157,11 @@ const BRANCH_MANAGER_PERMISSION_CODES = [
  * authority" — Shift Supervisor is the smallest canonical role that
  * satisfies that bar, so this is where SRS-consistent route-reachability
  * requires it to live, not on Cashier.
+ *
+ * `pos.order.cancel_after_production` (FULL-SRS-POS-ORDER-CANCELLATION-P3,
+ * BR-POS-003) is added for the identical reason as
+ * `pos.order.void_line_postfire` immediately above — it is the same
+ * Manager-or-higher bar, for the produced/bumped-line cancellation limb.
  */
 const SHIFT_SUPERVISOR_PERMISSION_CODES = [
   ...CASHIER_PERMISSION_CODES,
@@ -155,6 +169,7 @@ const SHIFT_SUPERVISOR_PERMISSION_CODES = [
   SALES_PERMISSIONS.DISCOUNT_APPROVE,
   SALES_PERMISSIONS.DISCOUNT_UNLIMITED,
   SALES_PERMISSIONS.ORDER_VOID_LINE_POSTFIRE,
+  SALES_PERMISSIONS.ORDER_CANCEL_AFTER_PRODUCTION,
 ] as const;
 
 /**

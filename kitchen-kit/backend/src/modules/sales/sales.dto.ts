@@ -312,6 +312,44 @@ export class VoidOrderLinePostFireDto {
   disposition!: (typeof POST_FIRE_VOID_DISPOSITIONS)[number];
 }
 
+/**
+ * One produced/fired line's disposition, for cancelling an order that has
+ * lines already sent to production — FR-POS-071's "the classification IS
+ * the void" applies identically inside a cancellation (§3 of the mission:
+ * "use existing post-fire/production correction semantics exactly where
+ * applicable").
+ */
+export class CancelOrderLineDispositionDto {
+  @Matches(UUID_PATTERN) orderLineId!: string;
+
+  @IsIn(POST_FIRE_VOID_DISPOSITIONS)
+  disposition!: (typeof POST_FIRE_VOID_DISPOSITIONS)[number];
+}
+
+/**
+ * Cancel an entire order — FR-POS-070/075, BR-POS-003.
+ *
+ * `lineDispositions` is required only in substance, not in the type system:
+ * a draft/all-pre-fire order needs none (every line voids with no
+ * disposition, the pre-fire semantics), but `CancelOrderService` refuses
+ * (422) any order carrying a line already sent to production for which no
+ * entry is supplied. `ManagerApprovalFieldsDto` is the SAME shape
+ * `ApplyDiscountDto`/`IssueRefundDto` already use — required only when
+ * BR-POS-003's elevated approval turns out to be needed (a bumped/produced
+ * line exists).
+ */
+export class CancelOrderDto extends ManagerApprovalFieldsDto {
+  /** REQUIRED — FR-POS-075: cancellation must never succeed without a reason. */
+  @Matches(UUID_PATTERN) reasonCodeId!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => CancelOrderLineDispositionDto)
+  lineDispositions?: CancelOrderLineDispositionDto[];
+}
+
 /** Issue a refund against a completed order (FR-POS-072/073/074/075). */
 export class IssueRefundDto extends ManagerApprovalFieldsDto {
   @IsOptional() @Matches(UUID_PATTERN) id?: string;
@@ -337,10 +375,16 @@ export class IssueRefundDto extends ManagerApprovalFieldsDto {
 // ================================================ DEMO-POS-REASON-CODES ===
 
 /**
- * The five POS actions that require a `reasonCodeId` — every
+ * The POS actions that require a `reasonCodeId` — every
  * `@Matches(UUID_PATTERN) reasonCodeId!: string` above, i.e. NOT the
  * Inventory-side `PostMovementDto`/`DispatchTransferDto`, where it is
  * optional and out of this route's scope.
+ *
+ * `order_cancel` (FULL-SRS-POS-ORDER-CANCELLATION-P3) is added because
+ * none of the original five's gating permission is `pos.order.cancel` —
+ * without it, an actor holding ONLY `pos.order.cancel` could not reach the
+ * POS-safe reason-code picker at all (§9 of the mission: "add the
+ * narrowest POS-safe purpose ... ONLY if necessary").
  */
 export const POS_REASON_CODE_PURPOSES = [
   'void_prefire',
@@ -348,6 +392,7 @@ export const POS_REASON_CODE_PURPOSES = [
   'comp',
   'void_postfire',
   'refund',
+  'order_cancel',
 ] as const;
 export type PosReasonCodePurpose = (typeof POS_REASON_CODE_PURPOSES)[number];
 

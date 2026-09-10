@@ -85,6 +85,21 @@ export const SALES_PERMISSIONS = {
   REFUND_ISSUE: 'pos.refund.issue',
   /** SRS §15.2: "Refund to a tender other than the original" (FR-POS-074). */
   REFUND_DIFFERENT_TENDER: 'pos.refund.different_tender',
+
+  // ── FULL-SRS-POS-ORDER-CANCELLATION-P3 — SRS §15.2 verbatim, previously
+  // named but unused (identical discipline to the POS-FIN-1 block above:
+  // taken from the catalogue, never invented).
+  /** SRS §15.2: "Cancel an entire order" (FR-POS-070, BR-POS-003). */
+  ORDER_CANCEL: 'pos.order.cancel',
+  /**
+   * SRS §15.2: "Cancel after kitchen production started" — the BR-POS-003
+   * elevated-approval permission. Named by BR-POS-003 itself ("unless a
+   * user with the `order.cancel_after_production` permission approves").
+   * Cancellation-only: it authorises nothing else, and is deliberately NOT
+   * broadened into a general post-fire-edit permission (see
+   * `order-state.ts`'s own docblock on why that path stays unimplemented).
+   */
+  ORDER_CANCEL_AFTER_PRODUCTION: 'pos.order.cancel_after_production',
 } as const;
 
 export const SALES_PERMISSION_DEFS: PermissionDef[] = [
@@ -142,5 +157,15 @@ export const SALES_PERMISSION_DEFS: PermissionDef[] = [
     code: SALES_PERMISSIONS.REFUND_DIFFERENT_TENDER,
     module: 'pos',
     description: 'Refund to a tender other than the original',
+  },
+  {
+    code: SALES_PERMISSIONS.ORDER_CANCEL,
+    module: 'pos',
+    description: 'Cancel an entire order',
+  },
+  {
+    code: SALES_PERMISSIONS.ORDER_CANCEL_AFTER_PRODUCTION,
+    module: 'pos',
+    description: 'Cancel after kitchen production started',
   },
 ];

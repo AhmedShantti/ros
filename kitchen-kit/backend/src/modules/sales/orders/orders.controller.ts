@@ -53,6 +53,7 @@ import {
   AddOrderLineDto,
   ApplyCompDto,
   ApplyDiscountDto,
+  CancelOrderDto,
   CapturePaymentDto,
   CreateOrderDto,
   IssueRefundDto,
@@ -83,6 +84,7 @@ import { receiptSchema } from './receipt.openapi';
 import { DiscountsService } from './discounts.service';
 import { PostFireVoidService } from './post-fire-void.service';
 import { RefundsService } from './refunds.service';
+import { CancelOrderService } from './cancel-order.service';
 import {
   POS_REASON_CODE_ANY_PERMISSION,
   PosReasonCodesService,
@@ -434,6 +436,7 @@ export class OrdersController {
     private readonly discounts: DiscountsService,
     private readonly postFireVoid: PostFireVoidService,
     private readonly refunds: RefundsService,
+    private readonly cancelOrderService: CancelOrderService,
     private readonly reasonCodes: PosReasonCodesService,
     @Inject(TERMINAL_PIN_VERIFIER)
     private readonly pinVerifier: TerminalPinVerifier,
@@ -1356,6 +1359,108 @@ export class OrdersController {
       line: toOrderLineView(line),
       order: toOrderView(order),
       postFireVoidRecord: toPostFireVoidRecordView(record),
+    };
+  }
+
+  /**
+   * Cancel an entire order — FR-POS-070/075, BR-POS-003. A BEFORE-PAYMENT
+   * correction only; a paid/completed/refunded order is refused (use
+   * Refund instead). Every non-terminal line is voided using its own
+   * production-state rules (pre-fire: no effect; already sent to
+   * production: the SAME disposition-driven mechanics
+   * `void-postfire` uses). A produced/bumped line additionally requires
+   * BR-POS-003's elevated approval from a `pos.order.cancel_after_production`
+   * holder, verified the SAME synchronous manager-PIN way
+   * `applyLineDiscount`/`issueRefund` already do.
+   */
+  @Post(':businessDay/:id/cancel')
+  @AuthorizationTarget(
+    resourceTarget(
+      SALES_ORDER_TARGET_RESOLVER,
+      {
+        orderId: fromParam('id'),
+        businessDay: businessDayFromParam('businessDay'),
+      },
+      "sales.orders is partitioned by (tenant_id, id, business_day); its branch_id is the order's real owning branch.",
+      'Order not found.',
+    ),
+  )
+  @HttpCode(HttpStatus.OK)
+  @Idempotent()
+  @RequirePermission(SALES_PERMISSIONS.ORDER_CANCEL)
+  @ApiOperation({
+    summary: 'Cancel an entire order (before payment).',
+  })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: true,
+    description: 'See addLine.',
+  })
+  @ApiHeader({ name: 'if-match', required: true, description: 'See addLine.' })
+  @ApiOkResponse({
+    description:
+      'The cancelled order and the disposition record for every line that had already been sent to production.',
+    schema: {
+      type: 'object',
+      properties: {
+        order: orderSchema,
+        postFireVoidRecords: {
+          type: 'array',
+          items: postFireVoidRecordSchema,
+        },
+      },
+    },
+    headers: etagHeader,
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Missing pos.order.cancel, or a produced/bumped line is involved and ' +
+      'no (valid) pos.order.cancel_after_production approval was supplied.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The order already has a captured payment or is otherwise not in a ' +
+      'cancellable state, an invalid/waste-only/missing reason code, or a ' +
+      'produced/fired line is missing its required disposition.',
+  })
+  async cancel(
+    @CurrentTenantContext() context: TenantContext,
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param() params: OrderPathParamsDto,
+    @Body() dto: CancelOrderDto,
+    @Headers('if-match') ifMatch: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const terminalId = this.requireTerminal(principal);
+    const manager = await this.resolveManager(
+      dto,
+      context.tenantId,
+      terminalId,
+    );
+    const { order, postFireVoidRecords } =
+      await this.cancelOrderService.cancelOrder(
+        context.tenantId,
+        context.userId,
+        params.id,
+        parseBusinessDay(params.businessDay),
+        {
+          expectedVersion: parseIfMatch(ifMatch, params.id),
+          reasonCodeId: dto.reasonCodeId,
+          ...(dto.lineDispositions
+            ? {
+                lineDispositions: dto.lineDispositions.map((d) => ({
+                  orderLineId: d.orderLineId,
+                  disposition: d.disposition,
+                })),
+              }
+            : {}),
+          ...(manager ? { manager } : {}),
+        },
+      );
+    response.setHeader('ETag', orderETag(order));
+    return {
+      order: toOrderView(order),
+      postFireVoidRecords: postFireVoidRecords.map(toPostFireVoidRecordView),
     };
   }
 

@@ -221,6 +221,43 @@ components:
       required:
         - terminalId
       type: object
+    CancelOrderDto:
+      properties:
+        approvalDecisionId:
+          type: string
+        approvalRequestId:
+          type: string
+        lineDispositions:
+          items:
+            $ref: '#/components/schemas/CancelOrderLineDispositionDto'
+          maxItems: 500
+          type: array
+        managerEmployeeCode:
+          maxLength: 32
+          type: string
+        managerPin:
+          pattern: ^\d{4,8}$
+          type: string
+        reasonCodeId:
+          description: 'REQUIRED — FR-POS-075: cancellation must never succeed without a reason.'
+          type: string
+      required:
+        - reasonCodeId
+      type: object
+    CancelOrderLineDispositionDto:
+      properties:
+        disposition:
+          enum:
+            - returned_to_stock
+            - wasted
+            - given_to_staff
+          type: string
+        orderLineId:
+          type: string
+      required:
+        - orderLineId
+        - disposition
+      type: object
     CapturePaymentDto:
       properties:
         amountMinor:
@@ -13690,6 +13727,7 @@ paths:
               - comp
               - void_postfire
               - refund
+              - order_cancel
             type: string
       responses:
         '200':
@@ -14083,6 +14121,434 @@ paths:
       security:
         - bearer: []
       summary: One order, with its persisted line snapshots.
+      tags:
+        - sales
+  /orders/{businessDay}/{id}/cancel:
+    post:
+      operationId: OrdersController_cancel
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+        - description: |-
+            `sales.orders` is partitioned by `business_day` and its primary key is
+            (id, business_day), so a read needs both. It is a locator, not a claim
+            about the order's content.
+          in: path
+          name: businessDay
+          required: true
+          schema:
+            format: date
+            pattern: ^\d{4}-\d{2}-\d{2}$
+            type: string
+        - description: See addLine.
+          in: header
+          name: if-match
+          required: true
+          schema:
+            type: string
+        - description: See addLine.
+          in: header
+          name: idempotency-key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelOrderDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  order:
+                    properties:
+                      branchId:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      businessDay:
+                        description: Business-day partition key (YYYY-MM-DD), not a timestamp.
+                        example: '2026-08-23'
+                        format: date
+                        pattern: ^\d{4}-\d{2}-\d{2}$
+                        type: string
+                      channel:
+                        enum:
+                          - pos
+                          - kiosk
+                          - qr
+                          - aggregator
+                          - phone
+                          - api
+                        type: string
+                      closedBy:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type:
+                          - string
+                          - 'null'
+                      completedAt:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type:
+                          - string
+                          - 'null'
+                      countryPackVersion:
+                        description: FR-LOC-021 — the pack version this order was priced under, pinned.
+                        type: string
+                      createdAt:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type: string
+                      currency:
+                        description: ISO 4217 currency code.
+                        example: AED
+                        type: string
+                      discountTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      firstFiredAt:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type:
+                          - string
+                          - 'null'
+                      grandTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      guestCount:
+                        type:
+                          - integer
+                          - 'null'
+                      id:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      lines:
+                        description: Present only where the endpoint populates line snapshots.
+                        items:
+                          properties:
+                            course:
+                              type:
+                                - integer
+                                - 'null'
+                            createdAt:
+                              example: '2026-08-23T14:30:00.000Z'
+                              format: date-time
+                              type: string
+                            firedAt:
+                              example: '2026-08-23T14:30:00.000Z'
+                              format: date-time
+                              type:
+                                - string
+                                - 'null'
+                            id:
+                              example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                              format: uuid
+                              type: string
+                            isComp:
+                              type: boolean
+                            itemNameSnapshot:
+                              description: Opaque localized-name snapshot (locale -> name), persisted at capture time.
+                              type: object
+                            lineDiscount:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            lineSubtotal:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            lineTotal:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            menuItemId:
+                              example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                              format: uuid
+                              type: string
+                            modifierTotal:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            notes:
+                              type:
+                                - string
+                                - 'null'
+                            priceEntryId:
+                              example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                              format: uuid
+                              type:
+                                - string
+                                - 'null'
+                            priceListId:
+                              example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                              format: uuid
+                              type:
+                                - string
+                                - 'null'
+                            priceRule:
+                              description: Opaque pricing-rule provenance snapshot.
+                              type:
+                                - string
+                                - 'null'
+                            quantity:
+                              description: Decimal quantity as a string (preserves exact precision).
+                              example: '2.5'
+                              pattern: ^-?\d+(\.\d+)?$
+                              type: string
+                            readyAt:
+                              example: '2026-08-23T14:30:00.000Z'
+                              format: date-time
+                              type:
+                                - string
+                                - 'null'
+                            recipeVersionId:
+                              example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                              format: uuid
+                              type:
+                                - string
+                                - 'null'
+                            seatNumber:
+                              type:
+                                - integer
+                                - 'null'
+                            sequence:
+                              type: integer
+                            state:
+                              enum:
+                                - pending
+                                - fired
+                                - preparing
+                                - ready
+                                - served
+                                - voided
+                                - comped
+                              type: string
+                            taxAmount:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            taxClassId:
+                              example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                              format: uuid
+                              type: string
+                            unitCostSnapshot:
+                              description: Decimal quantity as a string (preserves exact precision).
+                              example: '2.5'
+                              pattern: ^-?\d+(\.\d+)?$
+                              type:
+                                - string
+                                - 'null'
+                            unitPrice:
+                              description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                              example: '1250'
+                              pattern: ^-?\d+$
+                              type: string
+                            variantId:
+                              example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                              format: uuid
+                              type: string
+                          type: object
+                        type: array
+                      notes:
+                        type:
+                          - string
+                          - 'null'
+                      openedAt:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type: string
+                      openedBy:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type: string
+                      orderNumber:
+                        type: string
+                      orderType:
+                        enum:
+                          - dine_in
+                          - takeaway
+                          - delivery
+                          - drive_thru
+                          - pickup
+                          - aggregator
+                        type: string
+                      originDeviceTime:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type: string
+                      paidTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      roundingAdjustment:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      servedBy:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type:
+                          - string
+                          - 'null'
+                      serviceChargeTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      state:
+                        enum:
+                          - draft
+                          - open
+                          - held
+                          - parked
+                          - partially_paid
+                          - completed
+                          - cancelled
+                          - partially_refunded
+                          - refunded
+                        type: string
+                      subtotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      tableId:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type:
+                          - string
+                          - 'null'
+                      taxTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      terminalId:
+                        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        format: uuid
+                        type:
+                          - string
+                          - 'null'
+                      tipTotal:
+                        description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                        example: '1250'
+                        pattern: ^-?\d+$
+                        type: string
+                      updatedAt:
+                        example: '2026-08-23T14:30:00.000Z'
+                        format: date-time
+                        type: string
+                      version:
+                        description: Optimistic-concurrency version; also the ETag validator (§24.6.4).
+                        type: integer
+                    type: object
+                  postFireVoidRecords:
+                    items:
+                      properties:
+                        actorUserId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        businessDay:
+                          description: Business-day partition key (YYYY-MM-DD), not a timestamp.
+                          example: '2026-08-23'
+                          format: date
+                          pattern: ^\d{4}-\d{2}-\d{2}$
+                          type: string
+                        createdAt:
+                          example: '2026-08-23T14:30:00.000Z'
+                          format: date-time
+                          type: string
+                        disposition:
+                          enum:
+                            - returned_to_stock
+                            - wasted
+                            - given_to_staff
+                          type: string
+                        financialAmountRemoved:
+                          description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).
+                          example: '1250'
+                          pattern: ^-?\d+$
+                          type: string
+                        id:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        inventoryMovementIds:
+                          items:
+                            type: string
+                          type: array
+                        orderId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        orderLineId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                        reasonCodeId:
+                          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          format: uuid
+                          type: string
+                      type: object
+                    type: array
+                type: object
+          description: The cancelled order and the disposition record for every line that had already been sent to production.
+          headers:
+            ETag:
+              description: Weak validator W/"<orderId>.<version>" for this order — send back as If-Match on the next mutation.
+              schema:
+                example: W/"3fa85f64-5717-4562-b3fc-2c963f66afa6.4"
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing or invalid access token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing pos.order.cancel, or a produced/bumped line is involved and no (valid) pos.order.cancel_after_production approval was supplied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unknown or cross-tenant resource.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The order already has a captured payment or is otherwise not in a cancellable state, an invalid/waste-only/missing reason code, or a produced/fired line is missing its required disposition.
+      security:
+        - bearer: []
+      summary: Cancel an entire order (before payment).
       tags:
         - sales
   /orders/{businessDay}/{id}/discount:

@@ -983,6 +983,9 @@ describe('Sales P1A (e2e)', () => {
       expect(sales).toEqual([
         '/orders',
         '/orders/:businessDay/:id',
+        // FULL-SRS-POS-ORDER-CANCELLATION-P3 — order cancellation is real
+        // (FR-POS-070/075, BR-POS-003); see `CancelOrderService`.
+        '/orders/:businessDay/:id/cancel',
         '/orders/:businessDay/:id/discount',
         '/orders/:businessDay/:id/fire',
         '/orders/:businessDay/:id/lines',
@@ -993,6 +996,10 @@ describe('Sales P1A (e2e)', () => {
         '/orders/:businessDay/:id/payments',
         '/orders/:businessDay/:id/receipt',
         '/orders/:businessDay/:id/refunds',
+        // DEMO-POS-REASON-CODES-BACKEND-P0 — pre-existing route this
+        // assertion had never been updated to include; corrected here while
+        // this exact array is already being touched for the cancel route.
+        '/orders/reason-codes',
       ]);
 
       // P1E-6: explicit Fire is now real (ratified "Fire Authorization

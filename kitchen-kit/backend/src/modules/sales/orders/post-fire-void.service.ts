@@ -31,6 +31,7 @@ import {
 } from '@nestjs/common';
 import { newId } from '../../../common/ids';
 import { UnitOfWork } from '../../../common/domain-events/unit-of-work';
+import { Prisma } from '../../../generated/prisma/client';
 import {
   AUDIT_ACTION,
   AUDIT_ENTITY,
@@ -68,6 +69,39 @@ export interface VoidPostFireInput {
   readonly disposition: PostFireVoidDisposition;
 }
 
+/**
+ * The subset of an `OrderLine` (plus its P1F-2 consumption-basis pins)
+ * `disposeProducedLine` needs — exactly the `select` shape `voidPostFire`
+ * already loaded before this method was extracted from it.
+ */
+export interface ProducedLineForDisposition {
+  readonly id: string;
+  readonly lineTotal: bigint;
+  readonly recipeVersionId: string | null;
+  readonly quantity: Prisma.Decimal;
+  readonly recipeVersionPins: readonly { recipeVersionId: string }[];
+  readonly modifierEffectPins: readonly Prisma.OrderLineModifierEffectGetPayload<
+    Record<string, never>
+  >[];
+  readonly componentConversions: readonly Prisma.OrderLineComponentConversionGetPayload<
+    Record<string, never>
+  >[];
+  readonly modifiers: readonly { id: string; quantity: number }[];
+}
+
+export interface DisposeProducedLineInput {
+  readonly tenantId: string;
+  readonly actorUserId: string;
+  readonly branchId: string;
+  readonly businessDay: Date;
+  /** FR-OFF-015-style permanent id for the `PostFireVoidRecord` row. */
+  readonly recordId: string;
+  readonly line: ProducedLineForDisposition;
+  readonly disposition: PostFireVoidDisposition;
+  /** Already validated to exist in this tenant by the caller. */
+  readonly reasonCodeId: string;
+}
+
 @Injectable()
 export class PostFireVoidService {
   constructor(
@@ -79,6 +113,120 @@ export class PostFireVoidService {
     @Inject(POST_FIRE_VOID_DISPOSITION_COMMAND)
     private readonly disposition: PostFireVoidDispositionCommand,
   ) {}
+
+  /**
+   * The shared post-fire-void domain path (FR-POS-070/071) — "classify the
+   * disposition of the produced item, and let the classification create the
+   * corresponding inventory record", independent of WHO is calling it or
+   * WHY. Runs inside the CALLER's already-open transaction (never opens its
+   * own — `PrismaService.withAuthContext`/`UnitOfWork.execute` do not nest),
+   * so it does NOT touch the order row, recompute totals, write the
+   * order-level audit entry, or publish the Kitchen event: those differ by
+   * caller (a single `voidPostFire` call vs. `CancelOrderService` disposing
+   * several lines under ONE order-level outcome) and stay the caller's own
+   * responsibility.
+   *
+   * Extracted verbatim from this class's own `voidPostFire` (FULL-SRS-POS-
+   * ORDER-CANCELLATION-P3) so order cancellation reuses the EXACT existing
+   * disposition mechanics — never a second implementation — per the
+   * mission's own "Do not duplicate inventory/waste implementation; invoke/
+   * reuse the existing post-fire void domain path" instruction.
+   */
+  async disposeProducedLine(
+    tx: Prisma.TransactionClient,
+    input: DisposeProducedLineInput,
+  ) {
+    const { line } = input;
+    const financialAmountRemoved = line.lineTotal;
+
+    // ── Resolve the components considered — for ALL THREE dispositions,
+    // `returned_to_stock` included (acceptance correction, 2026-09-04): the
+    // Inventory command below writes an Inventory-owned disposition record
+    // unconditionally, and that record's own `components` field is what
+    // makes "returned_to_stock" genuinely evidenced rather than merely
+    // inferred from an absent movement. ────────────────────────────────────
+    const modifierQuantityById = new Map(
+      line.modifiers.map((m) => [m.id, m.quantity]),
+    );
+    const planLine: PlanConsumptionLineInput = {
+      orderLineId: line.id,
+      recipeVersionId: line.recipeVersionId,
+      pinnedVersionIds: line.recipeVersionPins.map((p) => p.recipeVersionId),
+      quantity: line.quantity.toFixed(3),
+      modifierEffects: line.modifierEffectPins.map((e) => ({
+        operation: e.operation,
+        componentType: e.componentType,
+        stockItemId: e.stockItemId,
+        subRecipeVersionId: e.subRecipeVersionId,
+        quantity: e.quantity ? e.quantity.toFixed(6) : null,
+        unitId: e.unitId,
+        modifierSelectionQuantity:
+          modifierQuantityById.get(e.orderLineModifierId) ?? 1,
+      })),
+      conversions: line.componentConversions.map((c) => ({
+        stockItemId: c.stockItemId,
+        fromUnitId: c.fromUnitId,
+        baseUnitId: c.baseUnitId,
+        factor: c.factor.toFixed(10),
+      })),
+    };
+    const planResult = await this.consumption.planConsumption(tx, {
+      lines: [planLine],
+    });
+    const components = planResult.perLine[0]?.components ?? [];
+
+    const dispositionResult = await this.disposition.recordDisposition(tx, {
+      tenantId: input.tenantId,
+      actorId: input.actorUserId,
+      branchId: input.branchId,
+      orderLineId: line.id,
+      disposition: input.disposition,
+      reasonCodeId: input.reasonCodeId,
+      components: components.map((c) => ({
+        stockItemId: c.stockItemId,
+        quantityInBaseUnit: c.quantityInBaseUnit,
+      })),
+    });
+    const inventoryMovementIds = dispositionResult.movements.map(
+      (m) => m.movementId,
+    );
+    const inventoryDispositionRecordId = dispositionResult.dispositionRecordId;
+
+    const voidedLine = await tx.orderLine.update({
+      where: {
+        id_businessDay: { id: line.id, businessDay: input.businessDay },
+      },
+      data: {
+        state: 'voided',
+        voidedBy: input.actorUserId,
+        voidReasonId: input.reasonCodeId,
+      },
+    });
+
+    const record = await tx.postFireVoidRecord.create({
+      data: {
+        id: input.recordId,
+        tenantId: input.tenantId,
+        branchId: input.branchId,
+        orderId: voidedLine.orderId,
+        businessDay: input.businessDay,
+        orderLineId: line.id,
+        disposition: input.disposition,
+        reasonCodeId: input.reasonCodeId,
+        financialAmountRemoved,
+        inventoryMovementIds,
+        actorUserId: input.actorUserId,
+      },
+    });
+
+    return {
+      voidedLine,
+      record,
+      financialAmountRemoved,
+      inventoryMovementIds,
+      inventoryDispositionRecordId,
+    };
+  }
 
   async voidPostFire(
     tenantId: string,
@@ -141,72 +289,21 @@ export class PostFireVoidService {
           );
         }
 
-        const financialAmountRemoved = line.lineTotal;
-
-        // ── Resolve the components considered — for ALL THREE
-        // dispositions, `returned_to_stock` included (acceptance
-        // correction, 2026-09-04): the Inventory command below now writes
-        // an Inventory-owned disposition record unconditionally, and that
-        // record's own `components` field is what makes "returned_to_stock"
-        // genuinely evidenced rather than merely inferred from an absent
-        // movement. ────────────────────────────────────────────────────────
-        const modifierQuantityById = new Map(
-          line.modifiers.map((m) => [m.id, m.quantity]),
-        );
-        const planLine: PlanConsumptionLineInput = {
-          orderLineId: line.id,
-          recipeVersionId: line.recipeVersionId,
-          pinnedVersionIds: line.recipeVersionPins.map(
-            (p) => p.recipeVersionId,
-          ),
-          quantity: line.quantity.toFixed(3),
-          modifierEffects: line.modifierEffectPins.map((e) => ({
-            operation: e.operation,
-            componentType: e.componentType,
-            stockItemId: e.stockItemId,
-            subRecipeVersionId: e.subRecipeVersionId,
-            quantity: e.quantity ? e.quantity.toFixed(6) : null,
-            unitId: e.unitId,
-            modifierSelectionQuantity:
-              modifierQuantityById.get(e.orderLineModifierId) ?? 1,
-          })),
-          conversions: line.componentConversions.map((c) => ({
-            stockItemId: c.stockItemId,
-            fromUnitId: c.fromUnitId,
-            baseUnitId: c.baseUnitId,
-            factor: c.factor.toFixed(10),
-          })),
-        };
-        const planResult = await this.consumption.planConsumption(tx, {
-          lines: [planLine],
-        });
-        const components = planResult.perLine[0]?.components ?? [];
-
-        const dispositionResult = await this.disposition.recordDisposition(tx, {
+        const {
+          voidedLine: voided,
+          record,
+          financialAmountRemoved,
+          inventoryMovementIds,
+          inventoryDispositionRecordId,
+        } = await this.disposeProducedLine(tx, {
           tenantId,
-          actorId: actorUserId,
+          actorUserId,
           branchId: order.branchId,
-          orderLineId: line.id,
+          businessDay,
+          recordId,
+          line,
           disposition: input.disposition,
           reasonCodeId: reason.id,
-          components: components.map((c) => ({
-            stockItemId: c.stockItemId,
-            quantityInBaseUnit: c.quantityInBaseUnit,
-          })),
-        });
-        const inventoryMovementIds = dispositionResult.movements.map(
-          (m) => m.movementId,
-        );
-        const inventoryDispositionRecordId =
-          dispositionResult.dispositionRecordId;
-
-        const voided = await tx.orderLine.update({
-          where: { id_businessDay: { id: lineId, businessDay } },
-          data: {
-            state: 'voided',
-            voidedBy: actorUserId,
-            voidReasonId: reason.id,
-          },
         });
 
         const totals = await recomputeOrderTotals(
@@ -232,22 +329,6 @@ export class PostFireVoidService {
         }
         const updatedOrder = await tx.order.findUniqueOrThrow({
           where: { id_businessDay: { id: order.id, businessDay } },
-        });
-
-        const record = await tx.postFireVoidRecord.create({
-          data: {
-            id: recordId,
-            tenantId,
-            branchId: order.branchId,
-            orderId: order.id,
-            businessDay,
-            orderLineId: line.id,
-            disposition: input.disposition,
-            reasonCodeId: reason.id,
-            financialAmountRemoved,
-            inventoryMovementIds,
-            actorUserId,
-          },
         });
 
         const voidedAt = new Date();

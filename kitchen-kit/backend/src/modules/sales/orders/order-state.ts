@@ -131,6 +131,23 @@ export function isSentToProduction(state: OrderLineState): boolean {
   return SENT_TO_PRODUCTION.has(state);
 }
 
+/**
+ * BR-POS-003's "bumped" — the kitchen has FINISHED the line, not merely
+ * started it. `ready` is set by `TicketBumpedHandler` (a real KDS bump);
+ * `served` is a later, still-produced state. `fired`/`preparing` are "sent
+ * to production" (`isSentToProduction`) but NOT yet bumped — BR-POS-003's
+ * elevated-approval gate turns on THIS narrower set, not the wider one.
+ */
+const PRODUCED: ReadonlySet<OrderLineState> = new Set<OrderLineState>([
+  'ready',
+  'served',
+]);
+
+/** BR-POS-003 — has this line been "fired to the kitchen AND bumped"? */
+export function isBumped(state: OrderLineState): boolean {
+  return PRODUCED.has(state);
+}
+
 export function canTransition(from: OrderState, to: OrderState): boolean {
   return TRANSITIONS[from].includes(to);
 }
@@ -313,6 +330,38 @@ export function assertMayRefund(orderState: OrderState): void {
     throw new OrderStateError(
       `A refund can only be issued against a completed or partially ` +
         `refunded order; this order is ${orderState}.`,
+    );
+  }
+}
+
+/**
+ * FR-POS-070 — Order cancellation (a BEFORE-PAYMENT correction; the
+ * after-payment counterpart is `assertMayRefund`).
+ *
+ * `assertOrderMutable` already refuses `completed`/`cancelled`/
+ * `partially_refunded`/`refunded`. `partially_paid` is not itself
+ * FINALISED (a further split-tender payment can still land on it) but it
+ * IS evidence that a successful payment has already been captured, and
+ * FR-POS-070/BR-POS-001 make correcting a paid order a Refund, never a
+ * cancel — so it is refused here specifically, not merely left to
+ * `assertTransition` (whose `partially_paid` row happens to have no
+ * `cancelled` target today, but that is an implementation detail of the
+ * transition table, not a stated rule). `paidTotalMinor` is checked
+ * independently of `orderState` per the task's own instruction to trust
+ * "actual current payment/order invariants" over a state string alone —
+ * two different states of evidence for the same fact, never overridden by
+ * each other.
+ */
+export function assertMayCancelOrder(
+  orderState: OrderState,
+  paidTotalMinor: bigint,
+): void {
+  assertOrderMutable(orderState);
+  if (orderState === 'partially_paid' || paidTotalMinor > 0n) {
+    throw new OrderStateError(
+      'This order already has a captured payment and can no longer be ' +
+        'cancelled. BR-POS-001/FR-POS-070 require a correction after ' +
+        'payment to be made as a Refund, never a cancel.',
     );
   }
 }

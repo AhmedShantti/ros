@@ -259,6 +259,14 @@ export const AUDIT_ACTION = {
   // not waste, and conflating them would misdescribe two-thirds of what
   // this event now covers.
   POST_FIRE_VOID_DISPOSITION_RECORDED: 'POST_FIRE_VOID_DISPOSITION_RECORDED',
+  // FULL-SRS-POS-ORDER-CANCELLATION-P3 (FR-POS-070/075, BR-POS-003). ONE
+  // verb for the whole order-level cancellation — mirrors
+  // CASH_MOVEMENT_RECORDED's "one verb, many instances" convention rather
+  // than echoing a second ORDER_LINE_VOIDED_POSTFIRE-shaped entry per line;
+  // the full per-line breakdown (state, disposition, reason, inventory
+  // movement/PostFireVoidRecord ids) lives in this ONE entry's own
+  // before/after metadata instead (FR-POS-075's "full before/after state").
+  ORDER_CANCELLED: 'ORDER_CANCELLED',
 
   // HR-1 — Workforce Core (FR-HRM-001..025). Same <ENTITY>_<PAST_TENSE>
   // convention as every other verb in this file.

@@ -63,6 +63,14 @@ const PURPOSE_PERMISSION: Record<PosReasonCodePurpose, string> = {
   refund: SALES_PERMISSIONS.REFUND_ISSUE,
   void_prefire: SALES_PERMISSIONS.ORDER_VOID_LINE_PREFIRE,
   void_postfire: SALES_PERMISSIONS.ORDER_VOID_LINE_POSTFIRE,
+  // FULL-SRS-POS-ORDER-CANCELLATION-P3 — gated by the ORDINARY cancel
+  // permission, not `pos.order.cancel_after_production`: an actor who can
+  // only cancel unproduced orders still needs to pick a cancellation
+  // reason, and the elevated permission is checked separately, in-
+  // transaction, only when a produced/bumped line is actually involved
+  // (the SAME "coarse route gate, narrow in-transaction re-check" shape
+  // this service's own docblock already documents for the other five).
+  order_cancel: SALES_PERMISSIONS.ORDER_CANCEL,
 };
 
 /** The route's own declarative gate — every code a `purpose` can require. */
