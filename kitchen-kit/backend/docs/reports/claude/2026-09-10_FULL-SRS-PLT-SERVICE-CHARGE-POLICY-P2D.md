@@ -569,16 +569,19 @@ this task's own instruction. A second, docs-only follow-up commit records
 that hash back into this report (the established convention from every
 prior task this session).
 
-`IMPLEMENTATION_COMMIT`: *(recorded after commit — see §29)*
-`REPORT_HASH_COMMIT_IF_ANY`: *(recorded in the follow-up commit, if any)*
+`IMPLEMENTATION_COMMIT`: `8715474`
+`REPORT_HASH_COMMIT_IF_ANY`: recorded below (§29)
 
 ---
 
 ## 29. Post-commit hash record
 
-*(This section is updated by the docs-only follow-up commit, matching the
-`7cd43e5→5dc916c` / `b5f67d5→19e5746` convention from earlier tasks in
-this session.)*
+Implementation, migration, tests, generated OpenAPI, this report, and
+`INDEX.md` were committed as `8715474` on `full-srs/lane-d4-reporting-demo`
+(starting from `19e5746`). This section itself is amended by a second,
+docs-only follow-up commit recording that hash, matching the
+`7cd43e5→5dc916c` / `b5f67d5→19e5746` / `9a7da00`→(recorded in-commit)
+convention from earlier tasks in this session.
 
 ---
 
