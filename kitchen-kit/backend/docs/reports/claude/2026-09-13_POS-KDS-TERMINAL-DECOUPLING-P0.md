@@ -18,6 +18,8 @@ entry governs.
 report files (see START_HEAD block below).
 **Task identifier:** CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0
 
+**Implementation commit:** `2b70d9eabf192e00a27460aca64e3393c41345ff`
+
 **STATUS: COMPLETE.** `src/` implementation, migration, OpenAPI, governance
 entry, and requirement-matrix update are all in place; the pre-existing e2e
 regression suite (~55 files touched, most only for a mechanical
