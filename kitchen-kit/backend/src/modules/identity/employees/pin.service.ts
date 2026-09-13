@@ -210,6 +210,13 @@ export class PinService implements TerminalPinVerifier {
   ): Promise<void> {
     this.assertPinShape(pin);
 
+    // Password/PIN hashing is intentionally expensive. Performing it inside
+    // Prisma's interactive transaction can exhaust the transaction's timeout
+    // before the credential upsert runs, especially on constrained production
+    // instances. Compute the hash first, then keep the transaction limited to
+    // the operations that need to be atomic.
+    const secretHash = await this.credentials.hashPassword(pin);
+
     await this.prisma.withAuthContext(
       { userId: actorId, tenantId },
       async (tx) => {
@@ -237,7 +244,6 @@ export class PinService implements TerminalPinVerifier {
         const branchIds = employee.branches.map((b) => b.branchId);
         await this.assertUniqueInBranches(tx, employeeId, branchIds, pin);
 
-        const secretHash = await this.credentials.hashPassword(pin);
         await tx.credential.upsert({
           where: {
             userId_credentialType: {
