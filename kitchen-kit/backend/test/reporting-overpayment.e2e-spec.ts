@@ -209,7 +209,7 @@ describe('Reporting — Completed overpayment reconciliation (e2e)', () => {
     version: number;
   }> {
     const order = await orders.create(fx.tenantId, fx.employeeUserId, {
-      terminalId: fx.terminalId,
+      branchId: fx.branchId,
       openedByEmployeeId: fx.employeeId,
       orderType: 'takeaway',
       channel: 'pos',
@@ -279,7 +279,6 @@ describe('Reporting — Completed overpayment reconciliation (e2e)', () => {
       amountMinor: 90n,
       cashSessionId,
       employeeId: fx.employeeId,
-      terminalId: fx.terminalId,
       tenderedAmountMinor: 100n, // customer hands over 100 for a 90 bill
     });
 
@@ -311,7 +310,6 @@ describe('Reporting — Completed overpayment reconciliation (e2e)', () => {
         amountMinor: 120n, // genuine overpayment: settles 100, captures 20 more
         cashSessionId,
         employeeId: fx.employeeId,
-        terminalId: fx.terminalId,
         tenderedAmountMinor: 120n, // no over-tender confusion: no change given
       },
     );
@@ -353,7 +351,6 @@ describe('Reporting — Completed overpayment reconciliation (e2e)', () => {
         amountMinor: 130n,
         cashSessionId,
         employeeId: fx.employeeId,
-        terminalId: fx.terminalId,
         terminalReference: `manual-ref-${newId()}`,
       },
     );
@@ -386,7 +383,6 @@ describe('Reporting — Completed overpayment reconciliation (e2e)', () => {
       amountMinor: 40n,
       cashSessionId,
       employeeId: fx.employeeId,
-      terminalId: fx.terminalId,
       tenderedAmountMinor: 40n,
     });
     expect(first.order.state).toBe('partially_paid');
@@ -399,7 +395,6 @@ describe('Reporting — Completed overpayment reconciliation (e2e)', () => {
       amountMinor: 70n,
       cashSessionId,
       employeeId: fx.employeeId,
-      terminalId: fx.terminalId,
       tenderedAmountMinor: 70n,
     });
     expect(final.order.state).toBe('completed');
@@ -434,7 +429,6 @@ describe('Reporting — Completed overpayment reconciliation (e2e)', () => {
       amountMinor: 50n,
       cashSessionId,
       employeeId: fx.employeeId,
-      terminalId: fx.terminalId,
       tenderedAmountMinor: 50n,
     });
 
@@ -453,7 +447,6 @@ describe('Reporting — Completed overpayment reconciliation (e2e)', () => {
       amountMinor: 95n, // 15 excess
       cashSessionId,
       employeeId: fx.employeeId,
-      terminalId: fx.terminalId,
       terminalReference: `manual-ref-${newId()}`,
     });
 
@@ -476,7 +469,6 @@ describe('Reporting — Completed overpayment reconciliation (e2e)', () => {
         amountMinor: 25n,
         cashSessionId,
         employeeId: fx.employeeId,
-        terminalId: fx.terminalId,
         tenderedAmountMinor: 25n,
       },
     );

@@ -9,7 +9,7 @@ import {
  * PRIVATE Identity implementation of the `TerminalFactsQuery` contract.
  * Bound to the `TERMINAL_FACTS_QUERY` token inside `IdentityModule` only —
  * never exported by class, only by the token (mirrors
- * `RoutingConfigQueryService` / `TerminalPinVerifier`'s own split between a
+ * `RoutingConfigQueryService` / `ApproverPinVerifier`'s own split between a
  * public interface and a private Prisma-backed implementation).
  */
 @Injectable()

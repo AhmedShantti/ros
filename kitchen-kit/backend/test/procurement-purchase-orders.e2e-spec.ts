@@ -332,11 +332,11 @@ describe('Procurement Purchase Orders (e2e)', () => {
     );
   }
 
-  /** A PIN-verified approver holding exactly ONE tier permission, on a real
-   *  registered terminal — the only manual decision channel this Governance
-   *  runtime supports (see `purchase-order-approval.service.ts`'s own
-   *  docblock). Deliberately a DIFFERENT user than the PO's requester, so
-   *  self-approval tests have a genuine positive control available too. */
+  /** A PIN-verified approver holding exactly ONE tier permission — the only
+   *  manual decision channel this Governance runtime supports (see
+   *  `purchase-order-approval.service.ts`'s own docblock). Deliberately a
+   *  DIFFERENT user than the PO's requester, so self-approval tests have a
+   *  genuine positive control available too. */
   async function createApprover(
     fx: Fixture,
     branchId: string,
@@ -367,16 +367,6 @@ describe('Procurement Purchase Orders (e2e)', () => {
       scope: { type: 'tenant' },
     });
 
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: fx.tenantId,
-        branchId,
-        name: `APT-${seed}`,
-        terminalType: 'kiosk',
-        status: 'active',
-      },
-    });
     const employeeCode = `AP${seed.slice(-6)}`;
     const employee = await employees.create(fx.tenantId, user.id, {
       code: employeeCode,
@@ -395,12 +385,12 @@ describe('Procurement Purchase Orders (e2e)', () => {
     const pin = String(1000 + (hash % 9000));
     await pins.setPin(fx.tenantId, user.id, employee.id, pin);
 
-    return { userId: user.id, terminalId: terminal.id, employeeCode, pin };
+    return { userId: user.id, branchId, employeeCode, pin };
   }
 
   interface Approver {
     userId: string;
-    terminalId: string;
+    branchId: string;
     employeeCode: string;
     pin: string;
   }
@@ -418,7 +408,7 @@ describe('Procurement Purchase Orders (e2e)', () => {
       .send({
         expectedVersion,
         approvalDecisionId: newId(),
-        terminalId: approver.terminalId,
+        approvalBranchId: approver.branchId,
         employeeCode: approver.employeeCode,
         pin: approver.pin,
       });
@@ -967,8 +957,8 @@ describe('Procurement Purchase Orders (e2e)', () => {
       );
       expect(submitted.requestedBy).toBe(fx.userId);
 
-      // Register the requester's OWN user as a terminal-PIN identity holding
-      // the tier permission, then attempt to approve their own request.
+      // Register the requester's OWN user as a PIN identity holding the
+      // tier permission, then attempt to approve their own request.
       const roles = app.get(RolesService);
       const membershipRoles = app.get(MembershipRolesService);
       const employees = app.get(EmployeesService);
@@ -991,16 +981,6 @@ describe('Procurement Purchase Orders (e2e)', () => {
         scope: { type: 'tenant' },
       });
       const seed = nextSeed();
-      const terminal = await admin.terminal.create({
-        data: {
-          id: newId(),
-          tenantId: fx.tenantId,
-          branchId,
-          name: `SELF-${seed}`,
-          terminalType: 'kiosk',
-          status: 'active',
-        },
-      });
       const employeeCode = `SE${seed.slice(-6)}`;
       const employee = await employees.create(fx.tenantId, fx.userId, {
         code: employeeCode,
@@ -1016,7 +996,7 @@ describe('Procurement Purchase Orders (e2e)', () => {
         po.id,
         'approve',
         submitted.version,
-        { userId: fx.userId, terminalId: terminal.id, employeeCode, pin },
+        { userId: fx.userId, branchId, employeeCode, pin },
         403,
       );
     });
@@ -1046,7 +1026,7 @@ describe('Procurement Purchase Orders (e2e)', () => {
         authed(fx).post(`/procurement/purchase-orders/${po.id}/approve`).send({
           expectedVersion: submitted.version,
           approvalDecisionId: decisionId,
-          terminalId: approver.terminalId,
+          approvalBranchId: approver.branchId,
           employeeCode: approver.employeeCode,
           pin: approver.pin,
         });
@@ -1465,16 +1445,6 @@ describe('Procurement Purchase Orders (e2e)', () => {
       const memberships = app.get(MembershipsService);
       const employees = app.get(EmployeesService);
       const pins = app.get(PinService);
-      const terminal = await admin.terminal.create({
-        data: {
-          id: newId(),
-          tenantId: fx.tenantId,
-          branchId,
-          name: 'POS-1',
-          terminalType: 'pos',
-          status: 'active',
-        },
-      });
       const seed = nextSeed();
       const empUser = await users.createUser({
         email: `pos.emp.${seed}@example.com`,
@@ -1493,7 +1463,7 @@ describe('Procurement Purchase Orders (e2e)', () => {
       const posToken = await pinLogin(
         http,
         fx.tenantId,
-        terminal.id,
+        branchId,
         employeeCode,
         '1234',
       );

@@ -5,10 +5,25 @@
  * §3, corrected by docs/reports/claude/2026-08-29_APPROVAL_runtime-design-
  * acceptance-closure.md §4 (CONTROLLING on the trust-boundary posture).
  *
+ * ── CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13) ────────────────────
+ * RENAMED from the former `VerifiedTerminalPrincipal`/`TerminalPinVerifier`/
+ * `TERMINAL_PIN_VERIFIER`/`verifyTerminalPin`. POS and KDS are application
+ * SESSIONS, not registered device identities (see the product-decision
+ * record in the P0 report and the governance/product-decision register).
+ * There is no longer a "registered terminal" for a manager PIN to be
+ * verified AT — the verification is now BRANCH-scoped: the SAME
+ * `employeeCode` + `pin` + permitted-branch check `PinService.authenticate`
+ * already performs for login, reused here for an IN-BAND approval decision.
+ * The branch is derived by the CALLING module from the entity being
+ * approved (the order's branch, the cash session's branch, ...) — never a
+ * device identity. See `approval-branch.ts`-style derivation in each
+ * consumer (Sales/Treasury/Procurement) for the exact rule.
+ *
  * The ONE capability a consuming module needs to obtain a synchronous
- * manager-PIN approval decision (FR-SEC-032): verify a PIN on a registered
- * terminal and receive back the verified actor's identity facts AND their
- * effective permission codes, without minting any session or token.
+ * manager-PIN approval decision (FR-SEC-032): verify a PIN for an employee
+ * permitted at a given BRANCH and receive back the verified actor's
+ * identity facts AND their effective permission codes, without minting any
+ * session or token.
  *
  * ── CLASSIFICATION: a verification contract, not a query or a command ──────
  * It has real side effects (failed-attempt counters, lockout) but creates no
@@ -41,20 +56,21 @@
  *
  * ── TRUST BOUNDARY (stated explicitly, per the 2026-08-29 acceptance
  *    closure §4) ─────────────────────────────────────────────────────────
- * `VerifiedTerminalPrincipal` asserts that Identity verified a manager PIN on
- * a registered terminal. A consumer (Governance) CONSUMES this assertion and
- * does not re-verify it — the same trust the shipped `AuditService.record`
- * already places in every caller's `actorId`, and the same trust
- * `SalesPaymentService`/`CashMovementsService`/`CashSessionsService` already
- * place in a caller-supplied trusted `employeeId`. It is a design-discipline
- * boundary (this is a modular MONOLITH — a hostile in-process caller could
- * bypass any module's public contract entirely via a raw Prisma call, so no
- * TypeScript-level guard is a security boundary against that threat model).
- * The SECURITY-CRITICAL invariants — tenant isolation, requester != approver,
- * excluded-approver != approver, expiry, one-final-decision — are enforced
- * by the DATABASE and hold regardless of what any caller passes.
+ * `VerifiedApproverPrincipal` asserts that Identity verified a manager PIN
+ * for an employee permitted at the given branch. A consumer (Governance)
+ * CONSUMES this assertion and does not re-verify it — the same trust the
+ * shipped `AuditService.record` already places in every caller's `actorId`,
+ * and the same trust `SalesPaymentService`/`CashMovementsService`/
+ * `CashSessionsService` already place in a caller-supplied trusted
+ * `employeeId`. It is a design-discipline boundary (this is a modular
+ * MONOLITH — a hostile in-process caller could bypass any module's public
+ * contract entirely via a raw Prisma call, so no TypeScript-level guard is a
+ * security boundary against that threat model). The SECURITY-CRITICAL
+ * invariants — tenant isolation, requester != approver, excluded-approver !=
+ * approver, expiry, one-final-decision — are enforced by the DATABASE and
+ * hold regardless of what any caller passes.
  *
- * `VerifiedTerminalPrincipal` is nonetheless BRANDED (an ambient, non-exported
+ * `VerifiedApproverPrincipal` is nonetheless BRANDED (an ambient, non-exported
  * `unique symbol`) so it cannot be fabricated by an ordinary object literal —
  * fabrication requires an explicit, greppable `as`/`as unknown as` cast. Even
  * Identity's own implementation must use that cast (a `declare`d unique
@@ -78,45 +94,53 @@
  */
 declare const VERIFIED_BY_IDENTITY: unique symbol;
 
-export interface VerifyTerminalPinInput {
+export interface VerifyApproverPinInput {
   readonly tenantId: string;
-  readonly terminalId: string;
+  /**
+   * The branch the approving employee's PIN/membership is verified against —
+   * OPERATIONAL identity context, never a device identity. Derived by the
+   * caller from the entity being approved (an order's branch, a cash
+   * session's branch, ...), or, when no single unambiguous branch exists
+   * (e.g. a tenant-wide Purchase Order), an explicit `approvalBranchId`
+   * request field the caller's own DTO names.
+   */
+  readonly branchId: string;
   readonly employeeCode: string;
   readonly pin: string;
 }
 
-export interface VerifiedTerminalPrincipal {
+export interface VerifiedApproverPrincipal {
   /** Brand — see the module docblock. Never present at runtime. */
   readonly [VERIFIED_BY_IDENTITY]: true;
   readonly userId: string;
   readonly employeeId: string;
   readonly membershipId: string;
   readonly branchId: string;
-  readonly terminalId: string;
   /** The verified actor's effective permission CODES in this tenant. */
   readonly permissions: ReadonlySet<string>;
 }
 
-export const TERMINAL_PIN_VERIFIER = Symbol('TERMINAL_PIN_VERIFIER');
+export const APPROVER_PIN_VERIFIER = Symbol('APPROVER_PIN_VERIFIER');
 
-export interface TerminalPinVerifier {
+export interface ApproverPinVerifier {
   /**
-   * Verify a manager PIN on a registered terminal and return the verified
-   * actor's identity facts plus their effective permission codes.
+   * Verify a manager PIN for an employee permitted at `branchId` and return
+   * the verified actor's identity facts plus their effective permission
+   * codes.
    *
-   * Reuses the EXACT `PinService.authenticate` verification path (terminal
-   * active, employee active + user-linked, permitted branch, PIN hash,
-   * lockout, active membership) — nothing is duplicated here. Throws the
-   * same generic authentication failure `PinService.authenticate` throws on
-   * any of those checks failing; the failed-attempt counter and lockout
-   * persist independently of the caller's own transaction/rollback.
+   * Reuses the EXACT `PinService.authenticate` verification path (employee
+   * active + user-linked, permitted branch, PIN hash, lockout, active
+   * membership) — nothing is duplicated here. Throws the same generic
+   * authentication failure `PinService.authenticate` throws on any of those
+   * checks failing; the failed-attempt counter and lockout persist
+   * independently of the caller's own transaction/rollback.
    *
    * MUST be called BEFORE the consuming module opens its business
    * transaction (see the module docblock — nested `withAuthContext` is
    * unsupported, and joining the caller's transaction would let lockout
    * counters be rolled back away).
    */
-  verifyTerminalPin(
-    input: VerifyTerminalPinInput,
-  ): Promise<VerifiedTerminalPrincipal>;
+  verifyApproverPin(
+    input: VerifyApproverPinInput,
+  ): Promise<VerifiedApproverPrincipal>;
 }

@@ -158,10 +158,8 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   let tenantA: string;
   let tenantB: string;
   let branchA: string;
+  let branchB: string;
   let branchC: string; // no fallback configured — for the no-destination proof
-  let terminalA: string;
-  let terminalC: string;
-  let terminalB: string;
   let employeeA: string; // has pos.order.fire
   let employeeNoFire: string; // has pos.order.create only
   let userA: string;
@@ -333,24 +331,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
     };
     branchA = await mkBranch(tenantA, `FA${stamp % 10000}`);
     branchC = await mkBranch(tenantA, `FC${stamp % 10000}`);
-    const branchB = await mkBranch(tenantB, `FB${stamp % 10000}`);
-
-    const mkTerminal = (tenantId: string, branchId: string, name: string) =>
-      admin.terminal
-        .create({
-          data: {
-            id: newId(),
-            tenantId,
-            branchId,
-            name,
-            terminalType: 'pos',
-            status: 'active',
-          },
-        })
-        .then((t) => t.id);
-    terminalA = await mkTerminal(tenantA, branchA, 'FA-POS-1');
-    terminalC = await mkTerminal(tenantA, branchC, 'FC-POS-1');
-    terminalB = await mkTerminal(tenantB, branchB, 'FB-POS');
+    branchB = await mkBranch(tenantB, `FB${stamp % 10000}`);
 
     tableId = (
       await admin.branchTable.create({
@@ -603,13 +584,13 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   // ── helpers ──────────────────────────────────────────────────────────
   const pinLogin = async (
     tenantId: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) => {
     const res = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode, pin })
+      .send({ tenantId, branchId, employeeCode, pin, sessionType: 'pos' })
       .expect(200);
     return (res.body as { accessToken: string }).accessToken;
   };
@@ -618,7 +599,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
     over: Partial<Parameters<OrdersService['create']>[2]> = {},
   ) =>
     orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -719,7 +700,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
     it('an actor with pos.order.create but WITHOUT pos.order.fire gets 403 on Fire', async () => {
       const token = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         employeeNoFireCode,
         '2222',
       );
@@ -731,7 +712,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
     });
 
     it('an actor WITH pos.order.fire reaches Fire business logic (200, not 403)', async () => {
-      const token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      const token = await pinLogin(tenantA, branchA, employeeACode, '1111');
       const order = await mkOrder({ idempotencyKey: `k-${newId()}` });
       const { variantId, itemId } = await mkSellable(`Auth-${newId()}`);
       await mkLine(order.id, order.businessDay, itemId, variantId);
@@ -757,7 +738,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
       const { variantId, itemId } = await mkSellable(`XTenant-${newId()}`);
       await mkLine(order.id, order.businessDay, itemId, variantId);
 
-      const tokenB = await pinLogin(tenantB, terminalB, employeeBCode, '3333');
+      const tokenB = await pinLogin(tenantB, branchB, employeeBCode, '3333');
       await fireAndExpect(tokenB, order.id, order.businessDay, 404);
     });
 
@@ -787,7 +768,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   describe('state transition + event production (§21)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('FIRST FIRE: draft+pending -> open, firstFiredAt set once, lines fired with one shared instant, version+1, ETag matches, order.opened once, one order.line.fired per line', async () => {
@@ -934,7 +915,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   describe('Fire legal source states (P1E-6A Defect B)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     const toHeld = async (order: { id: string; businessDay: Date }) => {
@@ -1085,7 +1066,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   describe('dine-in service reference resolution (P1E-6A Defect C)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('an unresolvable tableId (DI-simulated — see SentinelAwareTableDisplayQuery) fails CLOSED with 422 and a full rollback', async () => {
@@ -1175,7 +1156,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   describe('snapshot assembly (§21 / §12 / §13 / §14)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('categoryIds/kitchen name come from the Catalogue public contract; quantity is a decimal string; dine-in serviceReference comes from the Organisation public contract', async () => {
@@ -1324,7 +1305,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   describe('routing tiers through the REAL Fire producer (§19)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('tier 3 — MenuItem branch station assignment', async () => {
@@ -1458,13 +1439,13 @@ describe('Sales Fire (P1E-6 e2e)', () => {
     });
 
     it('zero routing destinations -> ROUTING_NO_DESTINATION -> 422 + full rollback (no fallback configured on this branch)', async () => {
-      const tokenC = await pinLogin(tenantA, terminalC, employeeACode, '1111');
+      const tokenC = await pinLogin(tenantA, branchC, employeeACode, '1111');
       const item = await mkSellable(`NoDest-${newId()}`, {
         priceListId: priceListC,
       });
       const order = await mkOrder({
         idempotencyKey: `k-${newId()}`,
-        terminalId: terminalC,
+        branchId: branchC,
         openedByEmployeeId: employeeA,
       });
       const line = await mkLine(
@@ -1495,7 +1476,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
     });
 
     it('multi-line fire where one line resolves and a sibling line has zero routing destinations -> the WHOLE fire rolls back, including the line that would have resolved (no partial Kitchen write survives)', async () => {
-      const tokenC = await pinLogin(tenantA, terminalC, employeeACode, '1111');
+      const tokenC = await pinLogin(tenantA, branchC, employeeACode, '1111');
       const stationC = await admin.station
         .create({
           data: { id: newId(), branchId: branchC, name: `MultiLineC-${newId()}` },
@@ -1540,7 +1521,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
 
       const order = await mkOrder({
         idempotencyKey: `k-${newId()}`,
-        terminalId: terminalC,
+        branchId: branchC,
         openedByEmployeeId: employeeA,
       });
       const resolvingLine = await mkLine(
@@ -1591,7 +1572,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   // ============================================ §16 TRANSACTION / AUDIT
   describe('transaction / audit (§16)', () => {
     it('a successful Fire creates exactly one ORDER_FIRED audit entry with correct actor/branch/fireBatch attribution', async () => {
-      const token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      const token = await pinLogin(tenantA, branchA, employeeACode, '1111');
       const item = await mkSellable(`Audit-${newId()}`);
       const order = await mkOrder({ idempotencyKey: `k-${newId()}` });
       await mkLine(order.id, order.businessDay, item.itemId, item.variantId);
@@ -1613,7 +1594,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   // ============================================ §17 IDEMPOTENCY
   describe('idempotency (§17)', () => {
     it('same key + same request -> replays the stored response, no second mutation/consequence', async () => {
-      const token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      const token = await pinLogin(tenantA, branchA, employeeACode, '1111');
       const item = await mkSellable(`Idem-${newId()}`);
       const order = await mkOrder({ idempotencyKey: `k-${newId()}` });
       const line = await mkLine(
@@ -1668,7 +1649,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
      * left completely untouched, never replayed with orderX's response.
      */
     it('same key across two DIFFERENT orders 409-conflicts — never replays the first order onto the second', async () => {
-      const token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      const token = await pinLogin(tenantA, branchA, employeeACode, '1111');
       const itemX = await mkSellable(`Fp1-${newId()}`);
       const itemY = await mkSellable(`Fp2-${newId()}`);
       const orderX = await mkOrder({ idempotencyKey: `k-${newId()}` });
@@ -1717,7 +1698,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   // ============================================ §10 / §22 CONCURRENCY
   describe('optimistic concurrency (§10 / §22)', () => {
     it('a stale If-Match is refused via the existing 409 conflict path, and changes nothing', async () => {
-      const token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      const token = await pinLogin(tenantA, branchA, employeeACode, '1111');
       const item = await mkSellable(`Stale-${newId()}`);
       const order = await mkOrder({ idempotencyKey: `k-${newId()}` });
       await mkLine(order.id, order.businessDay, item.itemId, item.variantId);
@@ -1739,7 +1720,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
     });
 
     it('two REAL concurrent Fire requests with the same expected version: exactly one wins, the other 409s, no duplicate Kitchen state', async () => {
-      const token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      const token = await pinLogin(tenantA, branchA, employeeACode, '1111');
       const item = await mkSellable(`Race-${newId()}`);
       const order = await mkOrder({ idempotencyKey: `k-${newId()}` });
       const line = await mkLine(
@@ -1778,7 +1759,7 @@ describe('Sales Fire (P1E-6 e2e)', () => {
   // ============================================ §18 AMENDMENT FIRE
   describe('amendment Fire (§18, FR-POS-038 / FR-KDS-028 backend persistence)', () => {
     it('reuses the existing station Ticket, appends a new FireBatch + TicketLine, leaves existing TicketLines unchanged', async () => {
-      const token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      const token = await pinLogin(tenantA, branchA, employeeACode, '1111');
       const item = await mkSellable(`Amend-${newId()}`);
       const order = await mkOrder({ idempotencyKey: `k-${newId()}` });
       const line1 = await mkLine(

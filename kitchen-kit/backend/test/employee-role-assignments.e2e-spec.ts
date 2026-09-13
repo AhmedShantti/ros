@@ -236,8 +236,6 @@ describe('Employee role assignments — Access/Role facade (e2e)', () => {
     expect(listed).toHaveLength(1);
     expect(listed[0].roleName).toBe('Cashier');
 
-    const terminalId = await registerTerminal(accessToken, branchId, 'pos');
-
     // Effective cashier permissions (the CASHIER_PERMISSION_GAP fix), read
     // from the actual granted `RolePermission` rows — the same rows
     // `TenantContextService` itself resolves authorization from.
@@ -272,7 +270,13 @@ describe('Employee role assignments — Access/Role facade (e2e)', () => {
     });
     const relogin = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '1357' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '1357',
+        sessionType: 'pos',
+      })
       .expect(200);
     const posToken = (relogin.body as { accessToken: string }).accessToken;
 
@@ -353,7 +357,13 @@ describe('Employee role assignments — Access/Role facade (e2e)', () => {
 
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId: kdsTerminalId, employeeCode: employee.code, pin: '9911' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '9911',
+        sessionType: 'kds',
+      })
       .expect(200);
     const kdsToken = (login.body as { accessToken: string }).accessToken;
 

@@ -61,7 +61,7 @@ import {
   ApproverNotPermittedError,
 } from '../../governance/contract';
 import type { ApprovalCommands } from '../../governance/contract';
-import type { VerifiedTerminalPrincipal } from '../../identity/contract';
+import type { VerifiedApproverPrincipal } from '../../identity/contract';
 import {
   CASH_SESSION_TENDER_TOTALS_QUERY,
   DAILY_TRADING_SALES_QUERY,
@@ -89,9 +89,14 @@ import {
 
 const LOCK_KEY = 'ros_cash_session';
 
+/**
+ * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no `terminalId` any more — POS is
+ * a branch/employee-scoped application session, not a registered device
+ * identity. `employeeId` alone identifies the acting cashier; the session's
+ * branch is already carried on the loaded `CashSession` row itself.
+ */
 export interface CloseActor {
   readonly employeeId: string;
-  readonly terminalId: string;
 }
 
 interface DenominationInput {
@@ -343,7 +348,7 @@ export class CashSessionCloseService {
             ${facts.openingFloat}, ${facts.cashSalesTotal}, ${CASH_TIPS_TOTAL}, ${facts.payInTotal},
             ${facts.cashRefundsTotal}, ${facts.payOutTotal}, ${facts.safeDropTotal}, ${facts.cashRoundingAdjustments},
             ${facts.expectedCash}, ${declaredTotal}, ${variance}, ${session.currency}, ${approvalRequired},
-            ${actor.employeeId}::uuid, ${actorUserId}::uuid, ${actor.terminalId}::uuid, statement_timestamp()
+            ${actor.employeeId}::uuid, ${actorUserId}::uuid, ${null}::uuid, statement_timestamp()
           )
           RETURNING
             "id", "cash_session_id" AS "cashSessionId",
@@ -379,7 +384,6 @@ export class CashSessionCloseService {
           actorType: 'user',
           actorId: actorUserId,
           entityId: session.id,
-          terminalId: actor.terminalId,
           metadata: this.varianceAuditMetadata(
             session.id,
             attempt,
@@ -419,7 +423,7 @@ export class CashSessionCloseService {
           approvalRequired: attempt.approvalRequired,
           declaredByEmployeeId: actor.employeeId,
           declaredByUserId: actorUserId,
-          terminalId: actor.terminalId,
+          terminalId: null,
           declaredAt: attempt.declaredAt.toISOString(),
         };
         ctx.publishEvent({
@@ -473,7 +477,6 @@ export class CashSessionCloseService {
           actorType: 'user',
           actorId: actorUserId,
           entityId: session.id,
-          terminalId: actor.terminalId,
           metadata: this.closedAuditMetadata(session.id, attempt, null),
         });
 
@@ -489,7 +492,7 @@ export class CashSessionCloseService {
     actorUserId: string,
     actor: CloseActor,
     auth: ScopeAuthorizationActor,
-    approver: VerifiedTerminalPrincipal,
+    approver: VerifiedApproverPrincipal,
     input: FinalizeCloseInput,
   ) {
     return this.prisma.withAuthContext(
@@ -658,7 +661,6 @@ export class CashSessionCloseService {
           actorType: 'user',
           actorId: actorUserId,
           entityId: session.id,
-          terminalId: actor.terminalId,
           approverId: approver.userId,
           approvalId: input.approvalRequestId,
           metadata: this.closedAuditMetadata(

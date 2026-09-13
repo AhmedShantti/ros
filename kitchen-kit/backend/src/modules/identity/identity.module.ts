@@ -36,7 +36,7 @@ import { RegistrationsController } from './registrations/registrations.controlle
 import { RegistrationsService } from './registrations/registrations.service';
 import { EmployeesService } from './employees/employees.service';
 import { PinService } from './employees/pin.service';
-import { TERMINAL_PIN_VERIFIER } from './contract/pin-verification.contract';
+import { APPROVER_PIN_VERIFIER } from './contract/pin-verification.contract';
 import { TERMINAL_FACTS_QUERY } from './contract/terminal-facts.query';
 import { TerminalFactsQueryService } from './terminals/terminal-facts.query.service';
 import { PasswordService } from './password/password.service';
@@ -82,7 +82,7 @@ import { UsersService } from './users/users.service';
           // Pin the algorithm + issuer + audience on BOTH sign and verify so a
           // token is only accepted if it was minted by this service with the
           // expected symmetric algorithm (Phase 14 — no algorithm confusion, no
-          // cross-service token reuse). Token claims (sub/sid/tid/mid/trm) are
+          // cross-service token reuse). Token claims (sub/sid/tid/mid/brc) are
           // unchanged.
           signOptions: {
             algorithm: 'HS256',
@@ -174,7 +174,7 @@ import { UsersService } from './users/users.service';
     },
     EmployeesService,
     PinService,
-    { provide: TERMINAL_PIN_VERIFIER, useExisting: PinService },
+    { provide: APPROVER_PIN_VERIFIER, useExisting: PinService },
     TerminalFactsQueryService,
     { provide: TERMINAL_FACTS_QUERY, useExisting: TerminalFactsQueryService },
     RegistrationsService,
@@ -198,7 +198,7 @@ import { UsersService } from './users/users.service';
     PasswordService,
     EmployeesService,
     PinService,
-    TERMINAL_PIN_VERIFIER,
+    APPROVER_PIN_VERIFIER,
     TERMINAL_FACTS_QUERY,
     // B1-2 scoped RBAC.
     AuthorizationSnapshotService,

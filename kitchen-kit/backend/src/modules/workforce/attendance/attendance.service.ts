@@ -40,7 +40,6 @@ export interface Gps {
 export interface ClockInInput {
   employeeId: string;
   branchId: string;
-  terminalId: string;
   gps?: Gps;
   /**
    * Testability seam ONLY — never populated by `AttendanceController`
@@ -54,7 +53,6 @@ export interface ClockInInput {
 
 export interface ClockOutInput {
   employeeId: string;
-  terminalId: string;
   gps?: Gps;
   /** Testability seam ONLY — see `ClockInInput.now`'s doc-comment. */
   now?: Date;
@@ -134,10 +132,13 @@ export class AttendanceService {
       employeeId: string;
       attendanceRecordId: string;
       eventType: 'clock_in' | 'clock_out';
-      terminalId: string;
       gps?: Gps;
     },
   ): Promise<void> {
+    // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: `terminal_id` is written
+    // `null` — POS is a branch/employee-scoped application session, not a
+    // registered device identity, so no terminal exists to record. The
+    // column is retained as LEGACY-ONLY provenance for pre-decoupling rows.
     await tx.$executeRaw`
       INSERT INTO "workforce"."clock_events" (
         "id", "tenant_id", "branch_id", "employee_id", "attendance_record_id",
@@ -145,7 +146,7 @@ export class AttendanceService {
       ) VALUES (
         ${newId()}::uuid, ${input.tenantId}::uuid, ${input.branchId}::uuid,
         ${input.employeeId}::uuid, ${input.attendanceRecordId}::uuid,
-        ${input.eventType}::"workforce"."ClockEventType", 'pos_pin', ${input.terminalId}::uuid,
+        ${input.eventType}::"workforce"."ClockEventType", 'pos_pin', ${null}::uuid,
         ${input.gps?.lat ?? null}, ${input.gps?.lng ?? null}
       )
     `;
@@ -307,7 +308,6 @@ export class AttendanceService {
           employeeId: input.employeeId,
           attendanceRecordId: record.id,
           eventType: 'clock_in',
-          terminalId: input.terminalId,
           gps: input.gps,
         });
 
@@ -318,7 +318,6 @@ export class AttendanceService {
           actorType: 'user',
           actorId,
           entityId: record.id,
-          terminalId: input.terminalId,
           metadata: {
             employeeId: input.employeeId,
             branchId: input.branchId,
@@ -373,7 +372,6 @@ export class AttendanceService {
           employeeId: input.employeeId,
           attendanceRecordId: open.id,
           eventType: 'clock_out',
-          terminalId: input.terminalId,
           gps: input.gps,
         });
 
@@ -384,7 +382,6 @@ export class AttendanceService {
           actorType: 'user',
           actorId,
           entityId: open.id,
-          terminalId: input.terminalId,
           metadata: { employeeId: input.employeeId, earlyDeparture },
         });
 

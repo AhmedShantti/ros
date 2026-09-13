@@ -145,18 +145,20 @@ export class TenantContextService {
           sessionId: principal.sessionId,
           tenantId,
           membershipId: membership.id,
-          ...(principal.terminalId ? { terminalId: principal.terminalId } : {}),
           ...(principal.sessionType
             ? { sessionType: principal.sessionType }
             : {}),
           ...(principal.employeeId ? { employeeId: principal.employeeId } : {}),
+          // Sync/offline device channel ONLY — see
+          // AuthenticatedPrincipal.terminalId's docblock.
+          ...(principal.terminalId ? { terminalId: principal.terminalId } : {}),
         };
 
-        // ── POS narrowing, re-verified live (amendment clause 6) ────────────
+        // ── POS/KDS narrowing, re-verified live (amendment clause 6) ────────
         // EmployeeBranch is AND-only and is never a grant: it can only ever
         // REMOVE a branch from what the scoped assignments already allow.
-        if (principal.sessionType === 'pos') {
-          context.branchId = await this.resolvePosBranch(tx, principal);
+        if (principal.sessionType === 'pos' || principal.sessionType === 'kds') {
+          context.branchId = await this.resolveSessionBranch(tx, principal);
         }
 
         const grants: ScopedGrant[] = [];
@@ -206,38 +208,44 @@ export class TenantContextService {
   }
 
   /**
-   * The branch a POS session may operate on, from LIVE server state only.
+   * The branch a POS/KDS session may operate on, from LIVE server state
+   * only.
    *
-   * Three live facts, all required (amendment clause 6):
-   *   1. the bound terminal still exists and is `active` — so FR-SEC-028
-   *      revocation takes effect on the very next request;
-   *   2. the session names the employee it authenticated (FR-SEC-021);
-   *   3. that employee is STILL permitted at the terminal's branch — so an HR
+   * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: POS and KDS are application
+   * sessions, not registered device identities — there is no terminal to
+   * derive a branch from any more. `principal.branchId` (the JWT `brc`
+   * claim, stamped at PIN login) is a CANDIDATE only; it grants nothing by
+   * itself. Two live facts are required, both re-checked on every request
+   * (amendment clause 6):
+   *   1. the branch itself still exists and is `active`;
+   *   2. the session's employee is STILL permitted at that branch — so an HR
    *      removal takes effect on the very next request.
    *
-   * Any failure is the same generic 403: a POS terminal must not be able to
-   * probe which of the three conditions it failed.
+   * Any failure is the same generic 403: a POS/KDS session must not be able
+   * to probe which of the two conditions it failed.
    */
-  private async resolvePosBranch(
+  private async resolveSessionBranch(
     tx: Prisma.TransactionClient,
     principal: AuthenticatedPrincipal,
   ): Promise<string> {
-    const denied = new ForbiddenException('POS session is not permitted here.');
+    const denied = new ForbiddenException(
+      'POS/KDS session is not permitted here.',
+    );
 
-    if (!principal.terminalId || !principal.employeeId) {
+    if (!principal.branchId || !principal.employeeId) {
       throw denied;
     }
-    const terminal = await tx.terminal.findUnique({
-      where: { id: principal.terminalId },
-      select: { branchId: true, status: true },
+    const branch = await tx.branch.findUnique({
+      where: { id: principal.branchId },
+      select: { id: true, status: true },
     });
-    if (!terminal || terminal.status !== 'active') {
+    if (!branch || branch.status !== 'active') {
       throw denied;
     }
     const permitted = await tx.employeeBranch.findFirst({
       where: {
         employeeId: principal.employeeId,
-        branchId: terminal.branchId,
+        branchId: branch.id,
         employee: { status: 'active' },
       },
       select: { branchId: true },
@@ -245,7 +253,7 @@ export class TenantContextService {
     if (!permitted) {
       throw denied;
     }
-    return terminal.branchId;
+    return branch.id;
   }
 }
 

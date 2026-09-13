@@ -407,15 +407,15 @@ describe('Receipt (RCPT-R1 e2e)', () => {
       })
     ).id;
 
-    tokenA = await pinLoginRaw(http, tenantA, terminalA, employeeACode, '1111');
+    tokenA = await pinLoginRaw(http, tenantA, branchA, employeeACode, '1111');
     tokenNoPerm = await pinLoginRaw(
       http,
       tenantA,
-      terminalA,
+      branchA,
       employeeNoPermCode,
       '2222',
     );
-    tokenB = await pinLoginRaw(http, tenantB, terminalB, employeeBCode, '3333');
+    tokenB = await pinLoginRaw(http, tenantB, branchB, employeeBCode, '3333');
   }, 60_000);
 
   afterAll(async () => {
@@ -429,13 +429,13 @@ describe('Receipt (RCPT-R1 e2e)', () => {
   async function pinLoginRaw(
     httpServer: App,
     tid: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ): Promise<string> {
     const res = await request(httpServer)
       .post('/auth/pin')
-      .send({ tenantId: tid, terminalId, employeeCode, pin })
+      .send({ tenantId: tid, branchId, employeeCode, pin, sessionType: 'pos' })
       .expect(200);
     return (res.body as { accessToken: string }).accessToken;
   }
@@ -450,7 +450,7 @@ describe('Receipt (RCPT-R1 e2e)', () => {
 
   const mkOpenOrder = async () => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -470,7 +470,7 @@ describe('Receipt (RCPT-R1 e2e)', () => {
 
   const mkDraftOrder = () =>
     orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',

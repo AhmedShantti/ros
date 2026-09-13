@@ -10,7 +10,6 @@ import {
 import { AuditService } from '../../governance/audit/audit.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CredentialsService } from '../credentials/credentials.service';
-import { EmployeesService } from '../employees/employees.service';
 import { MembershipsService } from '../memberships/memberships.service';
 import { SessionContext, SessionsService } from '../sessions/sessions.service';
 import { TerminalsService } from '../terminals/terminals.service';
@@ -35,10 +34,14 @@ export class AuthService {
     private readonly sessions: SessionsService,
     private readonly tokens: AccessTokenService,
     private readonly memberships: MembershipsService,
+    /**
+     * Sync/offline device channel ONLY — used solely to re-check a bound
+     * terminal's live status when preserving a `trm` claim across refresh.
+     * See `refresh()`'s own docblock.
+     */
     private readonly terminals: TerminalsService,
     private readonly audit: AuditService,
     private readonly pins: PinService,
-    private readonly employees: EmployeesService,
     private readonly snapshots: AuthorizationSnapshotService,
     config: ConfigService,
   ) {
@@ -112,14 +115,22 @@ export class AuthService {
   }
 
   /**
-   * FR-SEC-020/021/022 — authenticate an employee by PIN at a registered
-   * terminal and issue a POS-ONLY session.
+   * FR-SEC-020/021/022 — authenticate an employee by PIN for a chosen
+   * operating branch and issue a POS-or-KDS-ONLY session.
    *
-   * The issued access token carries `typ: 'pos'`, which `JwtAuthGuard` refuses
-   * on every route that has not explicitly opted in. That is how "SHALL NOT
-   * grant access to the web dashboard" is executable rather than aspirational:
-   * even though the linked User may hold dashboard permissions, the session
-   * audience denies those routes.
+   * ── CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (PRODUCT DECISION) ──────────
+   * POS and KDS are APPLICATION SESSIONS, not registered device identities.
+   * The original FR-SEC-020/021 "terminal" wording is SUPERSEDED for this
+   * flow: there is no terminal to bind, register, revoke or carry in the
+   * token. `dto.sessionType` selects which of the two disjoint audiences
+   * (`pos`/`kds`) is issued.
+   *
+   * The issued access token carries `typ: 'pos' | 'kds'`, which
+   * `JwtAuthGuard` refuses on every route that has not explicitly opted in
+   * to that exact audience. That is how "SHALL NOT grant access to the web
+   * dashboard" is executable rather than aspirational: even though the
+   * linked User may hold dashboard permissions, the session audience denies
+   * those routes.
    */
   async loginWithPin(
     dto: PinLoginDto,
@@ -127,36 +138,35 @@ export class AuthService {
   ): Promise<AuthTokens> {
     const result = await this.pins.authenticate(
       dto.tenantId,
-      dto.terminalId,
+      dto.branchId,
       dto.employeeCode,
       dto.pin,
     );
 
     const user = await this.users.findById(result.userId);
     if (!user || user.status !== 'active') {
-      throw new UnauthorizedException('Invalid PIN, terminal or employee.');
+      throw new UnauthorizedException('Invalid PIN, branch or employee.');
     }
 
-    const { session, refreshToken } = await this.sessions.issue(user.id, {
-      ...ctx,
-      terminalId: result.terminalId,
-    });
+    const { session, refreshToken } = await this.sessions.issue(user.id, ctx);
     // NOTE: the membership is deliberately NOT persisted onto the session row.
     // `refresh` rebuilds a token from `session.membershipId` and does not carry
-    // the `pos` audience forward, so storing it there would let a PIN session
-    // refresh itself into a full dashboard session — the exact escalation
-    // FR-SEC-021 forbids. The consequence is that a POS session ends with its
-    // access token and the employee re-enters their PIN; that is a smaller cost
-    // than an escalation path, and POS refresh semantics are not source-decided.
+    // the `pos`/`kds` audience forward, so storing it there would let a PIN
+    // session refresh itself into a full dashboard session — the exact
+    // escalation FR-SEC-021 forbids. The consequence is that a POS/KDS session
+    // ends with its access token and the employee re-enters their PIN; that is
+    // a smaller cost than an escalation path, and POS/KDS refresh semantics
+    // are not source-decided.
     // `mid` is what makes the session AUTHORIZABLE: permissions are resolved
-    // per request from the membership, so a POS token without it could reach no
-    // permission-guarded route at all. `emp` names the employee behind the
-    // session, which POS routes need as the acting party (FR-SEC-021).
+    // per request from the membership, so a POS/KDS token without it could
+    // reach no permission-guarded route at all. `emp` names the employee
+    // behind the session, which POS/KDS routes need as the acting party
+    // (FR-SEC-021).
     // T-4-LIVE: a tenant-bound token carries the SRS-required authorization
     // snapshot (FR-API-012 clause 1) and the epoch that makes it verifiable.
     // The snapshot never authorises — `TenantContextService` re-resolves live
-    // on every request, and additionally re-checks this POS session's terminal
-    // and permitted-branch facts.
+    // on every request, and additionally re-checks this session's employee and
+    // permitted-branch facts (`brc`).
     const snapshot = await this.snapshots.build(
       user.id,
       dto.tenantId,
@@ -167,9 +177,9 @@ export class AuthService {
       sid: session.id,
       tid: dto.tenantId,
       mid: result.membershipId,
-      trm: result.terminalId,
+      brc: result.branchId,
       emp: result.employeeId,
-      typ: 'pos',
+      typ: dto.sessionType,
       scp: [...snapshot.scp],
       pbr: snapshot.pbr,
       epo: snapshot.epo,
@@ -184,9 +194,14 @@ export class AuthService {
       entityId: result.employeeId,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
-      terminalId: result.terminalId,
       // No PIN, and nothing derived from it, ever enters the payload.
-      metadata: { result: 'success', method: 'pin', sessionId: session.id },
+      metadata: {
+        result: 'success',
+        method: 'pin',
+        sessionId: session.id,
+        sessionType: dto.sessionType,
+        branchId: result.branchId,
+      },
     });
 
     return this.buildTokens(accessToken, refreshToken, user);
@@ -220,8 +235,18 @@ export class AuthService {
         )
       : null;
 
-    // Preserve terminal binding across rotation, but only while the terminal is
-    // still active (a revoked/disabled terminal drops from the refreshed token).
+    // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no POS/KDS branch/employee-
+    // custody restoration happens here any more — POS/KDS sessions never
+    // carried `typ: 'pos'|'kds'` forward across refresh in the first place
+    // (the deliberate FR-SEC-021 boundary), and there is no terminal for a
+    // POS/KDS session to rebind to.
+    //
+    // The Sync/offline device channel's OWN terminal binding (`trm`, minted
+    // by `POST /auth/terminal` — see `terminal-session.service.ts`'s own
+    // docblock) IS still preserved across refresh, exactly as before this
+    // task: a long-lived Sync device session must not lose its binding on
+    // every token rotation. Re-checked live so a revoked/disabled terminal
+    // drops from the refreshed token, same as any other live-state check.
     let terminalId: string | undefined;
     if (context && session.terminalId) {
       const terminal = await this.terminals.findInTenant(
@@ -230,32 +255,6 @@ export class AuthService {
       );
       if (terminal?.status === 'active') {
         terminalId = terminal.id;
-      }
-    }
-
-    // DEMO-POS-EMPLOYEE-SESSION-HOTFIX — a refreshed token that stays
-    // terminal-bound must ALSO stay employee-identified, or every Treasury
-    // route requiring custody of a drawer/cash session (FR-SEC-021) refuses
-    // an otherwise-valid POS session with "requires ... the employee taking
-    // custody of the drawer" — even though `PermissionGuard` itself already
-    // authorized the request (its scope check only ever needed
-    // terminal+branch, never `emp`). The session row carries no employeeId
-    // column (D-2's session model deliberately doesn't — see `Session` in
-    // `schema.prisma`); `Employee.userId` is unique, so the SAME identity PIN
-    // login already resolved is re-derived from the session's own `userId`,
-    // exactly as `EmployeesService.findByUser` already exists to do. This
-    // does NOT restore `typ: 'pos'` — that omission on refresh remains the
-    // deliberate FR-SEC-021 boundary (a POS session's audience is not meant
-    // to outlive its access token); only the employee-custody ATTRIBUTION is
-    // restored, and only alongside a still-valid terminal binding.
-    let employeeId: string | undefined;
-    if (context && terminalId) {
-      const employee = await this.employees.findByUser(
-        context.tenantId,
-        user.id,
-      );
-      if (employee?.status === 'active') {
-        employeeId = employee.id;
       }
     }
 
@@ -273,7 +272,6 @@ export class AuthService {
       sid: session.id,
       ...(context ? { tid: context.tenantId, mid: context.membershipId } : {}),
       ...(terminalId ? { trm: terminalId } : {}),
-      ...(employeeId ? { emp: employeeId } : {}),
       ...(snapshot
         ? { scp: [...snapshot.scp], pbr: snapshot.pbr, epo: snapshot.epo }
         : {}),

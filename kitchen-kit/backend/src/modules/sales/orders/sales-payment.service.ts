@@ -60,8 +60,6 @@ export interface CapturePaymentInput {
   readonly cashSessionId: string;
   /** Trusted PIN-session employee. NEVER from the request body. */
   readonly employeeId: string;
-  /** Trusted terminal. NEVER from the request body. */
-  readonly terminalId: string;
   /** CASH only. Minor units. */
   readonly tenderedAmountMinor?: bigint;
   /** MANUAL_EXTERNAL_CARD only. */
@@ -217,19 +215,18 @@ export class SalesPaymentService {
             'That cash session does not belong to the employee capturing this payment.',
           );
         }
-        if (
-          session.terminalId !== null &&
-          session.terminalId !== input.terminalId
-        ) {
-          throw new InvalidCashSessionError(
-            'That cash session is bound to a different terminal.',
-          );
-        }
         if (session.currency !== order.currency) {
           throw new InvalidCashSessionError(
             'That cash session is denominated in a different currency than this order.',
           );
         }
+        // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: the former
+        // `session.terminalId !== input.terminalId` check is REMOVED. POS is
+        // a branch/employee-scoped application session with no terminal
+        // identity any more, so a Drawer's optional legacy terminal binding
+        // (`Drawer.terminalId`) can no longer be matched against a session
+        // and is no longer enforced here — branch (checked above) is the
+        // operational boundary now.
 
         // ── 6. The order's PINNED payment policy (FR-LOC-021). ─────────────
         const branch = await tx.branch.findUniqueOrThrow({
@@ -306,7 +303,7 @@ export class SalesPaymentService {
           ${input.tender}::"sales"."OrderPaymentTender", ${order.currency},
           ${input.amountMinor}, ${roundingAdjustment},
           ${input.cashSessionId}::uuid, ${input.employeeId}::uuid,
-          ${input.terminalId}::uuid,
+          ${null}::uuid,
           ${tenderedAmount}, ${changeGiven}, ${paymentTerminalTxnRef},
           ${cardScheme}, ${cardLast4}, ${authorizationCode},
           ${processedAt}::timestamptz
@@ -412,7 +409,6 @@ export class SalesPaymentService {
       actorType: 'user',
       actorId: actorUserId,
       entityId: payment.id,
-      terminalId: input.terminalId,
       metadata: {
         orderId: order.id,
         tender: input.tender,
@@ -580,7 +576,6 @@ export class SalesPaymentService {
       actorType: 'user',
       actorId: actorUserId,
       entityId: payment.id,
-      terminalId: input.terminalId,
       metadata: {
         orderId: order.id,
         tender: input.tender,
@@ -607,7 +602,6 @@ export class SalesPaymentService {
       actorType: 'user',
       actorId: actorUserId,
       entityId: order.id,
-      terminalId: input.terminalId,
       before: {
         state: order.state,
         version: order.version,

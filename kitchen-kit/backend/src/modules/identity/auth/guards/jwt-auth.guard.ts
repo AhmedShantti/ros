@@ -10,6 +10,7 @@ import { Request } from 'express';
 import { AccessTokenService } from '../access-token.service';
 import { AuthenticatedPrincipal } from '../auth.types';
 import { ALLOW_POS_SESSION } from '../decorators/pos-session.decorator';
+import { ALLOW_KDS_SESSION } from '../decorators/kds-session.decorator';
 
 type AuthedRequest = Request & { principal?: AuthenticatedPrincipal };
 
@@ -41,11 +42,18 @@ export class JwtAuthGuard implements CanActivate {
         // Tenant context is only present after a validated tenant selection.
         ...(payload.tid ? { tenantId: payload.tid } : {}),
         ...(payload.mid ? { membershipId: payload.mid } : {}),
-        // Terminal binding is only present for POS/terminal sessions.
+        // The operating branch CLAIMED at PIN login (POS/KDS sessions only).
+        // Re-verified live by TenantContextService on every request — see
+        // AuthenticatedPrincipal.branchId's own docblock.
+        ...(payload.brc ? { branchId: payload.brc } : {}),
+        // Bound terminal id — Sync/offline device channel ONLY. Never set
+        // by PIN login. See AuthenticatedPrincipal.terminalId's docblock.
         ...(payload.trm ? { terminalId: payload.trm } : {}),
-        // Employee identity is only present for PIN-issued POS sessions.
+        // Employee identity is only present for PIN-issued POS/KDS sessions.
         ...(payload.emp ? { employeeId: payload.emp } : {}),
-        ...(payload.typ === 'pos' ? { sessionType: 'pos' as const } : {}),
+        ...(payload.typ === 'pos' || payload.typ === 'kds'
+          ? { sessionType: payload.typ }
+          : {}),
         // T-4-LIVE: carried through so TenantContextService can DETECT a stale
         // snapshot. The scope set (`scp`) and permitted branch set (`pbr`) are
         // deliberately NOT copied onto the principal — nothing server-side may
@@ -57,9 +65,12 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    // FR-SEC-021: a PIN-issued session reaches POS routes only. Denied by
-    // default, so no dashboard or back-office route — including one added
-    // later — is ever exposed to a PIN session by omission.
+    // FR-SEC-021: a PIN-issued session reaches its own opted-in routes only.
+    // Denied by default, so no dashboard or back-office route — including
+    // one added later — is ever exposed to a PIN session by omission. `pos`
+    // and `kds` are DISJOINT audiences (CROSSCUT-POS-KDS-TERMINAL-
+    // DECOUPLING-P0): a route opts into exactly the session type(s) it
+    // actually serves.
     if (request.principal?.sessionType === 'pos') {
       const allowed = this.reflector.getAllAndOverride<boolean>(
         ALLOW_POS_SESSION,
@@ -68,6 +79,16 @@ export class JwtAuthGuard implements CanActivate {
       if (!allowed) {
         throw new ForbiddenException(
           'PIN (POS) sessions cannot access dashboard or back-office endpoints.',
+        );
+      }
+    } else if (request.principal?.sessionType === 'kds') {
+      const allowed = this.reflector.getAllAndOverride<boolean>(
+        ALLOW_KDS_SESSION,
+        [context.getHandler(), context.getClass()],
+      );
+      if (!allowed) {
+        throw new ForbiddenException(
+          'PIN (KDS) sessions cannot access dashboard, back-office, or POS endpoints.',
         );
       }
     }

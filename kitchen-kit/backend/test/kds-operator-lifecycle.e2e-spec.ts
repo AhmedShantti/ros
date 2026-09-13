@@ -77,9 +77,10 @@ describe('KDS operator lifecycle (e2e)', () => {
     cookToken = await pinLogin(
       http,
       fixture.tenantId,
-      fixture.kdsTerminalId,
+      fixture.branchId,
       fixture.employeeCode,
       fixture.pin,
+      'kds',
     );
   });
 
@@ -112,7 +113,7 @@ describe('KDS operator lifecycle (e2e)', () => {
       const { ticketId, ticketLineId } = await makeTicket();
 
       const res = await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/start`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/start?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -126,7 +127,7 @@ describe('KDS operator lifecycle (e2e)', () => {
       // Replay does not overwrite the original actor/time.
       const firstStartedAt = asTicketAndLine(res).line.startedAt;
       const replay = await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/start`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/start?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -142,7 +143,7 @@ describe('KDS operator lifecycle (e2e)', () => {
       });
 
       await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/start`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/start?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(422);
@@ -154,7 +155,7 @@ describe('KDS operator lifecycle (e2e)', () => {
       const { ticketId, ticketLineId } = await makeTicket();
 
       const res = await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -176,7 +177,7 @@ describe('KDS operator lifecycle (e2e)', () => {
       });
 
       await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(422);
@@ -185,13 +186,13 @@ describe('KDS operator lifecycle (e2e)', () => {
     it('replaying a bump on an already-bumped line preserves the original actor/time (no error, no new audit entry)', async () => {
       const { ticketId, ticketLineId } = await makeTicket();
       const first = await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
 
       const replay = await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -262,14 +263,14 @@ describe('KDS operator lifecycle (e2e)', () => {
 
       // Bump the FIRST line individually first (proves bump-all preserves it).
       const individualBump = await request(http)
-        .post(`/kds/tickets/${first.ticketId}/lines/${first.ticketLineId}/bump`)
+        .post(`/kds/tickets/${first.ticketId}/lines/${first.ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
       const preservedBumpedAt = asTicketAndLine(individualBump).line.bumpedAt;
 
       const res = await request(http)
-        .post(`/kds/tickets/${first.ticketId}/bump-all`)
+        .post(`/kds/tickets/${first.ticketId}/bump-all?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -285,7 +286,7 @@ describe('KDS operator lifecycle (e2e)', () => {
 
       // Replay of bump-all: nothing left eligible -> bumpedLineIds: [], no new audit entry.
       const replay = await request(http)
-        .post(`/kds/tickets/${first.ticketId}/bump-all`)
+        .post(`/kds/tickets/${first.ticketId}/bump-all?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -299,7 +300,7 @@ describe('KDS operator lifecycle (e2e)', () => {
       const { ticketId, ticketLineId, orderLineId } = await makeTicket();
 
       await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -316,13 +317,13 @@ describe('KDS operator lifecycle (e2e)', () => {
     it('requires Idempotency-Key -> 400 without it', async () => {
       const { ticketId, ticketLineId } = await makeTicket();
       await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
 
       await request(http)
-        .post(`/kds/tickets/${ticketId}/recall`)
+        .post(`/kds/tickets/${ticketId}/recall?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(400);
@@ -331,7 +332,7 @@ describe('KDS operator lifecycle (e2e)', () => {
     it('only a bumped ticket may be recalled -> 422 otherwise', async () => {
       const { ticketId } = await makeTicket();
       await request(http)
-        .post(`/kds/tickets/${ticketId}/recall`)
+        .post(`/kds/tickets/${ticketId}/recall?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .set('Idempotency-Key', newId())
         .send({})
@@ -343,12 +344,12 @@ describe('KDS operator lifecycle (e2e)', () => {
 
       // Start then bump, so recall must restore to `started` (not `queued`).
       await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/start`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/start?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
       await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -359,7 +360,7 @@ describe('KDS operator lifecycle (e2e)', () => {
       expect(readyOrderLine.state).toBe('ready');
 
       const recallRes = await request(http)
-        .post(`/kds/tickets/${ticketId}/recall`)
+        .post(`/kds/tickets/${ticketId}/recall?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .set('Idempotency-Key', newId())
         .send({})
@@ -387,7 +388,7 @@ describe('KDS operator lifecycle (e2e)', () => {
 
       // Re-bump after recall is legal; recall_count stays cumulative on a SECOND recall.
       await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -397,7 +398,7 @@ describe('KDS operator lifecycle (e2e)', () => {
       expect(rebumped.state).toBe('ready');
 
       const secondRecall = await request(http)
-        .post(`/kds/tickets/${ticketId}/recall`)
+        .post(`/kds/tickets/${ticketId}/recall?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .set('Idempotency-Key', newId())
         .send({})
@@ -408,7 +409,7 @@ describe('KDS operator lifecycle (e2e)', () => {
     it('recall respects the branch recall_window_seconds -> 422 once expired', async () => {
       const { ticketId, ticketLineId } = await makeTicket();
       await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
@@ -419,7 +420,7 @@ describe('KDS operator lifecycle (e2e)', () => {
       });
 
       await request(http)
-        .post(`/kds/tickets/${ticketId}/recall`)
+        .post(`/kds/tickets/${ticketId}/recall?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .set('Idempotency-Key', newId())
         .send({})
@@ -429,21 +430,21 @@ describe('KDS operator lifecycle (e2e)', () => {
     it('an identical retry with the SAME Idempotency-Key replays the stored response (Idempotent-Replay: true)', async () => {
       const { ticketId, ticketLineId } = await makeTicket();
       await request(http)
-        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+        .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .send({})
         .expect(200);
 
       const key = newId();
       const first = await request(http)
-        .post(`/kds/tickets/${ticketId}/recall`)
+        .post(`/kds/tickets/${ticketId}/recall?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .set('Idempotency-Key', key)
         .send({})
         .expect(200);
 
       const replay = await request(http)
-        .post(`/kds/tickets/${ticketId}/recall`)
+        .post(`/kds/tickets/${ticketId}/recall?stationId=${fixture.stationGrillId}`)
         .set('Authorization', `Bearer ${cookToken}`)
         .set('Idempotency-Key', key)
         .send({})

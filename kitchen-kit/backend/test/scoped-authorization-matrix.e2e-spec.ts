@@ -335,15 +335,16 @@ describe('Scoped authorization matrix — B1-3 (e2e)', () => {
     }
   }, 60_000);
 
-  /** A PIN-issued POS session on `branchId`'s terminal, for `userEmail`'s employee. */
+  /** A PIN-issued POS session on `branchId`, for `userEmail`'s employee. */
   const posToken = async (branchId: string): Promise<string> => {
     const res = await request(http)
       .post('/auth/pin')
       .send({
         tenantId: tenantA,
-        terminalId: terminals[branchId],
+        branchId,
         employeeCode: employees[branchId].code,
         pin: POS_PIN,
+        sessionType: 'pos',
       })
       .expect(200);
     return (res.body as Tokens).accessToken;

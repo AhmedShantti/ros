@@ -107,7 +107,6 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
   let brandA: string;
   let branchA: string;
   let branchA2: string;
-  let terminalA: string;
   let employeeA: string;
   let ownerUserIdA: string;
   let ownerTokenA: string;
@@ -257,17 +256,6 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
     branchA = await mkBranch(ownerTokenA, brandA, `SCPA${shortStamp}`);
     branchA2 = await mkBranch(ownerTokenA, brandA, `SCPA2${shortStamp}`);
 
-    const terminalRes = await request(http)
-      .post('/auth/terminals')
-      .set(auth(ownerTokenA))
-      .send({
-        branchId: branchA,
-        name: `SCP-T-${shortStamp}`,
-        terminalType: 'pos',
-      })
-      .expect(201);
-    terminalA = (terminalRes.body as { id: string }).id;
-
     employeeA = (
       await employees.create(tenantA, ownerUserIdA, {
         code: `SCPE${shortStamp}`,
@@ -322,7 +310,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
     over: Partial<Parameters<OrdersService['create']>[2]> = {},
   ) =>
     orders.create(tenantA, newId(), {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -332,17 +320,16 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
     });
 
   /**
-   * A brand-new brand/branch/terminal/employee, untouched by any other
-   * test's ServiceChargePolicy writes — required for any test asserting a
-   * SPECIFIC winning level (tenant/brand/branch), since `branchA`/`brandA`
-   * accumulate configured (and, from the precedence test, even LOCKED)
-   * rows as the file runs.
+   * A brand-new brand/branch/employee, untouched by any other test's
+   * ServiceChargePolicy writes — required for any test asserting a SPECIFIC
+   * winning level (tenant/brand/branch), since `branchA`/`brandA` accumulate
+   * configured (and, from the precedence test, even LOCKED) rows as the
+   * file runs.
    */
   let scopeCounter = 0;
   async function mkOrderScope(): Promise<{
     brandId: string;
     branchId: string;
-    terminalId: string;
     employeeId: string;
   }> {
     scopeCounter += 1;
@@ -368,13 +355,6 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
         })
         .expect(201),
     );
-    const terminalId = idOf(
-      await request(http)
-        .post('/auth/terminals')
-        .set(auth(ownerTokenA))
-        .send({ branchId, name: `SCPS-T-${tag}`, terminalType: 'pos' })
-        .expect(201),
-    );
     const employees = app.get(EmployeesService);
     const employeeId = (
       await employees.create(tenantA, ownerUserIdA, {
@@ -383,7 +363,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
         homeBranchId: branchId,
       })
     ).id;
-    return { brandId, branchId, terminalId, employeeId };
+    return { brandId, branchId, employeeId };
   }
 
   // ============================================== MUST RUN FIRST
@@ -391,7 +371,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
   // row anywhere yet — true only before any later test in this file writes
   // one. Placed first in file-definition order (Jest runs describe/it
   // blocks top-to-bottom within one file) rather than given a dedicated
-  // fresh tenant, since both branchA/terminalA/employeeA are already fully
+  // fresh tenant, since both branchA/employeeA are already fully
   // set up and permitted.
   describe('pristine tenant state (must run before any write in this file)', () => {
     it('1: no policy anywhere => resolve returns policy: null', async () => {
@@ -829,7 +809,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
         rules: [{ orderType: null, minGuestCount: null, ratePercent: '5' }],
       }).expect(201);
       let order = await mkOrder({
-        terminalId: scope.terminalId,
+        branchId: scope.branchId,
         openedByEmployeeId: scope.employeeId,
         idempotencyKey: `scp-order-b-${newId()}`,
       });
@@ -845,7 +825,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
         },
       ).expect(201);
       order = await mkOrder({
-        terminalId: scope.terminalId,
+        branchId: scope.branchId,
         openedByEmployeeId: scope.employeeId,
         idempotencyKey: `scp-order-c-${newId()}`,
       });
@@ -862,7 +842,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
         },
       ).expect(201);
       order = await mkOrder({
-        terminalId: scope.terminalId,
+        branchId: scope.branchId,
         openedByEmployeeId: scope.employeeId,
         idempotencyKey: `scp-order-d-${newId()}`,
       });
@@ -880,7 +860,6 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
     it('E/F: an order pins the version effective AT openedAt, never a later-scheduled one; an older order keeps its own pin after a newer version is added', async () => {
       const scope = await mkOrderScope();
       const scopeBranch = scope.branchId;
-      const scopeTerminal = scope.terminalId;
       const scopeEmployee = scope.employeeId;
 
       const v1 = await create(
@@ -895,7 +874,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
       // time", never a sleep.
       const t0 = new Date();
       const orderAtOpen = await mkOrder({
-        terminalId: scopeTerminal,
+        branchId: scopeBranch,
         openedByEmployeeId: scopeEmployee,
         idempotencyKey: `scp-order-e-${newId()}`,
         at: t0,
@@ -917,7 +896,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
       ).expect(201);
 
       const orderStillV1 = await mkOrder({
-        terminalId: scopeTerminal,
+        branchId: scopeBranch,
         openedByEmployeeId: scopeEmployee,
         idempotencyKey: `scp-order-e2-${newId()}`,
         at: t0,
@@ -930,7 +909,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
       // — the earlier order (orderAtOpen) keeps its own v1 pin, immutable.
       const laterAt = new Date(v2EffectiveFrom.getTime() + 1_000);
       const orderAfterV2 = await mkOrder({
-        terminalId: scopeTerminal,
+        branchId: scopeBranch,
         openedByEmployeeId: scopeEmployee,
         idempotencyKey: `scp-order-f-${newId()}`,
         at: laterAt,
@@ -999,7 +978,7 @@ describe('ServiceChargePolicy (e2e) — P2D / P2D-R1', () => {
       }).expect(201);
 
       const order = await mkOrder({
-        terminalId: scope.terminalId,
+        branchId: scope.branchId,
         openedByEmployeeId: scope.employeeId,
         idempotencyKey: `scp-order-h-${newId()}`,
       });

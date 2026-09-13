@@ -406,7 +406,13 @@ describe('OpenAPI document (e2e)', () => {
   it('PinLoginDto keeps its real required fields', () => {
     const schema = doc.components?.schemas?.['PinLoginDto'];
     expect(schema).toBeDefined();
-    for (const field of ['tenantId', 'terminalId', 'employeeCode', 'pin']) {
+    for (const field of [
+      'tenantId',
+      'branchId',
+      'employeeCode',
+      'pin',
+      'sessionType',
+    ]) {
       expect(schema?.required).toContain(field);
     }
   });

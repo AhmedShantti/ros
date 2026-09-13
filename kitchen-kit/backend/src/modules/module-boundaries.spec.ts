@@ -1215,7 +1215,7 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
       join(MODULES_ROOT, 'governance/approvals/approvals.service.ts'),
       'utf8',
     );
-    // The service imports the VerifiedTerminalPrincipal TYPE from Identity's
+    // The service imports the VerifiedApproverPrincipal TYPE from Identity's
     // contract only via the re-exported `contract.ts` public surface — it
     // never touches `pin.service` / `employees/*` directly.
     expect(service).not.toContain('identity/employees');
@@ -1224,39 +1224,39 @@ describe('module boundaries (SRS §5.2.3, §5.4)', () => {
 
   /**
    * The PIN trust-boundary fence (2026-08-29 acceptance closure §4.2): a
-   * cast that PRODUCES a `VerifiedTerminalPrincipal` — the only way to
+   * cast that PRODUCES a `VerifiedApproverPrincipal` — the only way to
    * satisfy its ambient, non-exported symbol brand — must appear ONLY
    * inside Identity's own implementation. This does not (and cannot) stop
    * a determined caller from writing the same cast elsewhere; it makes
    * fabrication a greppable, reviewable act instead of a silent one, which
    * is exactly what this detector, self-tested below, mechanically checks.
    */
-  function containsVerifiedTerminalPrincipalCast(source: string): boolean {
-    return /as\s+(?:unknown\s+as\s+)?VerifiedTerminalPrincipal\b/.test(source);
+  function containsVerifiedApproverPrincipalCast(source: string): boolean {
+    return /as\s+(?:unknown\s+as\s+)?VerifiedApproverPrincipal\b/.test(source);
   }
 
-  it('the VerifiedTerminalPrincipal-cast detector fires on a fabricated outside cast, and not on unrelated code', () => {
+  it('the VerifiedApproverPrincipal-cast detector fires on a fabricated outside cast, and not on unrelated code', () => {
     const fabricated = `
-      function forge(): VerifiedTerminalPrincipal {
-        return { userId: 'x' } as unknown as VerifiedTerminalPrincipal;
+      function forge(): VerifiedApproverPrincipal {
+        return { userId: 'x' } as unknown as VerifiedApproverPrincipal;
       }
     `;
-    expect(containsVerifiedTerminalPrincipalCast(fabricated)).toBe(true);
+    expect(containsVerifiedApproverPrincipalCast(fabricated)).toBe(true);
 
     const cleanFixture = `
-      function useIt(p: VerifiedTerminalPrincipal): string {
+      function useIt(p: VerifiedApproverPrincipal): string {
         return p.userId;
       }
     `;
-    expect(containsVerifiedTerminalPrincipalCast(cleanFixture)).toBe(false);
+    expect(containsVerifiedApproverPrincipalCast(cleanFixture)).toBe(false);
   });
 
-  it('no file outside src/modules/identity casts to VerifiedTerminalPrincipal', () => {
+  it('no file outside src/modules/identity casts to VerifiedApproverPrincipal', () => {
     const offending = walk(MODULES_ROOT)
       .filter((f) => !f.includes('/identity/'))
       .filter((f) => !f.endsWith('module-boundaries.spec.ts'))
       .filter((f) =>
-        containsVerifiedTerminalPrincipalCast(readFileSync(f, 'utf8')),
+        containsVerifiedApproverPrincipalCast(readFileSync(f, 'utf8')),
       )
       .map((f) => relative(MODULES_ROOT, f));
     expect(offending).toEqual([]);

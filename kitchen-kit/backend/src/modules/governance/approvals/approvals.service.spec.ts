@@ -112,7 +112,7 @@ describe('ApprovalsService — input validation (no DB)', () => {
   });
 
   // `decide`'s equivalent id-shape guards are covered in
-  // `test/approval-runtime.e2e-spec.ts` using a REAL `VerifiedTerminalPrincipal`
+  // `test/approval-runtime.e2e-spec.ts` using a REAL `VerifiedApproverPrincipal`
   // obtained from Identity's PIN-verification contract — constructing one
   // here would require fabricating the branded type outside `identity/`,
   // which `module-boundaries.spec.ts` deliberately confines to Identity

@@ -27,7 +27,7 @@ import type { ScopeAuthorizationActor } from './authorization-target';
  * `pos`-shaped actor with the identical non-leakage guarantees an ordinary POS
  * session has — never a parallel permission model.
  *
- * `POS_ACTOR_AUTHORIZATION` is deliberately separate from `TERMINAL_PIN_VERIFIER`
+ * `POS_ACTOR_AUTHORIZATION` is deliberately separate from `APPROVER_PIN_VERIFIER`
  * (`pin-verification.contract.ts`): that contract authenticates a PIN and would
  * require the operation envelope to carry a live PIN entry, which the SRS
  * envelope does not — `actorEmployeeId` is asserted, not verified by secret.

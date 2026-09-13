@@ -131,7 +131,13 @@ describe('Cashier can open/close own cash session (e2e)', () => {
 
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '4321',
+        sessionType: 'pos',
+      })
       .expect(200);
     const posToken = (login.body as { accessToken: string }).accessToken;
 
@@ -225,7 +231,13 @@ describe('Cashier can open/close own cash session (e2e)', () => {
     // Fresh PIN login AFTER reassignment (new epoch baked in).
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '4321',
+        sessionType: 'pos',
+      })
       .expect(200);
     const posToken = (login.body as { accessToken: string }).accessToken;
 
@@ -330,7 +342,13 @@ describe('Cashier can open/close own cash session (e2e)', () => {
 
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '4321',
+        sessionType: 'pos',
+      })
       .expect(200);
     const posToken = (login.body as { accessToken: string }).accessToken;
 
@@ -387,16 +405,16 @@ describe('Cashier can open/close own cash session (e2e)', () => {
       .send({ pin: '4321' })
       .expect(204);
 
-    // A terminal on the OTHER branch — this employee has no permitted-branch
-    // row there, so PIN login itself must already refuse this combination.
-    const foreignTerminalId = await registerTerminal(accessToken, otherBranchId);
+    // The OTHER branch — this employee has no permitted-branch row there, so
+    // PIN login itself must already refuse this combination.
     await request(http)
       .post('/auth/pin')
       .send({
         tenantId,
-        terminalId: foreignTerminalId,
+        branchId: otherBranchId,
         employeeCode: employee.code,
         pin: '4321',
+        sessionType: 'pos',
       })
       .expect((res) => {
         if (![401, 403].includes(res.status)) {

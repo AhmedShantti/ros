@@ -184,7 +184,7 @@ export class PurchaseOrdersController {
   // mirroring Treasury's identical `finalizeClose` precedent
   // (`treasury.controller.ts`: gated by the session-owner's own permission,
   // never `cash.variance.approve`). The caller reaching this HTTP route
-  // (e.g. a back-office user relaying a manager's terminal decision) is not
+  // (e.g. a back-office user relaying a manager's PIN decision) is not
   // necessarily the approving identity — the PIN-verified `approver` in the
   // request body is. The EXACT required tier for THIS purchase order's own
   // evaluated band is enforced by Governance's `ApprovalCommands.decide()`

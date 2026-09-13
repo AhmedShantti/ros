@@ -146,7 +146,6 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
   let tenantA: string;
   let branchA: string;
   let locationA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let priceListA: string;
@@ -216,18 +215,6 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
         },
       })
     ).id;
-
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: tenantA,
-        branchId: branchA,
-        name: 'CompRace-POS',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    terminalA = terminal.id;
 
     const user = await admin.user.create({
       data: {
@@ -449,7 +436,7 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
     version: number;
   }> => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -498,7 +485,6 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
               amountMinor: order.grandTotal,
               cashSessionId: cashSessionA,
               employeeId: employeeA,
-              terminalId: terminalA,
               tenderedAmountMinor: order.grandTotal,
             }),
             paymentService.capture(tenantA, userA, {
@@ -514,7 +500,6 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
               // (P1G-1's advisory lock acquires before the barrier point).
               cashSessionId: cashSessionB,
               employeeId: employeeA,
-              terminalId: terminalA,
               tenderedAmountMinor: order.grandTotal,
             }),
           ]);
@@ -611,7 +596,6 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
               amountMinor: orderA.grandTotal,
               cashSessionId: cashSessionA,
               employeeId: employeeA,
-              terminalId: terminalA,
               tenderedAmountMinor: orderA.grandTotal,
             }),
             paymentService.capture(tenantA, userA, {
@@ -625,7 +609,6 @@ describe('Order Completion — real Postgres concurrency (P1F-2 §H)', () => {
               // deadlock against this file's own barrier).
               cashSessionId: cashSessionB,
               employeeId: employeeA,
-              terminalId: terminalA,
               tenderedAmountMinor: orderB.grandTotal,
             }),
           ]);

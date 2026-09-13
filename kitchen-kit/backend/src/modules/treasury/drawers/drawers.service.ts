@@ -109,13 +109,19 @@ export class DrawersService {
    *   · another tenant's drawer   -> invisible under RLS -> 404
    *   · another branch's drawer   -> 404, not "wrong branch"
    *   · inactive drawer           -> conflict
-   *   · terminal-bound elsewhere  -> conflict
+   *
+   * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: the former "terminal-bound
+   * elsewhere -> conflict" check is REMOVED. POS is a branch/employee-scoped
+   * application session with no terminal identity any more, so a Drawer's
+   * optional legacy `terminalId` binding can no longer be matched against a
+   * session and is no longer enforced — every ACTIVE, branch-matching
+   * drawer is selectable, exactly as an already-unbound (`terminalId IS
+   * NULL`) drawer always was.
    */
   async requireForBranch(
     tx: Prisma.TransactionClient,
     drawerId: string,
     branchId: string,
-    terminalId: string,
   ): Promise<ResolvedDrawer> {
     const drawer = await tx.drawer.findUnique({
       where: { id: drawerId },
@@ -135,11 +141,6 @@ export class DrawersService {
     if (!drawer.isActive) {
       throw new ConflictException('That drawer is not in service.');
     }
-    if (drawer.terminalId !== null && drawer.terminalId !== terminalId) {
-      throw new ConflictException(
-        'That drawer is bound to a different terminal and cannot be opened from this one.',
-      );
-    }
     return drawer;
   }
 
@@ -154,31 +155,6 @@ export class DrawersService {
       }
       return tx.drawer.findMany({
         where: { branchId },
-        orderBy: { name: 'asc' },
-      });
-    });
-  }
-
-  /**
-   * The drawers a POS session's OWN terminal-bound branch may open a shift
-   * over — for the Cashier-facing drawer selector on `GET
-   * /cash-sessions/drawers`. Resolves the terminal's branch itself (never a
-   * caller-supplied branchId), mirroring `CashSessionsService.open`'s own
-   * terminal-to-branch resolution — a terminal in another tenant is
-   * invisible under RLS and surfaces as 404, never a drawer list for a
-   * branch the caller does not actually operate from.
-   */
-  async listForTerminal(tenantId: string, terminalId: string) {
-    return this.prisma.withAuthContext({ tenantId }, async (tx) => {
-      const terminal = await tx.terminal.findUnique({
-        where: { id: terminalId },
-        select: { branchId: true },
-      });
-      if (!terminal) {
-        throw new NotFoundException('Terminal not found.');
-      }
-      return tx.drawer.findMany({
-        where: { branchId: terminal.branchId },
         orderBy: { name: 'asc' },
       });
     });

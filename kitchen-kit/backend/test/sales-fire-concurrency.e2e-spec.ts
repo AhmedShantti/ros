@@ -126,7 +126,6 @@ describe('Sales Fire — real Postgres concurrency (P1E-6A §5)', () => {
 
   let tenantA: string;
   let branchA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let priceListA: string;
@@ -188,18 +187,6 @@ describe('Sales Fire — real Postgres concurrency (P1E-6A §5)', () => {
         branchId: branchA,
       },
     });
-
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: tenantA,
-        branchId: branchA,
-        name: 'Race-POS',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    terminalA = terminal.id;
 
     const user = await admin.user.create({
       data: {
@@ -306,7 +293,7 @@ describe('Sales Fire — real Postgres concurrency (P1E-6A §5)', () => {
   it('two independent transactions racing to Fire the SAME order (both having read the SAME starting version) converge on exactly one winner', async () => {
     const item = await mkSellable(`Race-${newId()}`);
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -336,14 +323,12 @@ describe('Sales Fire — real Postgres concurrency (P1E-6A §5)', () => {
           businessDay: order.businessDay,
           expectedVersion: raceVersion,
           actorUserId: userA,
-          terminalId: terminalA,
         }),
         fireService.fire(tenantA, {
           orderId: order.id,
           businessDay: order.businessDay,
           expectedVersion: raceVersion,
           actorUserId: userA,
-          terminalId: terminalA,
         }),
       ]);
 

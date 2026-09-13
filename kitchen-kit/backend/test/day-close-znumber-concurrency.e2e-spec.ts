@@ -131,7 +131,7 @@ describe('DayClose — Z-number concurrency (e2e)', () => {
     return dayClose.post(
       fx.tenantId,
       fx.employeeUserId,
-      { employeeId: fx.employeeId, terminalId: fx.terminalId },
+      { employeeId: fx.employeeId },
       dayCloseAuthorization(fx),
       { branchId: fx.branchId, businessDay },
     );

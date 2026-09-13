@@ -310,10 +310,10 @@ describe('KDS amendment reactivation — real Fire path (e2e)', () => {
   }
 
   async function posToken(): Promise<string> {
-    return pinLogin(http, tenantId, posTerminalId, employeeCode, '9876');
+    return pinLogin(http, tenantId, branchId, employeeCode, '9876', 'pos');
   }
   async function kdsToken(): Promise<string> {
-    return pinLogin(http, tenantId, kdsTerminalId, employeeCode, '9876');
+    return pinLogin(http, tenantId, branchId, employeeCode, '9876', 'kds');
   }
 
   async function fireOrder(
@@ -340,7 +340,7 @@ describe('KDS amendment reactivation — real Fire path (e2e)', () => {
     // ── open order, line A, first Fire ──────────────────────────────────
     const itemA = await mkSellable(`ItemA-${newId().slice(0, 8)}`);
     const order = await orders.create(tenantId, employeeUserId, {
-      terminalId: posTerminalId,
+      branchId,
       openedByEmployeeId: employeeId,
       orderType: 'takeaway',
       channel: 'pos',
@@ -385,7 +385,7 @@ describe('KDS amendment reactivation — real Fire path (e2e)', () => {
       .send({ ticketIds: [ticket.id] })
       .expect(200);
     await request(http)
-      .post(`/kds/tickets/${ticket.id}/bump-all`)
+      .post(`/kds/tickets/${ticket.id}/bump-all?stationId=${stationId}`)
       .set('Authorization', `Bearer ${kdsT}`)
       .send({})
       .expect(200);
@@ -468,7 +468,7 @@ describe('KDS amendment reactivation — real Fire path (e2e)', () => {
 
     // ── bump the amendment line -> aggregate BUMPED again, event re-fires ──
     await request(http)
-      .post(`/kds/tickets/${ticket.id}/lines/${ticketLineB.id}/bump`)
+      .post(`/kds/tickets/${ticket.id}/lines/${ticketLineB.id}/bump?stationId=${stationId}`)
       .set('Authorization', `Bearer ${kdsT}`)
       .send({})
       .expect(200);
@@ -493,7 +493,7 @@ describe('KDS amendment reactivation — real Fire path (e2e)', () => {
     const posT = await posToken();
     const itemA = await mkSellable(`ReplayA-${newId().slice(0, 8)}`);
     const order = await orders.create(tenantId, employeeUserId, {
-      terminalId: posTerminalId,
+      branchId,
       openedByEmployeeId: employeeId,
       orderType: 'takeaway',
       channel: 'pos',
@@ -524,7 +524,7 @@ describe('KDS amendment reactivation — real Fire path (e2e)', () => {
     });
     const kdsT = await kdsToken();
     await request(http)
-      .post(`/kds/tickets/${ticket.id}/bump-all`)
+      .post(`/kds/tickets/${ticket.id}/bump-all?stationId=${stationId}`)
       .set('Authorization', `Bearer ${kdsT}`)
       .send({})
       .expect(200);

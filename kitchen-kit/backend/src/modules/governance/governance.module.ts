@@ -14,10 +14,10 @@ import { APPROVAL_COMMANDS } from './contract/approval.contract';
  * mechanically via the standard contract-only import rule.
  *
  * Depends on NO other module for DI: `ApprovalsService` receives an
- * already-verified `VerifiedTerminalPrincipal` as a plain argument (typed
+ * already-verified `VerifiedApproverPrincipal` as a plain argument (typed
  * via `identity/contract`) rather than injecting Identity's PIN verifier —
  * the consuming module (e.g. a future Treasury close) calls
- * `TERMINAL_PIN_VERIFIER` itself, before opening its transaction.
+ * `APPROVER_PIN_VERIFIER` itself, before opening its transaction.
  */
 @Module({
   providers: [

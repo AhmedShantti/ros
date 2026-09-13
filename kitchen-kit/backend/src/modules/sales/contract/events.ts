@@ -276,7 +276,13 @@ export interface OrderCompletedPaymentSummary {
   readonly changeGiven: string | null;
   readonly cashSessionId: string;
   readonly employeeId: string;
-  readonly terminalId: string;
+  /**
+   * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: NULLABLE, and always `null` for
+   * a payment captured after this decoupling — POS is a branch/employee-
+   * scoped application session, not a registered device identity. Retained
+   * as LEGACY-ONLY provenance for pre-decoupling rows.
+   */
+  readonly terminalId: string | null;
   /** ISO-8601. */
   readonly processedAt: string;
 }

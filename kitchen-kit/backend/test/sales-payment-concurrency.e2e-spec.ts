@@ -171,7 +171,6 @@ describe('Sales Payment — real Postgres concurrency (P1F-1 §19)', () => {
 
   let tenantA: string;
   let branchA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let priceListA: string;
@@ -236,18 +235,6 @@ describe('Sales Payment — real Postgres concurrency (P1F-1 §19)', () => {
         branchId: branchA,
       },
     });
-
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: tenantA,
-        branchId: branchA,
-        name: 'PayRace-POS',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    terminalA = terminal.id;
 
     const user = await admin.user.create({
       data: {
@@ -416,7 +403,7 @@ describe('Sales Payment — real Postgres concurrency (P1F-1 §19)', () => {
   it('two independent transactions racing to pay the SAME order (both individually partial, together over-settling) converge on exactly one winner', async () => {
     const item = await mkSellable(`Race-${newId()}`);
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -471,7 +458,6 @@ describe('Sales Payment — real Postgres concurrency (P1F-1 §19)', () => {
           // attributed to) completely unchanged.
           cashSessionId: cashSessionA,
           employeeId: employeeA,
-          terminalId: terminalA,
           tenderedAmountMinor: amountEach,
         }),
         paymentService.capture(tenantA, userA, {
@@ -482,7 +468,6 @@ describe('Sales Payment — real Postgres concurrency (P1F-1 §19)', () => {
           amountMinor: amountEach,
           cashSessionId: cashSessionB,
           employeeId: employeeA,
-          terminalId: terminalA,
           tenderedAmountMinor: amountEach,
         }),
       ]);

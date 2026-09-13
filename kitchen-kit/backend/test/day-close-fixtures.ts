@@ -237,13 +237,13 @@ export async function dashboardToken(
 export async function pinToken(
   http: App,
   tenantId: string,
-  terminalId: string,
+  branchId: string,
   employeeCode: string,
   pin: string,
 ): Promise<string> {
   const res = await request(http)
     .post('/auth/pin')
-    .send({ tenantId, terminalId, employeeCode, pin })
+    .send({ tenantId, branchId, employeeCode, pin, sessionType: 'pos' })
     .expect(200);
   return (res.body as { accessToken: string }).accessToken;
 }

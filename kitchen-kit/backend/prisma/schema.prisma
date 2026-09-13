@@ -2048,8 +2048,13 @@ model Order {
   id                 String       @db.Uuid
   tenantId           String       @map("tenant_id") @db.Uuid
   branchId           String       @map("branch_id") @db.Uuid
-  terminalId         String       @map("terminal_id") @db.Uuid
-  /// FR-POS-002 `<branch_code>-<business_day_seq>`, drawn from a terminal block.
+  /// CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13): NULLABLE, and no
+  /// longer written by any runtime path. POS is a branch/employee-scoped
+  /// application session, not a registered device identity — order creation
+  /// no longer requires, derives from, or stamps a ROS Terminal. Retained as
+  /// LEGACY-ONLY provenance for pre-decoupling rows (see the P0 report).
+  terminalId         String?      @map("terminal_id") @db.Uuid
+  /// FR-POS-002 `<branch_code>-<business_day_seq>`, drawn from a branch block.
   orderNumber        String       @map("order_number") @db.VarChar(24)
   businessDay        DateTime     @map("business_day") @db.Date
   orderType          OrderType    @map("order_type")
@@ -2393,8 +2398,11 @@ model OrderPayment {
   /// P1D-E — the business financial actor. The trusted PIN-session
   /// employee, never client-supplied.
   employeeId    String @map("employee_id") @db.Uuid
-  /// The trusted terminal the capture happened at. Never client-supplied.
-  terminalId    String @map("terminal_id") @db.Uuid
+  /// CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13): NULLABLE, and no
+  /// longer written by any runtime path — POS is a branch/employee-scoped
+  /// application session, not a registered device identity. Retained as
+  /// LEGACY-ONLY provenance for pre-decoupling rows.
+  terminalId    String? @map("terminal_id") @db.Uuid
 
   // ── CASH-specific (FR-POS-063) ──────────────────────────────────────────
   /// What the customer physically handed over. NULL for MANUAL_EXTERNAL_CARD.
@@ -2450,7 +2458,7 @@ model OrderPayment {
   /// table deliberately does not repeat the older, acknowledged
   /// `orders.terminal_id -> identity.terminals(id)` weakness merely because
   /// that precedent exists.
-  terminal    Terminal    @relation(fields: [branchId, terminalId], references: [branchId, id], onDelete: Restrict)
+  terminal    Terminal?   @relation(fields: [branchId, terminalId], references: [branchId, id], onDelete: Restrict)
 
   @@id([id])
   @@unique([tenantId, id])
@@ -2694,7 +2702,11 @@ model OrderNumberBlock {
   id          String    @id @db.Uuid
   tenantId    String    @map("tenant_id") @db.Uuid
   branchId    String    @map("branch_id") @db.Uuid
-  terminalId  String    @map("terminal_id") @db.Uuid
+  /// CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13): NULLABLE.
+  /// Blocks are allocated per (branch, business day) — the advisory lock
+  /// already serialises at that granularity — never per terminal any more.
+  /// Retained as LEGACY-ONLY provenance for pre-decoupling rows.
+  terminalId  String?   @map("terminal_id") @db.Uuid
   businessDay DateTime  @map("business_day") @db.Date
   blockStart  Int       @map("block_start")
   blockEnd    Int       @map("block_end")
@@ -3250,7 +3262,10 @@ model CashSessionCloseAttempt {
 
   declaredByEmployeeId String   @map("declared_by_employee_id") @db.Uuid
   declaredByUserId     String   @map("declared_by_user_id") @db.Uuid
-  terminalId           String   @map("terminal_id") @db.Uuid
+  /// CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13): NULLABLE, and no
+  /// longer written by any runtime path — POS is a branch/employee-scoped
+  /// application session. Retained as LEGACY-ONLY provenance.
+  terminalId           String?  @map("terminal_id") @db.Uuid
   /// Device event instant (caller-supplied) — distinct from `createdAt`
   /// (DB persistence provenance, un-forgeable).
   declaredAt           DateTime @map("declared_at") @db.Timestamptz(6)
@@ -3265,7 +3280,7 @@ model CashSessionCloseAttempt {
   policy             CashClosePolicy         @relation(fields: [tenantId, branchId, policyVersionId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Cascade)
   declaredByEmployee Employee                @relation("CloseAttemptDeclaredByEmployee", fields: [tenantId, declaredByEmployeeId], references: [tenantId, id], onDelete: Restrict)
   declaredByUser     User                    @relation("CloseAttemptDeclaredByUser", fields: [declaredByUserId], references: [id], onDelete: Restrict)
-  terminal           Terminal                @relation(fields: [branchId, terminalId], references: [branchId, id], onDelete: Restrict)
+  terminal           Terminal?               @relation(fields: [branchId, terminalId], references: [branchId, id], onDelete: Restrict)
   denominations      CashCountDenomination[]
   /// Inverse of CashSession's own `closeAttempt` lookup (Prisma requires
   /// both sides of the "SessionAnchor" relation to be declared).

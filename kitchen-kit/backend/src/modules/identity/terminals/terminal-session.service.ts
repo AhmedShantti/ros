@@ -21,11 +21,19 @@ export interface BindTerminalResult {
 }
 
 /**
+ * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13): this is now the
+ * Sync/offline device channel's OWN session-binding mechanism, and
+ * nothing else's. POS and KDS mint their branch-scoped session directly at
+ * PIN login (`AuthService.loginWithPin`) and never call this — see
+ * `AuthenticatedPrincipal.terminalId`'s docblock. Genuinely independent
+ * subsystem kept unmodified per the P0 report §4/§17: `SyncTerminalGuard`
+ * fail-closed-gates every sync route on the `trm` claim this mints.
+ *
  * Binds an authenticated, tenant-scoped session to a terminal. The terminal id
  * is validated server-side against the trusted TenantContext — a client cannot
  * bind to another tenant's terminal (invisible under RLS → 404) or to a
  * disabled/revoked terminal (403). The established terminal identity is minted
- * into the access token as `trm`; only these POS/terminal sessions carry it.
+ * into the access token as `trm`.
  */
 @Injectable()
 export class TerminalSessionService {
@@ -77,11 +85,8 @@ export class TerminalSessionService {
     // DEMO-POS-EMPLOYEE-SESSION-HOTFIX — a terminal-bound token must carry
     // the employee behind it whenever the caller IS one (`Employee.userId`
     // is unique, so this is a safe, unambiguous derivation — no migration,
-    // no new session column), or every Treasury route requiring custody of a
-    // drawer/cash session (FR-SEC-021) refuses this otherwise-valid,
-    // scope-authorized terminal session with "requires ... the employee
-    // taking custody of the drawer." A caller with no linked Employee (a
-    // pure back-office user binding to a KDS screen, say) simply gets no
+    // no new session column). A caller with no linked Employee (a pure
+    // Sync/offline-device-binding back-office user, say) simply gets no
     // `emp` claim, exactly as before.
     const employee = await this.employees.findByUser(
       context.tenantId,

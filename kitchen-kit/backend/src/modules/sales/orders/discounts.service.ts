@@ -71,7 +71,7 @@ import { SCOPE_AUTHORIZATION } from '../../identity/contract';
 import type {
   ScopeAuthorizationActor,
   ScopeAuthorizationPort,
-  VerifiedTerminalPrincipal,
+  VerifiedApproverPrincipal,
 } from '../../identity/contract';
 import { SALES_PERMISSIONS } from '../sales.permissions';
 import {
@@ -86,7 +86,7 @@ import { Prisma } from '../../../generated/prisma/client';
 export interface ManagerApprovalInput {
   readonly approvalRequestId: string;
   readonly approvalDecisionId: string;
-  readonly approver: VerifiedTerminalPrincipal;
+  readonly approver: VerifiedApproverPrincipal;
 }
 
 export interface ApplyLineDiscountInput {

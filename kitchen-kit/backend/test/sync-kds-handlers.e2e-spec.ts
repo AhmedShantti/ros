@@ -5,7 +5,12 @@ import { newId } from './../src/common/ids';
 import { PrismaClient } from './../src/generated/prisma/client';
 import { hlcNodeFromTerminalId } from './../src/modules/sync/hlc/hlc';
 import { createMigratorClient } from './rls-admin';
-import { createKdsFixture, fireTicketLine, KdsFixture } from './kds-fixtures';
+import {
+  createKdsFixture,
+  dashboardTerminalToken,
+  fireTicketLine,
+  KdsFixture,
+} from './kds-fixtures';
 import {
   BatchResultView,
   SYNC_BATCH_PATH,
@@ -13,7 +18,6 @@ import {
   buildBatch,
   buildOperation,
   byOpId,
-  terminalToken,
 } from './sync-fixtures';
 
 /**
@@ -44,7 +48,12 @@ describe('Sync production handlers — KDS tickets (e2e)', () => {
     http = app.getHttpServer() as App;
     admin = createMigratorClient(app);
     fixture = await createKdsFixture(app, admin, stamp);
-    token = await terminalToken(http, fixture, fixture.posTerminalId);
+    token = await dashboardTerminalToken(
+      http,
+      fixture.dashboardEmail,
+      fixture.tenantId,
+      fixture.posTerminalId,
+    );
     node = hlcNodeFromTerminalId(fixture.posTerminalId);
   }, 90_000);
 

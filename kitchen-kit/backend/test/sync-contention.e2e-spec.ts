@@ -6,7 +6,12 @@ import { PrismaClient } from './../src/generated/prisma/client';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { hlcNodeFromTerminalId } from './../src/modules/sync/hlc/hlc';
 import { createMigratorClient } from './rls-admin';
-import { createKdsFixture, fireTicketLine, KdsFixture } from './kds-fixtures';
+import {
+  createKdsFixture,
+  dashboardTerminalToken,
+  fireTicketLine,
+  KdsFixture,
+} from './kds-fixtures';
 import {
   BatchResultView,
   SYNC_BATCH_PATH,
@@ -183,7 +188,7 @@ describe('P-D4-02 production-scale contention (e2e)', () => {
       });
       tokenB = await terminalToken(
         http,
-        { tenantId, employeeCode: fxA.employeeCode, pin: fxA.pin },
+        { tenantId, employeeEmail: fxA.employeeEmail },
         terminalBId,
       );
 
@@ -280,7 +285,12 @@ describe('P-D4-02 production-scale contention (e2e)', () => {
 
     beforeAll(async () => {
       fixture = await createKdsFixture(app, admin, `racebump${Date.now()}`);
-      token = await terminalToken(http, fixture, fixture.posTerminalId);
+      token = await dashboardTerminalToken(
+        http,
+        fixture.dashboardEmail,
+        fixture.tenantId,
+        fixture.posTerminalId,
+      );
       node = hlcNodeFromTerminalId(fixture.posTerminalId);
     }, 60_000);
 

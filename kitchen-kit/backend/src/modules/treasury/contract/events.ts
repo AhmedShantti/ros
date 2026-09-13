@@ -71,7 +71,12 @@ export interface CashVarianceDetectedPayload {
   // ── PROVENANCE ────────────────────────────────────────────────────────────
   readonly declaredByEmployeeId: string;
   readonly declaredByUserId: string;
-  readonly terminalId: string;
+  /**
+   * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: NULLABLE, and always `null`
+   * going forward — POS is a branch/employee-scoped application session,
+   * not a registered device identity. Retained as LEGACY-ONLY provenance.
+   */
+  readonly terminalId: string | null;
   /** ISO-8601. The device declaration instant (distinct from the envelope's
    *  own `occurredAt`, which is the server's `declareClose` instant). */
   readonly declaredAt: string;

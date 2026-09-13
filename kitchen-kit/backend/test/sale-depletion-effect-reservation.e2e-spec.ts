@@ -90,7 +90,6 @@ describe('SaleDepletionService — A1-3A set-oriented effect reservation', () =>
   let tenantA: string;
   let branchA: string;
   let locationA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let unitKg: string;
@@ -194,19 +193,6 @@ describe('SaleDepletionService — A1-3A set-oriented effect reservation', () =>
         },
       })
     ).id;
-    terminalA = (
-      await admin.terminal.create({
-        data: {
-          id: newId(),
-          tenantId: tenantA,
-          branchId: branchA,
-          name: 'A13A-POS',
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-    ).id;
-
     const user = await admin.user.create({
       data: {
         id: newId(),
@@ -373,7 +359,7 @@ describe('SaleDepletionService — A1-3A set-oriented effect reservation', () =>
     n: number,
   ): Promise<{ orderId: string; businessDay: Date; lineIds: string[] }> => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',

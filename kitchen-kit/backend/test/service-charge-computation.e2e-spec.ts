@@ -354,7 +354,7 @@ describe('ServiceChargePolicy computation (e2e) — P2E', () => {
     opts: { orderType?: string; guestCount?: number | null; at?: Date } = {},
   ) {
     return orders.create(tenantA, ownerUserId, {
-      terminalId: scope.terminalId,
+      branchId: scope.branchId,
       openedByEmployeeId: scope.employeeId,
       orderType: opts.orderType ?? 'dine_in',
       channel: 'pos',
@@ -523,16 +523,6 @@ describe('ServiceChargePolicy computation (e2e) — P2E', () => {
         branchId: branch.id,
       },
     });
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: zzTenant,
-        branchId: branch.id,
-        name: 'ZZ-T',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
     const employee = await app
       .get(EmployeesService)
       .create(zzTenant, ownerUserId, {
@@ -593,7 +583,7 @@ describe('ServiceChargePolicy computation (e2e) — P2E', () => {
     });
 
     const order = await orders.create(zzTenant, ownerUserId, {
-      terminalId: terminal.id,
+      branchId: branch.id,
       openedByEmployeeId: employee.id,
       orderType: 'dine_in',
       channel: 'pos',
@@ -780,9 +770,10 @@ describe('ServiceChargePolicy computation (e2e) — P2E', () => {
       .post('/auth/pin')
       .send({
         tenantId: tenantA,
-        terminalId: scope.terminalId,
+        branchId: scope.branchId,
         employeeCode: scope.employeeCode,
         pin,
+        sessionType: 'pos',
       })
       .expect(200);
     const token = (pinLogin.body as { accessToken: string }).accessToken;

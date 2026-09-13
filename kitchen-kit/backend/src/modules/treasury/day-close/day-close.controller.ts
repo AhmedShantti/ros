@@ -347,7 +347,7 @@ export class DayCloseController {
     return this.dayClose.post(
       authorization.context.tenantId,
       authorization.context.userId,
-      { employeeId: principal.employeeId, terminalId: principal.terminalId },
+      { employeeId: principal.employeeId },
       authorization,
       {
         branchId: params.branchId,

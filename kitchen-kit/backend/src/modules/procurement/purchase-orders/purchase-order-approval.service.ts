@@ -20,8 +20,8 @@ import {
   type DecideApprovalResult,
 } from '../../governance/contract';
 import {
-  TERMINAL_PIN_VERIFIER,
-  type TerminalPinVerifier,
+  APPROVER_PIN_VERIFIER,
+  type ApproverPinVerifier,
 } from '../../identity/contract';
 import {
   PURCHASE_ORDER_APPROVED_EVENT_TYPE,
@@ -34,18 +34,19 @@ import { assertPoVersion } from './po-state';
 /**
  * FR-PRC-018/019 §9 manual approval decision.
  *
- * ── WHY THIS IS A PIN-VERIFIED TERMINAL DECISION, NOT A DASHBOARD ONE ─────
+ * ── WHY THIS IS A PIN-VERIFIED, BRANCH-SCOPED DECISION, NOT A DASHBOARD
+ *    ONE ──────────────────────────────────────────────────────────────
  * The mission brief §9 requires reusing "the existing Governance approval
  * mechanism" and explicitly forbids "a parallel procurement approval
  * engine." Inspection of that mechanism (`governance/contract/
  * approval.contract.ts`) found `ApprovalCommands.decide()` requires a
- * `VerifiedTerminalPrincipal` — a value BRANDED so it can only be
+ * `VerifiedApproverPrincipal` — a value BRANDED so it can only be
  * constructed inside Identity (`module-boundaries.spec.ts` confines the
  * unfabricable cast to `src/modules/identity/`), obtainable ONLY via
- * `TERMINAL_PIN_VERIFIER.verifyTerminalPin()` (a registered POS/KDS/kiosk/
- * handheld terminal + employee PIN — `identity.terminals.terminal_type` has
- * no "back office"/dashboard variant). This is the SAME, and ONLY, manual
- * decision channel `discounts.service.ts`/`refunds.service.ts`/
+ * `APPROVER_PIN_VERIFIER.verifyApproverPin()` (a branch-permitted employee
+ * PIN — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no registered device
+ * identity is required or consulted any more). This is the SAME, and ONLY,
+ * manual decision channel `discounts.service.ts`/`refunds.service.ts`/
  * `cancel-order.service.ts`/Treasury's `declareClose`/`finalizeClose`
  * already use — there is no dashboard-JWT-session decision channel
  * anywhere in this repository's Governance runtime today (confirmed against
@@ -59,7 +60,18 @@ import { assertPoVersion } from './po-state';
  * records FR-PRC-020's remaining email/mobile-link limb as honestly
  * PARTIAL, exactly as the mission brief's §12 anticipates.
  *
- * `TERMINAL_PIN_VERIFIER.verifyTerminalPin()` MUST be called BEFORE the
+ * ── `approvalBranchId` (CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 §9) ──────
+ * A Purchase Order may be tenant-wide (a warehouse/central-kitchen
+ * delivery spans no single branch), so no unambiguous branch is always
+ * derivable from the order itself. `dto.approvalBranchId` is the smallest
+ * explicit request field naming ONLY the operational branch the approving
+ * employee's PIN/membership is verified against — never a device identity,
+ * and never asserted as the Purchase Order's own attribution/delivery
+ * branch. The approver's permission (`pos.procurement...` /
+ * `FR-PRC-019`'s SoD) is independently re-checked by the Governance
+ * Approval runtime against THAT membership.
+ *
+ * `APPROVER_PIN_VERIFIER.verifyApproverPin()` MUST be called BEFORE the
  * business transaction opens (its own docblock — nested `withAuthContext`
  * is unsupported, and lockout counters must survive a caller rollback).
  */
@@ -69,8 +81,8 @@ export class PurchaseOrderApprovalService {
     private readonly unitOfWork: UnitOfWork,
     private readonly audit: AuditService,
     @Inject(APPROVAL_COMMANDS) private readonly approvals: ApprovalCommands,
-    @Inject(TERMINAL_PIN_VERIFIER)
-    private readonly pinVerifier: TerminalPinVerifier,
+    @Inject(APPROVER_PIN_VERIFIER)
+    private readonly pinVerifier: ApproverPinVerifier,
   ) {}
 
   async approve(tenantId: string, id: string, dto: DecidePurchaseOrderDto) {
@@ -87,9 +99,9 @@ export class PurchaseOrderApprovalService {
     dto: DecidePurchaseOrderDto,
     decision: 'approved' | 'rejected',
   ) {
-    const approver = await this.pinVerifier.verifyTerminalPin({
+    const approver = await this.pinVerifier.verifyApproverPin({
       tenantId,
-      terminalId: dto.terminalId,
+      branchId: dto.approvalBranchId,
       employeeCode: dto.employeeCode,
       pin: dto.pin,
     });

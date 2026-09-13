@@ -43,7 +43,6 @@ export interface FireOrderInput {
   readonly businessDay: Date;
   readonly expectedVersion: number;
   readonly actorUserId: string;
-  readonly terminalId: string;
 }
 
 export interface FireOrderResult {
@@ -263,7 +262,6 @@ export class SalesFireService {
             actorType: 'user',
             actorId: input.actorUserId,
             entityId: order.id,
-            terminalId: input.terminalId,
             before: { state: order.state, version: order.version },
             metadata: {
               state: newState,

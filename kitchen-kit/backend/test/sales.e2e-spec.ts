@@ -126,9 +126,6 @@ describe('Sales P1A (e2e)', () => {
   let tenantB: string;
   let branchA: string;
   let branchB: string;
-  let terminalA: string;
-  let terminalA2: string;
-  let terminalB: string;
   let employeeA: string;
   let employeeB: string;
   let userA: string;
@@ -167,20 +164,6 @@ describe('Sales P1A (e2e)', () => {
     });
     return branch.id;
   };
-
-  const mkTerminal = (tenantId: string, branchId: string, name: string) =>
-    admin.terminal
-      .create({
-        data: {
-          id: newId(),
-          tenantId,
-          branchId,
-          name,
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-      .then((t) => t.id);
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -230,9 +213,6 @@ describe('Sales P1A (e2e)', () => {
     branchACode = `SA${stamp % 10000}`;
     branchA = await mkBranch(tenantA, branchACode);
     branchB = await mkBranch(tenantB, `SB${stamp % 10000}`);
-    terminalA = await mkTerminal(tenantA, branchA, 'SA-POS-1');
-    terminalA2 = await mkTerminal(tenantA, branchA, 'SA-POS-2');
-    terminalB = await mkTerminal(tenantB, branchB, 'SB-POS');
 
     const mkUser = async (email: string, tenantId: string) => {
       const u = await users.createUser({ email, password, displayName: 'S' });
@@ -261,7 +241,7 @@ describe('Sales P1A (e2e)', () => {
     employeeACode = `SEA${stamp % 1000}`;
 
     // A PIN session is the only session type that carries tenant + membership +
-    // terminal + employee together, which is what a POS route needs.
+    // branch + employee together, which is what a POS route needs.
     const permissions = app.get(PermissionsService);
     for (const def of SALES_PERMISSION_DEFS) await permissions.upsert(def);
     const roles = app.get(RolesService);
@@ -287,9 +267,10 @@ describe('Sales P1A (e2e)', () => {
     await pins.setPin(tenantA, userA, employeeA, PIN);
     const login = await request(http).post('/auth/pin').send({
       tenantId: tenantA,
-      terminalId: terminalA,
+      branchId: branchA,
       employeeCode: employeeACode,
       pin: PIN,
+      sessionType: 'pos',
     });
     posToken = (login.body as { accessToken: string }).accessToken;
   });
@@ -303,7 +284,7 @@ describe('Sales P1A (e2e)', () => {
     over: Partial<Parameters<OrdersService['create']>[2]> = {},
   ) =>
     orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -469,17 +450,24 @@ describe('Sales P1A (e2e)', () => {
       expect(new Set(numbers).size).toBe(8);
     });
 
-    it('a second terminal draws from its OWN block — ranges never overlap', async () => {
-      const t2 = await mkOrder({ terminalId: terminalA2 });
-      const blocks = await admin.orderNumberBlock.findMany({
+    it('order numbering is scoped to the branch only, never to a per-session device identity (CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0)', async () => {
+      // Blocks used to be keyed per (branch, terminal, business day), so a
+      // second terminal at the same branch immediately opened its own block.
+      // POS is now a branch/employee-scoped session with no device identity
+      // to key a block by, so the advisory-lock allocator (orders.service.ts
+      // `allocateOrderNumber`) serialises purely on (branchId, businessDay):
+      // two orders opened "from" what would previously have been two
+      // different terminals now draw from the SAME block.
+      const before = await admin.orderNumberBlock.count({
         where: { branchId: branchA, businessDay: BUSINESS_DAY },
-        orderBy: { blockStart: 'asc' },
       });
-      expect(blocks.length).toBeGreaterThanOrEqual(2);
-      for (let i = 1; i < blocks.length; i++) {
-        expect(blocks[i].blockStart).toBeGreaterThan(blocks[i - 1].blockEnd);
-      }
-      expect(t2.orderNumber).toBeTruthy();
+      const o1 = await mkOrder();
+      const o2 = await mkOrder();
+      const after = await admin.orderNumberBlock.count({
+        where: { branchId: branchA, businessDay: BUSINESS_DAY },
+      });
+      expect(after).toBe(before);
+      expect(o1.orderNumber).not.toBe(o2.orderNumber);
     });
 
     it('a different branch numbers independently', async () => {
@@ -545,15 +533,16 @@ describe('Sales P1A (e2e)', () => {
       expect(await orders.findOne(tenantA, id, BUSINESS_DAY)).not.toBeNull();
     });
 
-    it('rejects a cross-tenant terminal (invisible under RLS -> 404)', async () => {
-      // The branch is DERIVED from the terminal, so a cross-tenant branch is
-      // not reachable at all: there is no branch input to poison.
-      await expect(mkOrder({ terminalId: terminalB })).rejects.toThrow(
-        /Terminal not found/,
+    it('rejects a cross-tenant branch (invisible under RLS -> 404)', async () => {
+      // Tenant A's live-verified session cannot open an order at tenant B's
+      // branch: the branch lookup runs under tenant A's RLS context, so
+      // branchB is simply invisible, not merely forbidden.
+      await expect(mkOrder({ branchId: branchB })).rejects.toThrow(
+        /Branch not found/,
       );
     });
 
-    it('books the order to the branch the terminal is registered to', async () => {
+    it('books the order to the branch the caller supplied', async () => {
       const order = await mkOrder();
       expect(order.branchId).toBe(branchA);
     });
@@ -571,7 +560,6 @@ describe('Sales P1A (e2e)', () => {
             id: newId(),
             tenantId: tenantA,
             branchId: branchB, // tenant B's branch
-            terminalId: terminalA,
             orderNumber: `X-${Date.now() % 100000}`,
             businessDay: BUSINESS_DAY,
             orderType: 'takeaway',
@@ -594,7 +582,6 @@ describe('Sales P1A (e2e)', () => {
             id: newId(),
             tenantId: tenantA,
             branchId: branchA,
-            terminalId: terminalA,
             orderNumber: `Y-${Date.now() % 100000}`,
             businessDay: BUSINESS_DAY,
             orderType: 'takeaway',
@@ -676,7 +663,7 @@ describe('Sales P1A (e2e)', () => {
       ).rejects.toThrow(/no longer be modified/);
     });
 
-    it('order creation emits an audit entry with actor, terminal and branch', async () => {
+    it('order creation emits an audit entry with actor and branch', async () => {
       const order = await mkOrder();
       const entry = await admin.auditEntry.findFirst({
         where: {
@@ -687,7 +674,9 @@ describe('Sales P1A (e2e)', () => {
       });
       expect(entry).not.toBeNull();
       expect(entry!.actorId).toBe(userA);
-      expect(entry!.terminalId).toBe(terminalA);
+      // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: POS orders no longer carry
+      // a terminal identity, so the audit entry's terminalId is always null.
+      expect(entry!.terminalId).toBeNull();
       expect(entry!.afterState).toMatchObject({ branchId: branchA });
     });
 
@@ -730,12 +719,11 @@ describe('Sales P1A (e2e)', () => {
 
     it('refuses to open an order for a jurisdiction with no activated pack', async () => {
       const branch = await mkBranch(tenantA, `NP${stamp % 10000}`, 'ZZ');
-      const terminal = await mkTerminal(tenantA, branch, 'NP-POS');
       await admin.employeeBranch.create({
         data: { tenantId: tenantA, employeeId: employeeA, branchId: branch },
       });
 
-      await expect(mkOrder({ terminalId: terminal })).rejects.toThrow(
+      await expect(mkOrder({ branchId: branch })).rejects.toThrow(
         /No activated country pack is in force for ZZ/,
       );
     });
@@ -795,7 +783,9 @@ describe('Sales P1A (e2e)', () => {
       expect(res.status).toBe(201);
       const body = res.body as Record<string, unknown>;
       expect(body.branchId).toBe(branchA);
-      expect(body.terminalId).toBe(terminalA);
+      // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no per-session device
+      // identity exists any more, so the order's terminalId is always null.
+      expect(body.terminalId).toBeNull();
       expect(body.openedBy).toBe(employeeA);
       expect(body.currency).toBe('EGP');
       expect(body.state).toBe('draft');
@@ -875,9 +865,14 @@ describe('Sales P1A (e2e)', () => {
       expect(res.status).toBe(409);
     });
 
-    it('refuses a terminal other than the one the session is bound to', async () => {
-      const res = await open({ terminalId: terminalA2 }, `http-${newId()}`);
-      expect(res.status).toBe(403);
+    it('cannot supply a branch to override the one the live-verified POS session is bound to', async () => {
+      // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: branchId (and terminalId)
+      // are not request-body fields at all any more — the branch is trusted
+      // exclusively from the caller's live-verified PIN-session context, so
+      // attempting to steer it through the body is a structural (whitelist)
+      // 400, not a runtime 403 terminal/session mismatch.
+      const res = await open({ branchId: branchB }, `http-${newId()}`);
+      expect(res.status).toBe(400);
     });
 
     it('refuses an employee other than the one who entered the PIN', async () => {
@@ -900,7 +895,7 @@ describe('Sales P1A (e2e)', () => {
       expect(res.status).toBe(401);
     });
 
-    it('emits an audit entry naming the actor, terminal and pack', async () => {
+    it('emits an audit entry naming the actor and pack', async () => {
       const res = await open({}, `http-${newId()}`);
       const entry = await admin.auditEntry.findFirst({
         where: {
@@ -910,7 +905,9 @@ describe('Sales P1A (e2e)', () => {
         },
       });
       expect(entry).not.toBeNull();
-      expect(entry!.terminalId).toBe(terminalA);
+      // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no terminal identity to
+      // record any more.
+      expect(entry!.terminalId).toBeNull();
       expect(entry!.afterState).toMatchObject({ countryPack: `EG-${PACK}` });
     });
   });
@@ -931,7 +928,7 @@ describe('Sales P1A (e2e)', () => {
 
     it('hides another tenant order as 404, never 403', async () => {
       const other = await orders.create(tenantB, userB, {
-        terminalId: terminalB,
+        branchId: branchB,
         openedByEmployeeId: employeeB,
         orderType: 'takeaway',
         channel: 'pos',

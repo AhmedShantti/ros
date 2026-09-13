@@ -81,7 +81,6 @@ describe('Sales P1C line capture (e2e)', () => {
   let tenantB: string;
   let branchA: string;
   let brandA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let userB: string;
@@ -299,18 +298,6 @@ describe('Sales P1C line capture (e2e)', () => {
       },
     });
     locationA = location.id;
-    terminalA = (
-      await admin.terminal.create({
-        data: {
-          id: newId(),
-          tenantId: tenantA,
-          branchId: branchA,
-          name: 'LA-POS-1',
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-    ).id;
 
     const mkUser = async (email: string, tenantId: string) => {
       const u = await users.createUser({ email, password, displayName: 'L' });
@@ -355,9 +342,10 @@ describe('Sales P1C line capture (e2e)', () => {
     await pins.setPin(tenantA, userA, employeeA, PIN);
     const login = await request(http).post('/auth/pin').send({
       tenantId: tenantA,
-      terminalId: terminalA,
+      branchId: branchA,
       employeeCode,
       pin: PIN,
+      sessionType: 'pos',
     });
     posToken = (login.body as { accessToken: string }).accessToken;
 
@@ -536,7 +524,7 @@ describe('Sales P1C line capture (e2e)', () => {
 
   const openOrder = () =>
     orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -659,7 +647,10 @@ describe('Sales P1C line capture (e2e)', () => {
         },
       });
       expect(entry).not.toBeNull();
-      expect(entry!.terminalId).toBe(terminalA);
+      // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: POS orders no longer carry
+      // a terminal identity, so the order's (and thus the audit entry's)
+      // terminalId is always null now.
+      expect(entry!.terminalId).toBeNull();
       expect(entry!.afterState).toMatchObject({
         countryPack: `EG-${PACK}`,
         taxClassId: taxClassStandard,
@@ -1361,12 +1352,12 @@ describe('Sales P1C line capture (e2e)', () => {
     });
 
     it('cannot reach tenant A resources from a tenant B context', async () => {
-      // Tenant A's terminal is invisible under tenant B's RLS context, so an
+      // Tenant A's branch is invisible under tenant B's RLS context, so an
       // order opened as tenant B cannot borrow it. The failure is a 404-shaped
-      // "not found", never a 403 that would confirm the terminal exists.
+      // "not found", never a 403 that would confirm the branch exists.
       await expect(
         orders.create(tenantB, userB, {
-          terminalId: terminalA,
+          branchId: branchA,
           openedByEmployeeId: employeeA,
           orderType: 'takeaway',
           channel: 'pos',
@@ -1374,7 +1365,7 @@ describe('Sales P1C line capture (e2e)', () => {
           idempotencyKey: `k-${newId()}`,
           at: AT,
         }),
-      ).rejects.toThrow(/Terminal not found/);
+      ).rejects.toThrow(/Branch not found/);
     });
 
     it('cannot read a tenant A order line from a tenant B context', async () => {

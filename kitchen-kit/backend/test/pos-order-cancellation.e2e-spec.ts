@@ -502,21 +502,23 @@ describe('FULL-SRS-POS-ORDER-CANCELLATION-P3 (e2e)', () => {
 
   const pinLogin = async (
     tid: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
+    sessionType: 'pos' | 'kds' = 'pos',
   ) =>
     request(http)
       .post('/auth/pin')
-      .send({ tenantId: tid, terminalId, employeeCode, pin });
+      .send({ tenantId: tid, branchId, employeeCode, pin, sessionType });
 
   const pinLoginOk = async (
     tid: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
+    sessionType: 'pos' | 'kds' = 'pos',
   ) => {
-    const res = await pinLogin(tid, terminalId, employeeCode, pin);
+    const res = await pinLogin(tid, branchId, employeeCode, pin, sessionType);
     expect(res.status).toBe(200);
     return (res.body as { accessToken: string }).accessToken;
   };
@@ -531,7 +533,7 @@ describe('FULL-SRS-POS-ORDER-CANCELLATION-P3 (e2e)', () => {
 
   const mkOpenOrder = async () => {
     const order = await orders.create(tenantA, userCashier, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: (
         await admin.employee.findFirstOrThrow({
           where: { tenantId: tenantA, code: employeeCashierCode },
@@ -605,21 +607,22 @@ describe('FULL-SRS-POS-ORDER-CANCELLATION-P3 (e2e)', () => {
   beforeAll(async () => {
     cashierToken = await pinLoginOk(
       tenantA,
-      terminalA,
+      branchA,
       employeeCashierCode,
       PIN_CASHIER,
     );
     noCancelToken = await pinLoginOk(
       tenantA,
-      terminalA,
+      branchA,
       employeeNoCancelCode,
       PIN_NOCANCEL,
     );
     kdsToken = await pinLoginOk(
       tenantA,
-      kdsTerminalId,
+      branchA,
       employeeCookCode,
       PIN_COOK,
+      'kds',
     );
   });
 
@@ -643,7 +646,9 @@ describe('FULL-SRS-POS-ORDER-CANCELLATION-P3 (e2e)', () => {
       where: { orderLineId },
     });
     const res = await request(http)
-      .post(`/kds/tickets/${ticketLine.ticketId}/lines/${ticketLine.id}/bump`)
+      .post(
+        `/kds/tickets/${ticketLine.ticketId}/lines/${ticketLine.id}/bump?stationId=${stationId}`,
+      )
       .set('Authorization', `Bearer ${kdsToken}`)
       .send({});
     expect(res.status).toBe(200);

@@ -131,7 +131,7 @@ describe('DayClose x Order-create — cutover race (e2e)', () => {
     orderSeq += 1;
     return orders.create(fx.tenantId, fx.employeeUserId, {
       id: newId(),
-      terminalId: fx.terminalId,
+      branchId: fx.branchId,
       openedByEmployeeId: fx.employeeId,
       orderType: 'dine_in',
       channel: 'pos',
@@ -145,7 +145,7 @@ describe('DayClose x Order-create — cutover race (e2e)', () => {
     return dayClose.post(
       fx.tenantId,
       fx.employeeUserId,
-      { employeeId: fx.employeeId, terminalId: fx.terminalId },
+      { employeeId: fx.employeeId },
       dayCloseAuthorization(fx),
       { branchId: fx.branchId, businessDay: target },
     );

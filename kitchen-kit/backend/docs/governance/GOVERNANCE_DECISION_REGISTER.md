@@ -9539,3 +9539,150 @@ itself implement, and does NOT authorize itself as, that implementation.**
 **Neither the P2D implementation nor the P2C1 cash-rounding correction has
 been created by this entry. Implementation of either is NOT authorized
 beyond this ratification.**
+
+---
+
+## CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 — POS/KDS Are Application Sessions, Not Registered Terminal Devices — RATIFIED 2026-09-13
+
+> **RECORDED 2026-09-13 by explicit user governance action** — the
+> product decision was stated directly, as a binding instruction, in the
+> task brief authorizing this implementation ("This is an explicit
+> product-direction change... PRODUCT DECISION — BINDING"), not derived
+> or inferred by the implementing session.
+> **NOT a new numbered decision — no further D-N is created; the original
+> twenty-decision tally is unchanged.** Recorded as an unnumbered ratified
+> entry, matching the **P1C / P1G-1 / RCPT-R1 / D1-1 / AUD-R1 / P2A-R1 /
+> P2C1-R1 / P2D-R1** convention.
+>
+> This entry supersedes, for POS and KDS ONLY, every original SRS
+> assumption that a POS or KDS actor authenticates and operates through a
+> REGISTERED TERMINAL device identity. It does not touch or reopen any
+> other module's ratified decisions above, and it does not redesign
+> Offline/Sync, printers, payment-terminal integrations, barcode
+> scanners/scales, or the Terminal aggregate's own admin surface.
+
+### The decision
+
+**POS and KDS authentication and authorization are BRANCH/EMPLOYEE based,
+not device/terminal based.** A POS or KDS actor is: tenant + user/employee
++ branch + permissions + session type (`pos` or `kds`). There is no
+`terminalId` in the PIN-login request, no bound-device identity check, no
+terminal revocation/licensing dependency, and no `trm` claim on a POS/KDS
+access token. Station context (KDS) is selected per request/operational
+claim, never a device registration; a station remains a business
+configuration entity, unrelated to the change.
+
+This is a genuine reversal of the original terminal-centric reading of
+FR-SEC-020/021/028 for the POS/KDS actor, not an extension or
+clarification of it — the original requirement text assumed a managed,
+registered device; this decision replaces that assumption for POS/KDS.
+
+### Requirement impact
+
+- **FR-SEC-020/021** ("PIN authentication SHALL be scoped to a registered
+  terminal" / "at a registered terminal") — the literal "registered
+  terminal" clause is **SUPERSEDED / PRODUCT-DIRECTION OVERRIDE** for the
+  POS/KDS actor. The substantive security properties FR-SEC-020/021
+  actually protect — tenant isolation, branch-scoped operation, employee
+  attribution, lockout, hashed/salted PIN storage, no dashboard access
+  from a PIN session — are ALL PRESERVED, re-verified live per request
+  against the employee's current permitted branches
+  (`TenantContextService.resolveSessionBranch`). Only the literal
+  "terminal" binding is removed. Must NOT be re-marked COMPLETE against
+  its original literal terminal wording in any future Full-SRS
+  traceability pass; the correct status against the ORIGINAL wording is
+  SUPERSEDED / NOT APPLICABLE for POS/KDS, with a cross-reference to this
+  entry.
+- **FR-SEC-028** ("registered terminal lifecycle" — registration,
+  revocation, immediate credential invalidation) — **PARTIAL, narrowed in
+  scope by this entry.** The Terminal aggregate and its admin
+  register/list/set-status/fingerprint surface remain fully implemented
+  and unaffected, but they are no longer a POS/KDS runtime dependency:
+  POS/KDS session validity no longer depends on any terminal's
+  registration or revocation state. FR-SEC-028 continues to apply, as
+  before, to whatever non-POS/KDS surface still consumes the Terminal
+  aggregate (see "Remaining consumers" below) and remains globally
+  PARTIAL for the reasons the pre-existing Phase 1 requirement map
+  already records (no offline local-wipe capability), unrelated to this
+  decision.
+- Every other device-specific requirement or reconciliation-map entry
+  that exists ONLY because POS/KDS were modelled as managed devices (not
+  because of a genuinely separate concern, such as the Sync/offline
+  device channel or Terminal hardware admin) is superseded on the same
+  basis as FR-SEC-020/021 above, for POS/KDS specifically.
+
+### What this entry authorizes
+
+The implementation carried out under this entry (see the evidence report)
+removed the `terminalId`/`trm` dependency from: `POST /auth/pin` and its
+issued token; `TenantContextService`'s POS/KDS branch resolution; the
+`VerifiedApproverPrincipal`/`APPROVER_PIN_VERIFIER` manager-PIN-approval
+contract (renamed from `VerifiedTerminalPrincipal`/`TERMINAL_PIN_VERIFIER`)
+consumed by Sales discount/refund/cancel-after-production approvals,
+Treasury cash-variance/close approvals, and Procurement Purchase Order
+approval; POS order/line/fire/payment capture; Treasury cash-session
+open/current/movement/close; and KDS's station-access guard (now
+session-branch + caller-supplied `stationId`, never a terminal display
+binding). `sales.orders.terminal_id`, `sales.order_payments.terminal_id`,
+`sales.order_number_blocks.terminal_id`, and
+`treasury.cash_session_close_attempts.terminal_id` were migrated from
+`NOT NULL` to nullable and are no longer written by any runtime path —
+retained as legacy-only provenance for pre-decoupling rows.
+
+### What remains untouched (explicitly out of scope)
+
+- The Terminal aggregate and its admin surface (register/list/set-status/
+  fingerprint) — retained for any operator that still wants to track
+  physical terminal hardware inventory.
+- `POST`/`GET /auth/terminal` (bind/current) — retained, narrowed to the
+  Sync/offline device channel's own session-binding mechanism
+  (`SyncTerminalGuard`), a genuinely independent subsystem this entry does
+  not redesign. POS/KDS never call it and never carry the `trm` claim it
+  mints.
+- External payment-terminal integrations, printers (including kitchen
+  printers), cash-drawer hardware, barcode scanners, scales, customer
+  displays — untouched; a payment provider's own "terminal reference" is
+  not the Identity Terminal aggregate this entry concerns.
+- Offline/Sync device vocabulary (`deviceId`, HLC node/device ids, LAN
+  coordinator, per-device sync state, recovery grants) — untouched.
+- `platform-settings`' optional `terminalId` scope-resolution dimension
+  (an admin/dashboard read of "what settings apply at terminal X") —
+  untouched; it is not called by any POS/KDS runtime path.
+
+### Remaining consumers of the Terminal aggregate
+
+Non-POS/KDS: the Sync/offline device channel (`SyncTerminalGuard`,
+`sync/auth/sync-terminal.guard.ts`); `platform-settings`' optional
+terminal-scoped settings-resolution dimension; the Terminal admin CRUD
+surface itself. `Organisation`'s `StationDisplayBindingQuery` (keyed on
+a terminal's display binding) is now an ORPHANED contract with zero
+runtime consumers post-decoupling — flagged for future cleanup, not
+removed by this entry (a destructive removal was judged out of proportion
+to this task's scope; see the evidence report's own note).
+
+### Not decided by this entry
+
+Whether/when the orphaned `StationDisplayBindingQuery` contract, the
+`Station.displayTerminalId` column, or any now-vestigial Terminal-admin
+surface should be physically retired; any Offline/Sync redesign; any
+printer/payment-terminal integration change. **`POS_TERMINAL_RUNTIME_
+DEPENDENCIES = 0` and `KDS_TERMINAL_RUNTIME_DEPENDENCIES = 0` is the
+acceptance criterion this entry authorizes and the evidence report
+verifies — not destructive schema deletion for its own sake.**
+
+### Evidence (non-authoritative)
+
+`kitchen-kit/backend/docs/reports/claude/2026-09-13_POS-KDS-TERMINAL-
+DECOUPLING-P0.md` — the implementation/verification report for this
+entry. Non-authoritative evidence; where its own narrative differs from
+the clauses above, THESE CLAUSES GOVERN.
+
+**Status:** **RATIFIED — CLOSED, by explicit user governance action on
+2026-09-13 (the task brief's own stated BINDING product decision).
+FR-SEC-020/021's literal "registered terminal" wording is SUPERSEDED /
+PRODUCT-DIRECTION OVERRIDE for POS/KDS; FR-SEC-028 is PARTIAL, narrowed to
+non-POS/KDS Terminal consumers. This entry authorizes the POS/KDS
+terminal-decoupling implementation described in the evidence report and
+supersedes any future Full-SRS pass that would otherwise re-mark
+FR-SEC-020/021/028 against their original literal terminal wording for
+POS/KDS without accounting for this entry.**

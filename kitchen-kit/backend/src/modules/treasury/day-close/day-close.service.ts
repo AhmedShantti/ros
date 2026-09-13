@@ -96,7 +96,6 @@ const MAX_ATTEMPTS = 5;
 
 export interface DayCloseActor {
   readonly employeeId?: string;
-  readonly terminalId?: string;
 }
 
 export interface PostDayCloseInput {
@@ -377,7 +376,6 @@ export class DayCloseService {
         actorType: 'user',
         actorId: actorUserId,
         entityId: activation.id,
-        terminalId: actor.terminalId ?? null,
         metadata: {
           branchId,
           activationBusinessDay: dateStr(activationBusinessDay),
@@ -662,7 +660,6 @@ export class DayCloseService {
       actorType: 'user',
       actorId: actorUserId,
       entityId: dayCloseId,
-      terminalId: actor.terminalId ?? null,
       metadata: {
         branchId,
         businessDay: dateStr(targetBusinessDay),

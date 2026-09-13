@@ -132,7 +132,6 @@ describe('Inventory concurrency matrix (A1-4)', () => {
   let tenantA: string;
   let branchA: string;
   let locationA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let priceListA: string;
@@ -205,18 +204,6 @@ describe('Inventory concurrency matrix (A1-4)', () => {
         },
       })
     ).id;
-
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: tenantA,
-        branchId: branchA,
-        name: 'InvRace-POS',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    terminalA = terminal.id;
 
     const user = await admin.user.create({
       data: {
@@ -454,7 +441,7 @@ describe('Inventory concurrency matrix (A1-4)', () => {
 
   const mkOpenOrderWithLine = async (itemId: string, variantId: string) => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -504,7 +491,6 @@ describe('Inventory concurrency matrix (A1-4)', () => {
       amountMinor: order.grandTotal,
       cashSessionId,
       employeeId: employeeA,
-      terminalId: terminalA,
       tenderedAmountMinor: order.grandTotal,
     });
   };
@@ -640,7 +626,6 @@ describe('Inventory concurrency matrix (A1-4)', () => {
             amountMinor: order.grandTotal,
             cashSessionId: cashSessionA,
             employeeId: employeeA,
-            terminalId: terminalA,
             tenderedAmountMinor: order.grandTotal,
           }),
         ]);
@@ -712,7 +697,6 @@ describe('Inventory concurrency matrix (A1-4)', () => {
             amountMinor: order.grandTotal,
             cashSessionId: cashSessionA,
             employeeId: employeeA,
-            terminalId: terminalA,
             tenderedAmountMinor: order.grandTotal,
           }),
         ]);
@@ -965,7 +949,6 @@ describe('Inventory concurrency matrix (A1-4)', () => {
           amountMinor: order.grandTotal,
           cashSessionId: cashSessionA,
           employeeId: employeeA,
-          terminalId: terminalA,
           tenderedAmountMinor: order.grandTotal,
         }),
       ]);
@@ -1011,7 +994,6 @@ describe('Inventory concurrency matrix (A1-4)', () => {
           amountMinor: order.grandTotal,
           cashSessionId: cashSessionA,
           employeeId: employeeA,
-          terminalId: terminalA,
           tenderedAmountMinor: order.grandTotal,
         }),
       ]);

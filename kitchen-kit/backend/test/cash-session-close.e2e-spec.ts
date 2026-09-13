@@ -98,8 +98,6 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
   let tenantB: string;
   let branchA: string;
   let branchOpen: string;
-  let terminalA: string;
-  let terminalOpen: string;
 
   let userCashier: string;
   let employeeCashier: string;
@@ -120,7 +118,6 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
 
   // Tenant B — cross-tenant proofs.
   let branchB: string;
-  let terminalB: string;
   let userB: string;
   let employeeB: string;
 
@@ -240,26 +237,9 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
       });
       return branch.id;
     };
-    const mkTerminal = (tenantId: string, branchId: string, name: string) =>
-      admin.terminal
-        .create({
-          data: {
-            id: newId(),
-            tenantId,
-            branchId,
-            name,
-            terminalType: 'pos',
-            status: 'active',
-          },
-        })
-        .then((t) => t.id);
-
     branchA = await mkBranch(tenantA, `CSCA${stamp % 10000}`);
     branchOpen = await mkBranch(tenantA, `CSCO${stamp % 10000}`);
     branchB = await mkBranch(tenantB, `CSCB${stamp % 10000}`);
-    terminalA = await mkTerminal(tenantA, branchA, 'CSC-POS-A');
-    terminalOpen = await mkTerminal(tenantA, branchOpen, 'CSC-POS-OPEN');
-    terminalB = await mkTerminal(tenantB, branchB, 'CSC-POS-B');
 
     const mkUser = async (email: string, tenantId: string) => {
       const u = await users.createUser({ email, password, displayName: 'CSC' });
@@ -399,23 +379,23 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     await assign(userCashier, dashboardRole.id); // reused as the dashboard actor
 
     const pinLogin = async (
-      terminalId: string,
+      branchId: string,
       employeeCode: string,
       pin: string,
     ) => {
       const res = await request(http)
         .post('/auth/pin')
-        .send({ tenantId: tenantA, terminalId, employeeCode, pin })
+        .send({ tenantId: tenantA, branchId, employeeCode, pin, sessionType: 'pos' })
         .expect(200);
       return (res.body as { accessToken: string }).accessToken;
     };
-    cashierToken = await pinLogin(terminalA, codeCashier, PIN_CASHIER);
-    otherToken = await pinLogin(terminalA, codeOther, PIN_OTHER);
-    noCloseToken = await pinLogin(terminalA, codeNoClose, PIN_NOCLOSE);
-    openModeToken = await pinLogin(terminalOpen, codeOpenMode, PIN_OPENMODE);
+    cashierToken = await pinLogin(branchA, codeCashier, PIN_CASHIER);
+    otherToken = await pinLogin(branchA, codeOther, PIN_OTHER);
+    noCloseToken = await pinLogin(branchA, codeNoClose, PIN_NOCLOSE);
+    openModeToken = await pinLogin(branchOpen, codeOpenMode, PIN_OPENMODE);
 
     // Manager PIN is verified INSIDE the finalize route via
-    // `TERMINAL_PIN_VERIFIER` — `employeeManager`/`PIN_MANAGER` are used
+    // `APPROVER_PIN_VERIFIER` — `employeeManager`/`PIN_MANAGER` are used
     // directly in `finalizeBody`, no login token needed for the manager.
 
     // ── Cash-close policies — "effective immediately", small tolerance. ──
@@ -443,13 +423,13 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
   let drawerSeq = 0;
   const openSession = async (
     employeeId: string,
-    terminalId: string,
+    branchId: string,
     actorUserId = userCashier,
     openingFloat = '50000',
   ): Promise<string> => {
     drawerSeq += 1;
     const drawer = await drawers.create(tenantA, actorUserId, {
-      branchId: terminalId === terminalOpen ? branchOpen : branchA,
+      branchId,
       name: `CSC Till ${drawerSeq}`,
     });
     const { session } = await cashSessions.open(tenantA, actorUserId, {
@@ -457,7 +437,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
       cashSessionId: newId(),
       drawerId: drawer.id,
       openingFloat,
-      terminalId,
+      branchId,
       employeeId,
     });
     return session.id;
@@ -516,7 +496,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
 
   describe('within tolerance — one-request close', () => {
     it('exact match: variance 0, closes immediately, full disclosure, audit entry', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -556,7 +536,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('boundary: variance exactly == tolerance is WITHIN (not approval-required)', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: (50_000n + TOLERANCE).toString(),
@@ -569,7 +549,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('boundary: variance tolerance+1 REQUIRES approval', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: (50_000n + TOLERANCE + 1n).toString(),
@@ -590,7 +570,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('denominations only (no explicit total) sum to the counted total', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         denominations: [
@@ -602,7 +582,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('total + matching denominations succeed; mismatched sum -> 400; duplicate denomination -> 400', async () => {
-      const sidOk = await openSession(employeeCashier, terminalA);
+      const sidOk = await openSession(employeeCashier, branchA);
       const ok = await declare(cashierToken, sidOk, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -610,7 +590,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
       });
       expect(ok.status).toBe(201);
 
-      const sidMismatch = await openSession(employeeCashier, terminalA);
+      const sidMismatch = await openSession(employeeCashier, branchA);
       const mismatch = await declare(cashierToken, sidMismatch, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -618,7 +598,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
       });
       expect(mismatch.status).toBe(400);
 
-      const sidDup = await openSession(employeeCashier, terminalA);
+      const sidDup = await openSession(employeeCashier, branchA);
       const dup = await declare(cashierToken, sidDup, {
         closeAttemptId: newId(),
         denominations: [
@@ -630,13 +610,13 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('neither countedTotalMinorUnits nor denominations -> 400', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(cashierToken, sid, { closeAttemptId: newId() });
       expect(res.status).toBe(400);
     });
 
     it('no manager-PIN/decision/reason path exists in the declare schema — extraneous fields -> 400', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -652,7 +632,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
 
   describe('above tolerance — freeze, disclose once committed, then finalize', () => {
     it('freezes to closing; finalize approved closes the session with core facts from the attempt', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const declared = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '55000',
@@ -703,7 +683,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('R-6(a): an explicit REJECTION commits (200, outcome rejected), session stays closing, then a retry with fresh ids approves', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '55000',
@@ -743,7 +723,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('self-approval is blocked: the session owner cannot approve their own variance', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '55000',
@@ -766,7 +746,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it("owner's Employee has no linked Identity User -> finalize fails closed (FR-SEC-016)", async () => {
-      const sid = await openSession(employeeUnlinked, terminalA, userCashier);
+      const sid = await openSession(employeeUnlinked, branchA, userCashier);
       await declare(otherToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '55000',
@@ -791,7 +771,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
       // blind and open mode — only `expectedCash` and the formula
       // breakdown are blind-mode-omitted (FR-POS-095 protects the COUNT,
       // not the configured threshold).
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await context(cashierToken, sid);
       expect(res.status).toBe(200);
       const body = res.body as ContextBody;
@@ -802,7 +782,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('open + open-mode: expected-cash/tolerance PREVIEW fields are present', async () => {
-      const sid = await openSession(employeeOpenMode, terminalOpen, userOpenMode);
+      const sid = await openSession(employeeOpenMode, branchOpen, userOpenMode);
       const res = await context(openModeToken, sid);
       expect(res.status).toBe(200);
       const body = res.body as ContextBody;
@@ -813,7 +793,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('closing/closed: full figures are visible (already legitimately disclosed at declare time)', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -833,7 +813,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
 
   describe('own/other authority (§15.2 cash.session.close vs .close_other)', () => {
     it('owner with cash.session.close closes their own session', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -841,7 +821,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it("a non-owner holding NEITHER close code cannot close another employee's session -> 403", async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(noCloseToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -855,7 +835,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it("a non-owner WITH close_other closes another employee's session", async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(otherToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -868,7 +848,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
 
   describe('replay and idempotency (FR-OFF-015, FR-API-020..023)', () => {
     it('HTTP Idempotency-Key replay on POST /close returns the identical stored response', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const key = `csc-replay-${newId()}`;
       const body = { closeAttemptId: newId(), countedTotalMinorUnits: '50000' };
       const first = await declare(cashierToken, sid, body, key);
@@ -878,7 +858,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('a replayed closeAttemptId with SAME content (fresh Idempotency-Key) returns created:false, no duplicate row', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const closeAttemptId = newId();
       const first = await declare(cashierToken, sid, {
         closeAttemptId,
@@ -902,7 +882,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('a replayed closeAttemptId with DIFFERENT content -> 409 (FR-OFF-015 permanence)', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const closeAttemptId = newId();
       await declare(
         cashierToken,
@@ -911,7 +891,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
         `csc-diff1-${newId()}`,
       ).expect(201);
 
-      const sid2 = await openSession(employeeCashier, terminalA);
+      const sid2 = await openSession(employeeCashier, branchA);
       const res = await declare(
         cashierToken,
         sid2,
@@ -922,7 +902,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('finalize replay: the SAME approvalRequestId after approval returns the stored closed outcome; a DIFFERENT one conflicts', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '55000',
@@ -971,7 +951,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('a raw ros_app UPDATE/DELETE on cash_session_close_attempts genuinely fails', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -1003,7 +983,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('ros_app cannot UPDATE a cash_sessions column outside the 10 close-related columns (e.g. opening_float)', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       await expect(
         prisma.withAuthContext({ userId: newId(), tenantId: tenantA }, (tx) =>
           tx.$executeRaw`
@@ -1015,7 +995,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('ros_app cannot jump cash_sessions straight from open to closed without an anchor (RLS WITH CHECK)', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       await expect(
         prisma.withAuthContext({ userId: newId(), tenantId: tenantA }, (tx) =>
           tx.$executeRaw`
@@ -1032,7 +1012,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
 
   describe('relational ownership FKs', () => {
     it("an attempt cannot reference a DIFFERENT branch's session (three-column ownership FK)", async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       await expect(
         admin.$executeRaw`
           INSERT INTO "treasury"."cash_session_close_attempts" (
@@ -1048,15 +1028,15 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
             1000, 'blind'::"treasury"."CashCountMode",
             50000, 0, 0, 0, 0, 0, 0, 0,
             50000, 50000, 0, 'EGP', false,
-            ${employeeCashier}::uuid, ${userCashier}::uuid, ${terminalA}::uuid, statement_timestamp()
+            ${employeeCashier}::uuid, ${userCashier}::uuid, NULL, statement_timestamp()
           )
         `,
       ).rejects.toThrow();
     });
 
     it("a cash_session cannot anchor to another session's close_attempt_id (three-column FK)", async () => {
-      const sidA = await openSession(employeeCashier, terminalA);
-      const sidB = await openSession(employeeCashier, terminalA);
+      const sidA = await openSession(employeeCashier, branchA);
+      const sidB = await openSession(employeeCashier, branchA);
       const declA = await declare(cashierToken, sidA, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -1076,7 +1056,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('tenant B cannot read or reference a tenant A close attempt', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const res = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '50000',
@@ -1096,7 +1076,6 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
       expect(seenOwn).not.toBeNull();
 
       void employeeB;
-      void terminalB;
       void branchB;
     });
   });
@@ -1115,7 +1094,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     };
 
     it('above-tolerance declaration durably audits the variance AND publishes cash.variance.detected before any finalisation exists', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const closeAttemptId = newId();
       const before = capturedVarianceEvents.length;
 
@@ -1165,7 +1144,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('within-tolerance fast close ALSO audits the variance (distinct fact from CASH_SESSION_CLOSED, not duplicate noise)', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const before = capturedVarianceEvents.length;
 
       const res = await declare(cashierToken, sid, {
@@ -1184,7 +1163,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it("R-6(a) explicit rejection does not remove or alter the declaration-time variance audit entry", async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const declared = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '55000',
@@ -1206,7 +1185,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('approved finalisation adds only CASH_SESSION_CLOSED — no second CASH_VARIANCE_DECLARED entry and no second event', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const declared = await declare(cashierToken, sid, {
         closeAttemptId: newId(),
         countedTotalMinorUnits: '55000',
@@ -1227,7 +1206,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('idempotent declaration replay (same closeAttemptId, same content) does not duplicate the audit entry or publish a second logical event', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const closeAttemptId = newId();
       const body = { closeAttemptId, countedTotalMinorUnits: '50000' };
 
@@ -1249,7 +1228,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     });
 
     it('a subscriber failure rolls back the ENTIRE declaration — no attempt row, no audit entry, no session mutation survive', async () => {
-      const sid = await openSession(employeeCashier, terminalA);
+      const sid = await openSession(employeeCashier, branchA);
       const closeAttemptId = newId();
       throwOnNextVarianceEvent = true;
 

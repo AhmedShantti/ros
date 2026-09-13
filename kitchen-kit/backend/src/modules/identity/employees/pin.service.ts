@@ -16,9 +16,9 @@ import {
 import { AuditService } from '../../governance/audit/audit.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import type {
-  TerminalPinVerifier,
-  VerifiedTerminalPrincipal,
-  VerifyTerminalPinInput,
+  ApproverPinVerifier,
+  VerifiedApproverPrincipal,
+  VerifyApproverPinInput,
 } from '../contract/pin-verification.contract';
 
 /** FR-SEC-020: "a 4–8 digit PIN". */
@@ -28,7 +28,6 @@ export interface PinAuthResult {
   employeeId: string;
   userId: string;
   branchId: string;
-  terminalId: string;
   /**
    * The employee's ACTIVE membership in the tenant they signed in to.
    *
@@ -74,7 +73,7 @@ export interface PinAuthResult {
  * process boundaries.
  */
 @Injectable()
-export class PinService implements TerminalPinVerifier {
+export class PinService implements ApproverPinVerifier {
   constructor(
     private readonly prisma: PrismaService,
     private readonly credentials: CredentialsService,
@@ -276,16 +275,22 @@ export class PinService implements TerminalPinVerifier {
   }
 
   /**
-   * Authenticate a PIN at a terminal — the full FR-SEC-021 check.
+   * Authenticate a PIN at a branch — the full FR-SEC-021 check.
    *
-   * All three conditions are executable here: the terminal must be registered
-   * and active, the terminal's branch must be one of the employee's permitted
-   * branches, and the resulting session is POS-only (the caller stamps
-   * `typ: 'pos'`, which `JwtAuthGuard` refuses on dashboard routes).
+   * ── CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 ─────────────────────────────
+   * POS and KDS are application SESSIONS, not registered device identities
+   * (product decision, 2026-09-13; supersedes the original FR-SEC-020/021
+   * "terminal" wording — see the product-decision record). The branch is
+   * supplied directly by the caller (the operator's chosen operating
+   * branch), never derived from a device registration. All three conditions
+   * are executable here: the branch must exist and be active, it must be
+   * one of the employee's permitted branches, and the resulting session is
+   * POS/KDS-only (the caller stamps `typ: 'pos' | 'kds'`, which
+   * `JwtAuthGuard` refuses on dashboard routes by default).
    */
   async authenticate(
     tenantId: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ): Promise<PinAuthResult> {
@@ -294,13 +299,14 @@ export class PinService implements TerminalPinVerifier {
     const result = await this.prisma.withAuthContext(
       { tenantId },
       async (tx) => {
-        const terminal = await tx.terminal.findUnique({
-          where: { id: terminalId },
-          select: { id: true, branchId: true, status: true },
+        const branch = await tx.branch.findUnique({
+          where: { id: branchId },
+          select: { id: true, status: true },
         });
-        // FR-SEC-028: a revoked or unregistered terminal fails immediately.
-        if (!terminal || terminal.status !== 'active') {
-          throw new UnauthorizedException('Invalid PIN, terminal or employee.');
+        // Invisible cross-tenant under RLS -> falls through to the same
+        // generic refusal. An inactive branch fails closed too.
+        if (!branch || branch.status !== 'active') {
+          throw new UnauthorizedException('Invalid PIN, branch or employee.');
         }
 
         const employee = await tx.employee.findFirst({
@@ -313,15 +319,15 @@ export class PinService implements TerminalPinVerifier {
           },
         });
         if (!employee || employee.status !== 'active' || !employee.userId) {
-          throw new UnauthorizedException('Invalid PIN, terminal or employee.');
+          throw new UnauthorizedException('Invalid PIN, branch or employee.');
         }
 
         // FR-SEC-021: only within the employee's permitted branches.
         const permitted = employee.branches.some(
-          (b) => b.branchId === terminal.branchId,
+          (b) => b.branchId === branch.id,
         );
         if (!permitted) {
-          throw new UnauthorizedException('Invalid PIN, terminal or employee.');
+          throw new UnauthorizedException('Invalid PIN, branch or employee.');
         }
 
         const cred = await tx.credential.findUnique({
@@ -339,7 +345,7 @@ export class PinService implements TerminalPinVerifier {
           },
         });
         if (!cred) {
-          throw new UnauthorizedException('Invalid PIN, terminal or employee.');
+          throw new UnauthorizedException('Invalid PIN, branch or employee.');
         }
 
         // FR-SEC-022 lockout — a locked credential fails even with the right PIN.
@@ -381,15 +387,14 @@ export class PinService implements TerminalPinVerifier {
           select: { id: true, status: true },
         });
         if (!membership || membership.status !== 'active') {
-          throw new UnauthorizedException('Invalid PIN, terminal or employee.');
+          throw new UnauthorizedException('Invalid PIN, branch or employee.');
         }
 
         return {
           outcome: 'ok' as const,
           employeeId: employee.id,
           userId: employee.userId,
-          branchId: terminal.branchId,
-          terminalId: terminal.id,
+          branchId: branch.id,
           membershipId: membership.id,
         };
       },
@@ -397,24 +402,23 @@ export class PinService implements TerminalPinVerifier {
 
     if (result.outcome === 'bad_pin') {
       await this.recordFailure(result.credentialId, result.attempts);
-      throw new UnauthorizedException('Invalid PIN, terminal or employee.');
+      throw new UnauthorizedException('Invalid PIN, branch or employee.');
     }
 
     return {
       employeeId: result.employeeId,
       userId: result.userId,
       branchId: result.branchId,
-      terminalId: result.terminalId,
       membershipId: result.membershipId,
     };
   }
 
   /**
-   * `TerminalPinVerifier.verifyTerminalPin` — Identity's first public
+   * `ApproverPinVerifier.verifyApproverPin` — Identity's first public
    * contract implementation (`contract/pin-verification.contract.ts`).
    *
    * Reuses {@link authenticate} verbatim for the entire verification path
-   * (terminal, employee, branch, PIN hash, lockout, membership) — nothing is
+   * (branch, employee, PIN hash, lockout, membership) — nothing is
    * duplicated. Adds exactly one further read: the SAME membership's
    * effective permission codes, via the identical membership -> role ->
    * permission shape `TenantContextService.resolve` uses, resolved in its
@@ -422,17 +426,17 @@ export class PinService implements TerminalPinVerifier {
    * this must run before any consuming module's business transaction).
    *
    * The returned object is deliberately constructed via a cast: the brand
-   * field on `VerifiedTerminalPrincipal` is an ambient `unique symbol` with
+   * field on `VerifiedApproverPrincipal` is an ambient `unique symbol` with
    * no runtime representation, so no plain object literal can satisfy the
    * interface structurally. `module-boundaries.spec.ts` confines this exact
    * cast pattern to `src/modules/identity/`.
    */
-  async verifyTerminalPin(
-    input: VerifyTerminalPinInput,
-  ): Promise<VerifiedTerminalPrincipal> {
+  async verifyApproverPin(
+    input: VerifyApproverPinInput,
+  ): Promise<VerifiedApproverPrincipal> {
     const authResult = await this.authenticate(
       input.tenantId,
-      input.terminalId,
+      input.branchId,
       input.employeeCode,
       input.pin,
     );
@@ -475,9 +479,8 @@ export class PinService implements TerminalPinVerifier {
       employeeId: authResult.employeeId,
       membershipId: authResult.membershipId,
       branchId: authResult.branchId,
-      terminalId: authResult.terminalId,
       permissions,
-    } as unknown as VerifiedTerminalPrincipal;
+    } as unknown as VerifiedApproverPrincipal;
   }
 
   /**

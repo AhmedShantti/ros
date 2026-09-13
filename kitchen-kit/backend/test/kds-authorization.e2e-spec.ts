@@ -14,15 +14,25 @@ import {
   fireTicketLine,
   KdsFixture,
   pinLogin,
-  setTerminalStatus,
 } from './kds-fixtures';
 
 /**
  * KDS operator-lifecycle authorization matrix — design gate §26/§30,
- * acceptance correction §3.3/§4. Every check is INDEPENDENT and fail-closed:
- * permission (`kds.operate`), terminal surface (active + `kds` type),
- * exactly-one-station binding, path-station equality, employee identity for
- * attributed mutations, and tenant isolation.
+ * acceptance correction §3.3/§4.
+ *
+ * ── CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13) ────────────────────
+ * Rewritten for the new model: KDS is a branch/employee-scoped application
+ * SESSION (PIN login, `sessionType: 'kds'`), not a registered device
+ * identity. There is no terminal surface to check (active/kds-type), no
+ * terminal->station binding to derive a station from, and no "exactly one
+ * station" cardinality rule — `KdsStationGuard` instead requires the caller
+ * to name its station explicitly (path or `?stationId=` query) and merely
+ * proves that station belongs to the session's own LIVE-verified branch.
+ * Several original test cases had no remaining referent (terminal status,
+ * terminal->station cardinality) and are replaced below with tests of the
+ * genuinely new invariants (explicit stationId requirement, branch-match
+ * check, disjoint pos/kds audiences, multi-session station sharing) rather
+ * than being silently dropped — see the per-test comments for the mapping.
  */
 describe('KDS authorization (e2e)', () => {
   let app: INestApplication<App>;
@@ -59,6 +69,17 @@ describe('KDS authorization (e2e)', () => {
     await app.close();
   });
 
+  async function kdsLogin(fixture: KdsFixture): Promise<string> {
+    return pinLogin(
+      http,
+      fixture.tenantId,
+      fixture.branchId,
+      fixture.employeeCode,
+      fixture.pin,
+      'kds',
+    );
+  }
+
   let orderCounter = 0;
   async function makeTicket() {
     orderCounter += 1;
@@ -73,14 +94,8 @@ describe('KDS authorization (e2e)', () => {
     });
   }
 
-  it('POSITIVE: PIN session on an active KDS terminal, one bound station, kds.operate -> queue read succeeds', async () => {
-    const token = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      fixtureA.kdsTerminalId,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
+  it('POSITIVE: KDS PIN session, kds.operate, station in own branch -> queue read succeeds', async () => {
+    const token = await kdsLogin(fixtureA);
     const res = await request(http)
       .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
       .set('Authorization', `Bearer ${token}`)
@@ -89,14 +104,8 @@ describe('KDS authorization (e2e)', () => {
     expect(res.body).toHaveProperty('recallWindowSeconds', 1800);
   });
 
-  it('POSITIVE: the same session can view/start/bump a ticket at its own station', async () => {
-    const token = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      fixtureA.kdsTerminalId,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
+  it('POSITIVE: the same session can view/bump a ticket at its own station (ticket-scoped routes require ?stationId=)', async () => {
+    const token = await kdsLogin(fixtureA);
     const { ticketId, ticketLineId } = await makeTicket();
 
     await request(http)
@@ -106,14 +115,37 @@ describe('KDS authorization (e2e)', () => {
       .expect(200);
 
     await request(http)
-      .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
+      .post(
+        `/kds/tickets/${ticketId}/lines/${ticketLineId}/bump?stationId=${fixtureA.stationGrillId}`,
+      )
       .set('Authorization', `Bearer ${token}`)
       .send({})
       .expect(200);
   });
 
-  it('NEGATIVE: no kds.operate permission -> 403', async () => {
-    // A brand-new tenant user with a membership but no role at all.
+  it('POSITIVE: two independent KDS sessions may target the SAME station (device/session exclusivity is gone — replaces the old "terminal bound to exactly one station" cardinality tests)', async () => {
+    const tokenX = await kdsLogin(fixtureA);
+    const tokenY = await kdsLogin(fixtureA);
+
+    await request(http)
+      .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
+      .set('Authorization', `Bearer ${tokenX}`)
+      .expect(200);
+    await request(http)
+      .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
+      .set('Authorization', `Bearer ${tokenY}`)
+      .expect(200);
+  });
+
+  it('NEGATIVE: no kds.operate permission -> 403 (PermissionGuard runs before KdsStationGuard, so a plain dashboard-bound-terminal token still exercises it)', async () => {
+    // A brand-new tenant user with a membership but no role at all. This
+    // probe deliberately still goes through /auth/login -> /auth/tenant ->
+    // /auth/terminal (unchanged endpoints, still valid for the Sync/offline
+    // channel) rather than PIN login, because this user has no Employee
+    // record to PIN-authenticate with; the resulting token carries no
+    // sessionType, but PermissionGuard rejects it for missing kds.operate
+    // before KdsStationGuard would ever get a chance to reject it for
+    // sessionType too.
     const email = `no-kds.${stamp}@example.com`;
     const usersService = app.get(UsersService);
     const membershipsService = app.get(MembershipsService);
@@ -151,7 +183,7 @@ describe('KDS authorization (e2e)', () => {
       .expect(403);
   });
 
-  it('NEGATIVE: dashboard session with no terminal binding at all -> 403', async () => {
+  it('NEGATIVE: dashboard session (kds.operate granted, but no KDS session type) -> 403', async () => {
     const login = await request(http)
       .post('/auth/login')
       .send({ email: fixtureA.dashboardEmail, password: 's3cure-passphrase' })
@@ -172,13 +204,14 @@ describe('KDS authorization (e2e)', () => {
       .expect(403);
   });
 
-  it('NEGATIVE: PIN session on a POS terminal -> 403 (terminal surface must be kds, not the session label)', async () => {
+  it('NEGATIVE: a PIN session with sessionType "pos" -> 403 at a KDS route (pos/kds are disjoint audiences — replaces the old "PIN session on a POS terminal" case, since terminal type no longer plays any role)', async () => {
     const token = await pinLogin(
       http,
       fixtureA.tenantId,
-      fixtureA.posTerminalId,
+      fixtureA.branchId,
       fixtureA.employeeCode,
       fixtureA.pin,
+      'pos',
     );
     await request(http)
       .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
@@ -186,137 +219,86 @@ describe('KDS authorization (e2e)', () => {
       .expect(403);
   });
 
-  it('NEGATIVE: PIN session on a kiosk terminal -> 403', async () => {
-    const token = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      fixtureA.kioskTerminalId,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
+  it('NEGATIVE: PIN login with an unsupported sessionType -> 400 (replaces the old "PIN session on a kiosk terminal" case — there is no third session audience any more, only pos/kds, enforced by DTO validation at login itself)', async () => {
     await request(http)
-      .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
-      .set('Authorization', `Bearer ${token}`)
-      .expect(403);
+      .post('/auth/pin')
+      .send({
+        tenantId: fixtureA.tenantId,
+        branchId: fixtureA.branchId,
+        employeeCode: fixtureA.employeeCode,
+        pin: fixtureA.pin,
+        sessionType: 'kiosk',
+      })
+      .expect(400);
   });
 
-  it('NEGATIVE: a disabled KDS terminal -> 403 (checked per-request, not only at login)', async () => {
-    const token = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      fixtureA.kdsTerminalId,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
-    await setTerminalStatus(admin, fixtureA.kdsTerminalId, 'disabled');
-    try {
-      await request(http)
-        .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
-        .set('Authorization', `Bearer ${token}`)
-        .expect(403);
-    } finally {
-      await setTerminalStatus(admin, fixtureA.kdsTerminalId, 'active');
-    }
-  });
-
-  it('NEGATIVE: a revoked KDS terminal -> 403', async () => {
-    const token = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      fixtureA.kdsTerminalId,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
-    await setTerminalStatus(admin, fixtureA.kdsTerminalId, 'revoked');
-    try {
-      await request(http)
-        .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
-        .set('Authorization', `Bearer ${token}`)
-        .expect(403);
-    } finally {
-      await setTerminalStatus(admin, fixtureA.kdsTerminalId, 'active');
-    }
-  });
-
-  it('NEGATIVE: a KDS terminal bound to NO station -> 403', async () => {
-    const unboundTerminal = await admin.terminal.create({
+  it('NEGATIVE: a station in a DIFFERENT branch of the SAME tenant -> 403 (KdsStationGuard branch-match check — replaces the old terminal->station-cardinality tests, which no longer have a referent)', async () => {
+    const brand = await admin.brand.create({
+      data: { id: newId(), tenantId: fixtureA.tenantId, name: `Other Brand ${stamp}` },
+    });
+    const otherBranch = await admin.branch.create({
       data: {
         id: newId(),
         tenantId: fixtureA.tenantId,
-        branchId: fixtureA.branchId,
-        name: `Unbound-${stamp}`,
-        terminalType: 'kds',
-        status: 'active',
+        brandId: brand.id,
+        code: `X${stamp.slice(-6)}`,
+        name: `Other Branch ${stamp}`,
+        timezone: 'Africa/Cairo',
+        baseCurrency: 'EGP',
+        countryCode: 'EG',
       },
     });
-    const token = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      unboundTerminal.id,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
+    const otherStation = await admin.station.create({
+      data: { id: newId(), branchId: otherBranch.id, name: `Other-${stamp}` },
+    });
+
+    const token = await kdsLogin(fixtureA);
     await request(http)
-      .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
+      .get(`/kds/stations/${otherStation.id}/queue`)
       .set('Authorization', `Bearer ${token}`)
       .expect(403);
   });
 
-  it('NEGATIVE: a KDS terminal bound to TWO stations -> 403 (fail-closed, never an arbitrary pick)', async () => {
-    const dualTerminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: fixtureA.tenantId,
-        branchId: fixtureA.branchId,
-        name: `Dual-${stamp}`,
-        terminalType: 'kds',
-        status: 'active',
-      },
-    });
-    await admin.station.create({
-      data: {
-        id: newId(),
-        branchId: fixtureA.branchId,
-        name: `Dual-Station-1-${stamp}`,
-        displayTerminalId: dualTerminal.id,
-      },
-    });
-    await admin.station.create({
-      data: {
-        id: newId(),
-        branchId: fixtureA.branchId,
-        name: `Dual-Station-2-${stamp}`,
-        displayTerminalId: dualTerminal.id,
-      },
-    });
-    const token = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      dualTerminal.id,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
+  it('NEGATIVE: ticket-scoped mutation with no ?stationId= query param -> 403 (new explicit requirement — no device binding derives it any more)', async () => {
+    const token = await kdsLogin(fixtureA);
+    const { ticketId, ticketLineId } = await makeTicket();
     await request(http)
-      .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
+      .post(`/kds/tickets/${ticketId}/lines/${ticketLineId}/bump`)
       .set('Authorization', `Bearer ${token}`)
+      .send({})
       .expect(403);
   });
 
-  it('NEGATIVE: supplied stationId does not match the terminal-derived station -> 403', async () => {
-    const token = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      fixtureA.kdsTerminalId,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
+  it('POSITIVE: a DIFFERENT station in the session\'s own branch also succeeds (replaces the old "supplied stationId does not match the terminal-derived station -> 403" case: there is no single terminal-derived station any more, only a branch-match check — see the separate cross-branch 403 case above for what the guard actually still rejects)', async () => {
+    const token = await kdsLogin(fixtureA);
     await request(http)
       .get(`/kds/stations/${fixtureA.stationPackagingId}/queue`)
       .set('Authorization', `Bearer ${token}`)
-      .expect(403);
+      .expect(200);
   });
 
-  it('NEGATIVE: missing employee identity on an otherwise-valid KDS session -> 403 for a mutation, but GET queue still succeeds', async () => {
+  it('NEGATIVE: a session whose employee has since lost the branch permission -> 403 (re-checked live, per request, not only at login — replaces the old "disabled/revoked terminal" cases, since terminal status is no longer part of the KDS runtime path)', async () => {
+    const token = await kdsLogin(fixtureA);
+    await admin.employeeBranch.deleteMany({
+      where: { employeeId: fixtureA.employeeId, branchId: fixtureA.branchId },
+    });
+    try {
+      await request(http)
+        .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    } finally {
+      await admin.employeeBranch.create({
+        data: {
+          tenantId: fixtureA.tenantId,
+          employeeId: fixtureA.employeeId,
+          branchId: fixtureA.branchId,
+        },
+      });
+    }
+  });
+
+  it('NEGATIVE: a dashboard-bound-terminal session (no employee identity, no KDS session type) -> 403 on BOTH read and mutation (CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: a KDS session can now ONLY be PIN-issued, which always carries an employee identity — the old "terminal-bound dashboard session reaches KDS, but mutations need an employee" scenario is impossible to construct any more; this token is refused outright, including for the read)', async () => {
     const token = await dashboardTerminalToken(
       http,
       fixtureA.dashboardEmail,
@@ -327,7 +309,7 @@ describe('KDS authorization (e2e)', () => {
     await request(http)
       .get(`/kds/stations/${fixtureA.stationGrillId}/queue`)
       .set('Authorization', `Bearer ${token}`)
-      .expect(200);
+      .expect(403);
 
     const { ticketId } = await makeTicket();
     await request(http)
@@ -338,13 +320,7 @@ describe('KDS authorization (e2e)', () => {
   });
 
   it('NEGATIVE: cross-tenant ticket -> tenant-safe 404, not 403 (never discloses existence)', async () => {
-    const tokenA = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      fixtureA.kdsTerminalId,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
+    const tokenA = await kdsLogin(fixtureA);
     const ticketB = await fireTicketLine(admin, {
       tenantId: fixtureB.tenantId,
       branchId: fixtureB.branchId,
@@ -357,7 +333,7 @@ describe('KDS authorization (e2e)', () => {
 
     await request(http)
       .post(
-        `/kds/tickets/${ticketB.ticketId}/lines/${ticketB.ticketLineId}/bump`,
+        `/kds/tickets/${ticketB.ticketId}/lines/${ticketB.ticketLineId}/bump?stationId=${fixtureA.stationGrillId}`,
       )
       .set('Authorization', `Bearer ${tokenA}`)
       .send({})
@@ -365,13 +341,7 @@ describe('KDS authorization (e2e)', () => {
   });
 
   it('tenant isolation and station authorization are independent layers: same-tenant WRONG station is 403, not 404', async () => {
-    const token = await pinLogin(
-      http,
-      fixtureA.tenantId,
-      fixtureA.kdsTerminalId,
-      fixtureA.employeeCode,
-      fixtureA.pin,
-    );
+    const token = await kdsLogin(fixtureA);
     const ticketOnPackaging = await fireTicketLine(admin, {
       tenantId: fixtureA.tenantId,
       branchId: fixtureA.branchId,
@@ -384,7 +354,7 @@ describe('KDS authorization (e2e)', () => {
 
     await request(http)
       .post(
-        `/kds/tickets/${ticketOnPackaging.ticketId}/lines/${ticketOnPackaging.ticketLineId}/bump`,
+        `/kds/tickets/${ticketOnPackaging.ticketId}/lines/${ticketOnPackaging.ticketLineId}/bump?stationId=${fixtureA.stationGrillId}`,
       )
       .set('Authorization', `Bearer ${token}`)
       .send({})

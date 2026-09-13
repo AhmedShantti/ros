@@ -53,7 +53,6 @@ describe('HR-1 — Workforce Core (e2e)', () => {
   let tenantB: string;
   let branchA: string;
   let branchA2: string;
-  let terminalA: string;
 
   let managerTokenA: string;
   let noPermTokenA: string;
@@ -76,13 +75,13 @@ describe('HR-1 — Workforce Core (e2e)', () => {
 
   const pinLogin = async (
     tid: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) => {
     const res = await request(http)
       .post('/auth/pin')
-      .send({ tenantId: tid, terminalId, employeeCode, pin })
+      .send({ tenantId: tid, branchId, employeeCode, pin, sessionType: 'pos' })
       .expect(200);
     return (res.body as Tokens).accessToken;
   };
@@ -205,19 +204,6 @@ describe('HR-1 — Workforce Core (e2e)', () => {
     // tenant B needs no branch of its own: test 5's cross-tenant
     // invisibility check and test 36's cross-tenant correction check both
     // only need tenant B's own token, never one of its resources.
-
-    terminalA = await admin.terminal
-      .create({
-        data: {
-          id: newId(),
-          tenantId: tenantA,
-          branchId: branchA,
-          name: 'HR1-POS-1',
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-      .then((t) => t.id);
 
     // Dashboard managers, one per tenant, holding every HR-1 permission.
     const mkManager = async (email: string, tid: string, codes: string[]) => {
@@ -675,7 +661,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
     let attendanceRecordId: string;
 
     it('18: POS PIN clock-in', async () => {
-      posToken = await pinLogin(tenantA, terminalA, `HRC${shortStamp}`, PIN_A);
+      posToken = await pinLogin(tenantA, branchA, `HRC${shortStamp}`, PIN_A);
       const res = await request(http)
         .post('/workforce/attendance/clock-in')
         .set(auth(posToken))
@@ -695,12 +681,15 @@ describe('HR-1 — Workforce Core (e2e)', () => {
         .expect(409);
     });
 
-    it('22: clock event retains method/terminal/timestamp', async () => {
+    it('22: clock event retains method/timestamp (no terminal provenance)', async () => {
       const event = await admin.clockEvent.findFirst({
         where: { attendanceRecordId, eventType: 'clock_in' },
       });
       expect(event?.method).toBe('pos_pin');
-      expect(event?.terminalId).toBe(terminalA);
+      // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: POS is a branch/employee-
+      // scoped session, not a registered device — no terminal provenance is
+      // ever recorded for a clock event any more.
+      expect(event?.terminalId).toBeNull();
       expect(event?.occurredAt).toBeTruthy();
     });
 
@@ -738,11 +727,9 @@ describe('HR-1 — Workforce Core (e2e)', () => {
       expect(record.status).toBe('closed');
     });
 
-    it('30: PIN login at a terminal outside the permitted branch is rejected', async () => {
-      // The cashier's only permitted branch is A; branch A2 has no terminal
-      // of its own in this fixture, so exercise the boundary directly:
-      // an employee whose home/permitted branch is A2 cannot authenticate
-      // at terminal A (branch A).
+    it('30: PIN login at a branch outside the permitted branch is rejected', async () => {
+      // An employee whose home/permitted branch is A2 cannot authenticate a
+      // PIN session scoped to branch A.
       const users = app.get(UsersService);
       const memberships = app.get(MembershipsService);
       const wbUser = await users.createUser({
@@ -770,9 +757,10 @@ describe('HR-1 — Workforce Core (e2e)', () => {
         .post('/auth/pin')
         .send({
           tenantId: tenantA,
-          terminalId: terminalA,
+          branchId: branchA,
           employeeCode: `WBP${shortStamp}`,
           pin: '9911',
+          sessionType: 'pos',
         })
         .expect(401);
     });
@@ -780,7 +768,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
     it('31: an employee deactivated AFTER PIN login is rejected at clock-in (stale-token)', async () => {
       const staleToken = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         `HRI${shortStamp}`,
         PIN_INACTIVE,
       );
@@ -807,7 +795,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
     it('23: mobile GPS shape is persisted where supplied', async () => {
       const posToken2 = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         `HRC${shortStamp}`,
         PIN_A,
       );
@@ -849,7 +837,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
         })
         .expect(201);
 
-      const pos = await pinLogin(tenantA, terminalA, emp.code, emp.pin);
+      const pos = await pinLogin(tenantA, branchA, emp.code, emp.pin);
       // ~1.1km north of the geofence centre — well outside a 100m radius.
       const res = await request(http)
         .post('/workforce/attendance/clock-in')
@@ -899,7 +887,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
           })
           .expect(201);
 
-        const posLate = await pinLogin(tenantA, terminalA, emp.code, emp.pin);
+        const posLate = await pinLogin(tenantA, branchA, emp.code, emp.pin);
         const res = await request(http)
           .post('/workforce/attendance/clock-in')
           .set(auth(posLate))
@@ -940,7 +928,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
           })
           .expect(201);
 
-        const posLate = await pinLogin(tenantA, terminalA, emp.code, emp.pin);
+        const posLate = await pinLogin(tenantA, branchA, emp.code, emp.pin);
         await request(http)
           .post('/workforce/attendance/clock-in')
           .set(auth(posLate))
@@ -990,7 +978,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
           })
           .expect(201);
 
-        const posLate1 = await pinLogin(tenantA, terminalA, emp.code, emp.pin);
+        const posLate1 = await pinLogin(tenantA, branchA, emp.code, emp.pin);
         await request(http)
           .post('/workforce/attendance/clock-in')
           .set(auth(posLate1))
@@ -1027,7 +1015,6 @@ describe('HR-1 — Workforce Core (e2e)', () => {
           {
             employeeId: emp.id,
             branchId: branchA,
-            terminalId: terminalA,
             now: exactBoundary,
           },
         );
@@ -1039,7 +1026,6 @@ describe('HR-1 — Workforce Core (e2e)', () => {
         // after clock-in").
         await attendanceService.clockOut(tenantA, fx().managerUserIdA, {
           employeeId: emp.id,
-          terminalId: terminalA,
           now: new Date(exactBoundary.getTime() + 60_000),
         });
       });
@@ -1047,7 +1033,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
 
     it('27: missing clock-out is flagged via correction, and the detection query finds stale-open records', async () => {
       const emp27 = await mkPosEmployee('Missing27');
-      const posLate = await pinLogin(tenantA, terminalA, emp27.code, emp27.pin);
+      const posLate = await pinLogin(tenantA, branchA, emp27.code, emp27.pin);
       const clockIn = await request(http)
         .post('/workforce/attendance/clock-in')
         .set(auth(posLate))
@@ -1098,7 +1084,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
     beforeAll(async () => {
       const posToken = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         `HRC${shortStamp}`,
         PIN_A,
       );
@@ -1227,7 +1213,6 @@ describe('HR-1 — Workforce Core (e2e)', () => {
           .clockIn(tenantA, fx().managerUserIdA, {
             employeeId: create.id,
             branchId: branchA,
-            terminalId: terminalA,
           })
           .then(() => 'ok' as const)
           .catch(() => 'rejected' as const);
@@ -1256,14 +1241,12 @@ describe('HR-1 — Workforce Core (e2e)', () => {
       await attendanceService.clockIn(tenantA, fx().managerUserIdA, {
         employeeId: create.id,
         branchId: branchA,
-        terminalId: terminalA,
       });
 
       const attempt = () =>
         attendanceService
           .clockOut(tenantA, fx().managerUserIdA, {
             employeeId: create.id,
-            terminalId: terminalA,
           })
           .then(() => 'ok' as const)
           .catch(() => 'rejected' as const);
@@ -1285,7 +1268,7 @@ describe('HR-1 — Workforce Core (e2e)', () => {
     it('39: a manual correction race never erases history', async () => {
       const posToken = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         `HRC${shortStamp}`,
         PIN_A,
       );

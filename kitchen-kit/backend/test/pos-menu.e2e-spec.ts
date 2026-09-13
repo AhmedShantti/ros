@@ -36,7 +36,6 @@ describe('POS menu (e2e) — DEMO-POS-MENU-BACKEND-P0', () => {
   let brandA: string;
   let branchA1: string;
   let branchA2: string;
-  let terminalA1: string;
   let employeeA: string;
   let employeeACode: string;
   let userA: string;
@@ -88,20 +87,6 @@ describe('POS menu (e2e) — DEMO-POS-MENU-BACKEND-P0', () => {
     return branch.id;
   };
 
-  const mkTerminal = (tenantId: string, branchId: string, name: string) =>
-    admin.terminal
-      .create({
-        data: {
-          id: newId(),
-          tenantId,
-          branchId,
-          name,
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-      .then((t) => t.id);
-
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -136,7 +121,6 @@ describe('POS menu (e2e) — DEMO-POS-MENU-BACKEND-P0', () => {
     brandA = await mkBrand(tenantA);
     branchA1 = await mkBranch(tenantA, brandA, `PM1${stamp % 10000}`);
     branchA2 = await mkBranch(tenantA, brandA, `PM2${stamp % 10000}`);
-    terminalA1 = await mkTerminal(tenantA, branchA1, 'PM-POS-1');
 
     userA = await users
       .createUser({
@@ -184,12 +168,16 @@ describe('POS menu (e2e) — DEMO-POS-MENU-BACKEND-P0', () => {
 
     const pins = app.get(PinService);
     await pins.setPin(tenantA, userA, employeeA, PIN);
-    const login = await request(http).post('/auth/pin').send({
-      tenantId: tenantA,
-      terminalId: terminalA1,
-      employeeCode: employeeACode,
-      pin: PIN,
-    });
+    const login = await request(http)
+      .post('/auth/pin')
+      .send({
+        tenantId: tenantA,
+        branchId: branchA1,
+        employeeCode: employeeACode,
+        pin: PIN,
+        sessionType: 'pos',
+      })
+      .expect(200);
     posToken = (login.body as { accessToken: string }).accessToken;
 
     // A dashboard (non-POS) session with the SAME permissions, to prove the

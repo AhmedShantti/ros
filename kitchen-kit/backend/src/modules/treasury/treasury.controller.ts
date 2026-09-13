@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
+  NotFoundException,
   Param,
   Post,
   UseGuards,
@@ -47,8 +48,8 @@ import type {
   TenantContext,
 } from '../identity/context/tenant-context';
 import { TenantContextGuard } from '../identity/context/tenant-context.guard';
-import { TERMINAL_PIN_VERIFIER } from '../identity/contract';
-import type { TerminalPinVerifier } from '../identity/contract';
+import { APPROVER_PIN_VERIFIER } from '../identity/contract';
+import type { ApproverPinVerifier } from '../identity/contract';
 import { CashMovementsService } from './cash-movements/cash-movements.service';
 import {
   DeclareCashSessionCloseDto,
@@ -69,7 +70,7 @@ import {
   AuthorizationTarget,
   fromParam,
   resourceTarget,
-  sessionTerminalBranchTarget,
+  sessionBranchTarget,
 } from '../identity/contract';
 import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
 
@@ -124,7 +125,7 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
  * `GET /cash-sessions/current` (DEMO-CASH-SESSION-RECOVERY-P0) is NOT an
  * exception to this and does NOT reopen D-20: it is not a by-id or
  * tenant-wide CashSession read. It returns AT MOST the one session the
- * SAME `(terminalId, employeeId)` pair already trusted by `open()` may
+ * SAME `(branchId, employeeId)` pair already trusted by `open()` may
  * resume — the read half of the `cash.session.open` write, mirroring the
  * `GET /cash-sessions/drawers` precedent below. See its own docblock and
  * `CashSessionsService.findCurrentForEmployee`.
@@ -181,15 +182,17 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
  * `@AllowPosSession` opts this route in for PIN-issued sessions (FR-SEC-021);
  * every other route still refuses them by default.
  *
- * ── FR-SEC-028 SCOPE NOTE ───────────────────────────────────────────────────
- * Every route here requires a registered, unrevoked terminal, so terminal
- * registration / revocation enforcement is COMPLETE on this controller. That
- * is a statement about this controller only. FR-SEC-028 [M] requires BOTH
- * immediate credential invalidation AND wiping the terminal's local data on
- * next contact; the second half needs an offline local store that does not
- * exist, so the requirement is GLOBALLY **PARTIAL** — as
- * `docs/reconciliation/PHASE_1_SRS_REQUIREMENT_MAP.md` already records. No
- * route in this controller closes it.
+ * ── FR-SEC-028 SCOPE NOTE (SUPERSEDED — CROSSCUT-POS-KDS-TERMINAL-
+ *    DECOUPLING-P0, 2026-09-13) ───────────────────────────────────────────
+ * This controller no longer requires, reads, or depends on a registered
+ * ROS Terminal at all: POS is a branch/employee-scoped application session
+ * (`PinLoginDto`, `TenantContextService.resolveSessionBranch`). The
+ * original FR-SEC-028 "registered, unrevoked terminal" wording this note
+ * previously described is a superseded product-direction assumption for
+ * this route surface — see the P0 report and the governance/product-
+ * decision register. FR-SEC-028 remains globally PARTIAL for whatever
+ * non-POS/KDS terminal-admin surface still exists, unrelated to this
+ * controller.
  */
 
 // Shapes verified against `toCashSessionView`/`toShiftView` in
@@ -361,43 +364,37 @@ export class TreasuryController {
     private readonly movements: CashMovementsService,
     private readonly close: CashSessionCloseService,
     private readonly drawers: DrawersService,
-    @Inject(TERMINAL_PIN_VERIFIER)
-    private readonly pinVerifier: TerminalPinVerifier,
+    @Inject(APPROVER_PIN_VERIFIER)
+    private readonly pinVerifier: ApproverPinVerifier,
   ) {}
 
   /**
    * DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over,
-   * for the POS Open-Shift drawer selector. Resolves the branch from the
-   * CALLER'S OWN terminal (`DrawersService.listForTerminal`), never a
-   * caller-supplied branchId — a cashier cannot browse another branch's
-   * drawers by asking for one. Gated on `cash.session.open`, the SAME
-   * permission `POST /cash-sessions` already requires, deliberately NOT
-   * `settings.branch.manage` — this is a read of what a Cashier may already
-   * act on, not a drawer-administration grant (that lives on the separate
-   * `DrawersController`).
+   * for the POS Open-Shift drawer selector. Resolves the drawer list from
+   * the CALLER'S OWN live-verified POS session branch
+   * (`DrawersService.listForBranch`), never a caller-supplied branchId — a
+   * cashier cannot browse another branch's drawers by asking for one.
+   * Gated on `cash.session.open`, the SAME permission `POST /cash-sessions`
+   * already requires, deliberately NOT `settings.branch.manage` — this is a
+   * read of what a Cashier may already act on, not a drawer-administration
+   * grant (that lives on the separate `DrawersController`).
    */
   @Get('drawers')
-  @AuthorizationTarget(sessionTerminalBranchTarget())
+  @AuthorizationTarget(sessionBranchTarget())
   @RequirePermission(TREASURY_PERMISSIONS.CASH_SESSION_OPEN)
   @ApiOkResponse({
-    description: "The caller's own terminal-bound branch's drawers.",
+    description: "The caller's own POS session branch's drawers.",
     schema: { type: 'array', items: drawerSchema },
   })
-  async listSessionDrawers(
-    @CurrentTenantContext() context: TenantContext,
-    @CurrentPrincipal() principal: AuthenticatedPrincipal,
-  ) {
-    const { terminalId } = this.requirePosIdentity(principal);
-    const rows = await this.drawers.listForTerminal(
-      context.tenantId,
-      terminalId,
-    );
+  async listSessionDrawers(@CurrentTenantContext() context: TenantContext) {
+    const branchId = this.requireBranch(context);
+    const rows = await this.drawers.listForBranch(context.tenantId, branchId);
     return rows.map(toDrawerView);
   }
 
   /**
    * DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at
-   * THEIR OWN terminal-bound branch, if exactly one exists.
+   * THEIR OWN POS session branch, if exactly one exists.
    *
    * Recovery contract: after a fresh PIN login (e.g. after a frontend
    * reload/deploy wiped the locally-remembered `cashSessionId`), the POS
@@ -412,16 +409,16 @@ export class TreasuryController {
    * already requires, deliberately not a new/invented read permission. This
    * mirrors `GET /cash-sessions/drawers` immediately above: a narrow read of
    * state the caller may already act on, scoped to their own
-   * terminal-derived branch and their own employee identity, never a
+   * session-derived branch and their own employee identity, never a
    * generic CashSession read (`findOne` stays internal-only — see its own
    * docblock and D-20).
    */
   @Get('current')
-  @AuthorizationTarget(sessionTerminalBranchTarget())
+  @AuthorizationTarget(sessionBranchTarget())
   @RequirePermission(TREASURY_PERMISSIONS.CASH_SESSION_OPEN)
   @ApiOkResponse({
     description:
-      "The caller's own open cash session at their own terminal-bound " +
+      "The caller's own open cash session at their own POS session " +
       'branch, or null if none (or more than one) exists.',
     schema: currentCashSessionSchema,
   })
@@ -429,10 +426,13 @@ export class TreasuryController {
     @CurrentTenantContext() context: TenantContext,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { branchId, employeeId } = this.requirePosIdentity(
+      context,
+      principal,
+    );
     const session = await this.sessions.findCurrentForEmployee(
       context.tenantId,
-      terminalId,
+      branchId,
       employeeId,
     );
     return { cashSession: session ? toCashSessionView(session) : null };
@@ -453,7 +453,7 @@ export class TreasuryController {
    * duplicate protection beneath it.
    */
   @Post()
-  @AuthorizationTarget(sessionTerminalBranchTarget())
+  @AuthorizationTarget(sessionBranchTarget())
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(TREASURY_PERMISSIONS.CASH_SESSION_OPEN)
@@ -480,18 +480,21 @@ export class TreasuryController {
       'Missing/over-long Idempotency-Key, a non-ULID shiftId/cashSessionId/drawerId, shiftId equal to cashSessionId, or an otherwise invalid request body.',
   })
   @ApiNotFoundResponse({
-    description: 'Unknown terminal, branch, or employee.',
+    description: 'Unknown branch or employee.',
   })
   @ApiConflictResponse({
     description:
-      'The terminal or employee is not active, or the Idempotency-Key was already used with a different request body / is still in flight.',
+      'The employee is not active, or the Idempotency-Key was already used with a different request body / is still in flight.',
   })
   async openCashSession(
     @CurrentTenantContext() context: TenantContext,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @Body() dto: OpenCashSessionDto,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { branchId, employeeId } = this.requirePosIdentity(
+      context,
+      principal,
+    );
 
     const { session, shift, created } = await this.sessions.open(
       context.tenantId,
@@ -501,7 +504,7 @@ export class TreasuryController {
         cashSessionId: dto.cashSessionId,
         drawerId: dto.drawerId,
         openingFloat: dto.openingFloat,
-        terminalId,
+        branchId,
         employeeId,
       },
     );
@@ -540,7 +543,7 @@ export class TreasuryController {
     description:
       'Missing/malformed id, a non-positive amountMinor, a blank reason, or an otherwise invalid request body.',
   })
-  @ApiNotFoundResponse({ description: 'Unknown cash session or terminal.' })
+  @ApiNotFoundResponse({ description: 'Unknown cash session.' })
   @ApiConflictResponse({
     description:
       'The cash session is not open, or the movement id already exists with different content (FR-OFF-015).',
@@ -554,7 +557,7 @@ export class TreasuryController {
     const { movement } = await this.movements.payIn(
       context.tenantId,
       context.userId,
-      this.toMovementInput(principal, sessionId, dto),
+      this.toMovementInput(context, principal, sessionId, dto),
     );
     return toCashMovementView(movement);
   }
@@ -586,7 +589,7 @@ export class TreasuryController {
     description:
       'Missing/malformed id, a non-positive amountMinor, a blank reason, or an otherwise invalid request body.',
   })
-  @ApiNotFoundResponse({ description: 'Unknown cash session or terminal.' })
+  @ApiNotFoundResponse({ description: 'Unknown cash session.' })
   @ApiConflictResponse({
     description:
       'The cash session is not open, or the movement id already exists with different content (FR-OFF-015).',
@@ -600,7 +603,7 @@ export class TreasuryController {
     const { movement } = await this.movements.payOut(
       context.tenantId,
       context.userId,
-      this.toMovementInput(principal, sessionId, dto),
+      this.toMovementInput(context, principal, sessionId, dto),
     );
     return toCashMovementView(movement);
   }
@@ -632,7 +635,7 @@ export class TreasuryController {
     description:
       'Missing/malformed id, a non-positive amountMinor, a blank reason, or an otherwise invalid request body.',
   })
-  @ApiNotFoundResponse({ description: 'Unknown cash session or terminal.' })
+  @ApiNotFoundResponse({ description: 'Unknown cash session.' })
   @ApiConflictResponse({
     description:
       'The cash session is not open, or the movement id already exists with different content (FR-OFF-015). ' +
@@ -648,7 +651,7 @@ export class TreasuryController {
     const { movement } = await this.movements.safeDrop(
       context.tenantId,
       context.userId,
-      this.toMovementInput(principal, sessionId, dto),
+      this.toMovementInput(context, principal, sessionId, dto),
     );
     return toCashMovementView(movement);
   }
@@ -690,10 +693,13 @@ export class TreasuryController {
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @Param('sessionId') sessionId: string,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { employeeId } = this.requirePosIdentity(
+      authorization.context,
+      principal,
+    );
     return this.close.getCloseContext(
       authorization.context.tenantId,
-      { terminalId, employeeId },
+      { employeeId },
       authorization,
       sessionId,
     );
@@ -752,11 +758,14 @@ export class TreasuryController {
     @Param('sessionId') sessionId: string,
     @Body() dto: DeclareCashSessionCloseDto,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { employeeId } = this.requirePosIdentity(
+      authorization.context,
+      principal,
+    );
     return this.close.declareClose(
       authorization.context.tenantId,
       authorization.context.userId,
-      { terminalId, employeeId },
+      { employeeId },
       authorization,
       {
         cashSessionId: sessionId,
@@ -772,7 +781,7 @@ export class TreasuryController {
    * [M], FR-SEC-016/030/032/033.
    *
    * The manager PIN is verified BEFORE the business transaction opens
-   * (`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/
+   * (`identity/contract`'s `APPROVER_PIN_VERIFIER` — a failed-attempt/
    * lockout counter must survive a later rollback, and never runs at all on
    * an idempotent replay). The verified manager's permission set — not the
    * calling cashier's — is what `cash.variance.approve` is checked against,
@@ -814,7 +823,7 @@ export class TreasuryController {
       'Missing/malformed approvalRequestId/approvalDecisionId, an invalid decision, a blank reason, or an otherwise invalid request body.',
   })
   @ApiUnauthorizedResponse({
-    description: 'Invalid manager PIN, terminal, or employee code.',
+    description: 'Invalid manager PIN, branch, or employee code.',
   })
   @ApiNotFoundResponse({ description: 'Unknown cash session.' })
   @ApiConflictResponse({
@@ -831,11 +840,27 @@ export class TreasuryController {
     @Param('sessionId') sessionId: string,
     @Body() dto: FinalizeCashSessionCloseDto,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { employeeId } = this.requirePosIdentity(
+      authorization.context,
+      principal,
+    );
 
-    const approver = await this.pinVerifier.verifyTerminalPin({
+    // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 §8 — the manager's PIN/
+    // membership is verified against the CASH SESSION's own operational
+    // branch (never a device identity, and not necessarily the CALLING
+    // cashier's own branch — a `cash.session.close_other` manager may act
+    // from a different branch-scoped session).
+    const cashSession = await this.sessions.findOne(
+      authorization.context.tenantId,
+      sessionId,
+    );
+    if (!cashSession) {
+      throw new NotFoundException('Cash session not found.');
+    }
+
+    const approver = await this.pinVerifier.verifyApproverPin({
       tenantId: authorization.context.tenantId,
-      terminalId,
+      branchId: cashSession.branchId,
       employeeCode: dto.managerEmployeeCode,
       pin: dto.managerPin,
     });
@@ -843,7 +868,7 @@ export class TreasuryController {
     return this.close.finalizeClose(
       authorization.context.tenantId,
       authorization.context.userId,
-      { terminalId, employeeId },
+      { employeeId },
       authorization,
       approver,
       {
@@ -860,46 +885,60 @@ export class TreasuryController {
   // ------------------------------------------------------------- internals
 
   /**
-   * The terminal and the employee come from the SESSION, never from the body.
+   * Every Sales/Treasury WRITE happens in a POS session's live-verified
+   * operating branch (CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 — supersedes
+   * the former FR-SEC-028 terminal-registration gate).
+   */
+  private requireBranch(context: TenantContext): string {
+    if (!context.branchId) {
+      throw new ForbiddenException(
+        'This operation requires a POS session with a resolved operating branch.',
+      );
+    }
+    return context.branchId;
+  }
+
+  /**
+   * The branch and the employee come from the SESSION, never from the body.
    *
    * §16.1 requires cash to be attributable to "a person, a shift, and a drawer",
    * and carried item P1D-E makes that person the Employee. A PIN session carries
    * both facts as signed claims; a session without them cannot take custody of a
    * drawer, so the request is refused rather than guessed at.
    */
-  private requirePosIdentity(principal: AuthenticatedPrincipal): {
-    terminalId: string;
+  private requirePosIdentity(
+    context: TenantContext,
+    principal: AuthenticatedPrincipal,
+  ): {
+    branchId: string;
     employeeId: string;
   } {
-    if (!principal.terminalId) {
-      throw new ForbiddenException(
-        'Opening a cash session requires a terminal-bound session.',
-      );
-    }
+    const branchId = this.requireBranch(context);
     if (!principal.employeeId) {
       throw new ForbiddenException(
         'Opening a cash session requires a session that identifies the employee ' +
           'taking custody of the drawer.',
       );
     }
-    return {
-      terminalId: principal.terminalId,
-      employeeId: principal.employeeId,
-    };
+    return { branchId, employeeId: principal.employeeId };
   }
 
   /**
-   * The terminal and employee come from the SESSION, never the body — same
+   * The branch and employee come from the SESSION, never the body — same
    * requirement as `requirePosIdentity`. `sessionId` is the route param;
    * `cashSessionId` has no field in `CashMovementDto` for a caller to supply
    * a different one.
    */
   private toMovementInput(
+    context: TenantContext,
     principal: AuthenticatedPrincipal,
     sessionId: string,
     dto: CashMovementDto,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { branchId, employeeId } = this.requirePosIdentity(
+      context,
+      principal,
+    );
     return {
       id: dto.id,
       cashSessionId: sessionId,
@@ -907,7 +946,7 @@ export class TreasuryController {
       reason: dto.reason,
       occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : undefined,
       employeeId,
-      terminalId,
+      branchId,
     };
   }
 }

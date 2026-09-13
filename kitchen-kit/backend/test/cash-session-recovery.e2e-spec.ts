@@ -53,8 +53,6 @@ describe('Cash session recovery (e2e) — GET /cash-sessions/current', () => {
   let tenantA: string;
   let branchA: string;
   let branchA2: string;
-  let terminalA: string;
-  let terminalA2: string;
   let employeeA: string;
   let employeeB: string;
   let userA: string;
@@ -94,29 +92,15 @@ describe('Cash session recovery (e2e) — GET /cash-sessions/current', () => {
     return branch.id;
   };
 
-  const mkTerminal = (tenantId: string, branchId: string, name: string) =>
-    admin.terminal
-      .create({
-        data: {
-          id: newId(),
-          tenantId,
-          branchId,
-          name,
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-      .then((t) => t.id);
-
   const pinLogin = async (
     tenantId: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) => {
     const res = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode, pin })
+      .send({ tenantId, branchId, employeeCode, pin, sessionType: 'pos' })
       .expect(200);
     return (res.body as { accessToken: string }).accessToken;
   };
@@ -169,8 +153,6 @@ describe('Cash session recovery (e2e) — GET /cash-sessions/current', () => {
 
     branchA = await mkBranch(tenantA, `RA${stamp % 10000}`);
     branchA2 = await mkBranch(tenantA, `RX${stamp % 10000}`);
-    terminalA = await mkTerminal(tenantA, branchA, 'RC-POS-1');
-    terminalA2 = await mkTerminal(tenantA, branchA2, 'RC-POS-2');
 
     const mkUser = async (email: string) => {
       const u = await users.createUser({ email, password, displayName: 'RC' });
@@ -246,13 +228,13 @@ describe('Cash session recovery (e2e) — GET /cash-sessions/current', () => {
 
   describe('same employee, terminal-branch scoped recovery', () => {
     it('returns null before any session is opened — normal Open Shift path', async () => {
-      const token = await pinLogin(tenantA, terminalA, codeA, PIN_A);
+      const token = await pinLogin(tenantA, branchA, codeA, PIN_A);
       const res = await current(token).expect(200);
       expect((res.body as CurrentBody).cashSession).toBeNull();
     });
 
     it('A: a SECOND PIN session for the same employee resolves the SAME cash session id', async () => {
-      const firstToken = await pinLogin(tenantA, terminalA, codeA, PIN_A);
+      const firstToken = await pinLogin(tenantA, branchA, codeA, PIN_A);
       const cashSessionId = newId();
       const openRes = await open(firstToken, {
         shiftId: newId(),
@@ -264,7 +246,7 @@ describe('Cash session recovery (e2e) — GET /cash-sessions/current', () => {
 
       // Simulates the frontend losing `cashSessionId` (reload/deploy) and
       // re-authenticating from scratch — a BRAND NEW PIN session/token.
-      const secondToken = await pinLogin(tenantA, terminalA, codeA, PIN_A);
+      const secondToken = await pinLogin(tenantA, branchA, codeA, PIN_A);
       expect(secondToken).not.toBe(firstToken);
 
       const res = await current(secondToken).expect(200);
@@ -275,7 +257,7 @@ describe('Cash session recovery (e2e) — GET /cash-sessions/current', () => {
     });
 
     it('D: the second open remains correctly blocked while the recoverable session stays open (FR-FIN-001)', async () => {
-      const token = await pinLogin(tenantA, terminalA, codeA, PIN_A);
+      const token = await pinLogin(tenantA, branchA, codeA, PIN_A);
       // employeeA already has an open session on drawerA from the prior test.
       const res = await open(token, {
         shiftId: newId(),
@@ -298,7 +280,7 @@ describe('Cash session recovery (e2e) — GET /cash-sessions/current', () => {
     it('B: cannot recover another employee’s open session', async () => {
       // employeeA holds an open session on drawerA (opened above). employeeB
       // logs in on the SAME terminal/branch and must see nothing.
-      const tokenB = await pinLogin(tenantA, terminalA, codeB, PIN_B);
+      const tokenB = await pinLogin(tenantA, branchA, codeB, PIN_B);
       const res = await current(tokenB).expect(200);
       expect((res.body as CurrentBody).cashSession).toBeNull();
     });
@@ -310,7 +292,7 @@ describe('Cash session recovery (e2e) — GET /cash-sessions/current', () => {
     it('C: cannot recover a session open at a DIFFERENT branch, even for the same (permitted) employee', async () => {
       // employeeA is permitted at branchA2 too, but their open session lives
       // at branchA. Logging in via the branchA2 terminal must not see it.
-      const token = await pinLogin(tenantA, terminalA2, codeA, PIN_A);
+      const token = await pinLogin(tenantA, branchA2, codeA, PIN_A);
       const res = await current(token).expect(200);
       expect((res.body as CurrentBody).cashSession).toBeNull();
 

@@ -84,7 +84,7 @@ import { SCOPE_AUTHORIZATION } from '../../identity/contract';
 import type {
   ScopeAuthorizationActor,
   ScopeAuthorizationPort,
-  VerifiedTerminalPrincipal,
+  VerifiedApproverPrincipal,
 } from '../../identity/contract';
 import { SALES_PERMISSIONS } from '../sales.permissions';
 import {
@@ -100,7 +100,7 @@ const REFUND_LOCK_KEY = 'ros_refund';
 export interface ManagerApprovalInput {
   readonly approvalRequestId: string;
   readonly approvalDecisionId: string;
-  readonly approver: VerifiedTerminalPrincipal;
+  readonly approver: VerifiedApproverPrincipal;
 }
 
 export interface IssueRefundInput {

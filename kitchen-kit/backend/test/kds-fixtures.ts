@@ -205,16 +205,23 @@ export async function setTerminalStatus(
   await admin.terminal.update({ where: { id: terminalId }, data: { status } });
 }
 
+/**
+ * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: PIN login is branch/employee-
+ * scoped, not terminal-scoped — `sessionType` selects the `pos`/`kds`
+ * audience. `branchId` replaces the former `terminalId` positional
+ * argument; callers updated accordingly.
+ */
 export async function pinLogin(
   http: App,
   tenantId: string,
-  terminalId: string,
+  branchId: string,
   employeeCode: string,
   pin: string,
+  sessionType: 'pos' | 'kds' = 'pos',
 ): Promise<string> {
   const res = await request(http)
     .post('/auth/pin')
-    .send({ tenantId, terminalId, employeeCode, pin })
+    .send({ tenantId, branchId, employeeCode, pin, sessionType })
     .expect(200);
   return (res.body as { accessToken: string }).accessToken;
 }

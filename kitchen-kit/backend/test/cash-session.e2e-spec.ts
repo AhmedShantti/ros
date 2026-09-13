@@ -45,7 +45,6 @@ describe('Cash session open (e2e)', () => {
   let branchA: string;
   let branchA2: string;
   let branchB: string;
-  let terminalA: string;
   let terminalA2: string;
   let terminalB: string;
   let employeeA: string;
@@ -106,13 +105,13 @@ describe('Cash session open (e2e)', () => {
 
   const pinLogin = async (
     tenantId: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) => {
     const res = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode, pin })
+      .send({ tenantId, branchId, employeeCode, pin, sessionType: 'pos' })
       .expect(200);
     return (res.body as { accessToken: string }).accessToken;
   };
@@ -157,7 +156,6 @@ describe('Cash session open (e2e)', () => {
     branchA = await mkBranch(tenantA, `CA${stamp % 10000}`);
     branchA2 = await mkBranch(tenantA, `CX${stamp % 10000}`);
     branchB = await mkBranch(tenantB, `CB${stamp % 10000}`);
-    terminalA = await mkTerminal(tenantA, branchA, 'CA-POS-1');
     terminalA2 = await mkTerminal(tenantA, branchA, 'CA-POS-2');
     terminalB = await mkTerminal(tenantB, branchB, 'CB-POS');
 
@@ -236,13 +234,13 @@ describe('Cash session open (e2e)', () => {
 
     const pins = app.get(PinService);
     await pins.setPin(tenantA, userA, employeeA, PIN_A);
-    posToken = await pinLogin(tenantA, terminalA, codeA, PIN_A);
+    posToken = await pinLogin(tenantA, branchA, codeA, PIN_A);
 
     const noPermEmployee = await admin.employee.findFirstOrThrow({
       where: { code: codeNoPerm },
     });
     await pins.setPin(tenantA, userA, noPermEmployee.id, PIN_B);
-    noPermToken = await pinLogin(tenantA, terminalA, codeNoPerm, PIN_B);
+    noPermToken = await pinLogin(tenantA, branchA, codeNoPerm, PIN_B);
 
     // A DASHBOARD (non-POS) session: password login + tenant selection.
     const login = await request(http)
@@ -502,14 +500,19 @@ describe('Cash session open (e2e)', () => {
       ).not.toBeNull();
     });
 
-    it('rejects a drawer bound to a DIFFERENT terminal', async () => {
+    it('accepts a drawer bound to a DIFFERENT terminal — the legacy binding is no longer enforced (CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0)', async () => {
+      // `DrawersService.requireForBranch`'s own docblock: the former
+      // "terminal-bound elsewhere -> conflict" check is REMOVED — POS is a
+      // branch/employee-scoped session with no terminal identity any more,
+      // so a Drawer's optional legacy `terminalId` binding is no longer
+      // matched against anything. Every ACTIVE, branch-matching drawer is
+      // selectable, exactly as an already-unbound drawer always was.
       const res = await open(openBody({ drawerId: drawerBoundToA2 }));
-      expect(res.status).toBe(409);
-      expect(JSON.stringify(res.body)).toMatch(/different terminal/i);
+      expect(res.status).toBe(201);
     });
 
     it('accepts an UNBOUND drawer from any terminal in the branch', async () => {
-      // drawerA has no terminal binding; terminalA opened it above.
+      // drawerA has no terminal binding.
       const unbound = await freshDrawer('unbound');
       const res = await open(openBody({ drawerId: unbound }));
       expect(res.status).toBe(201);
@@ -889,28 +892,10 @@ describe('Cash session open (e2e)', () => {
           cashSessionId: newId(),
           drawerId: drawerA,
           openingFloat: '0',
-          terminalId: terminalA,
+          branchId: branchA,
           employeeId: employeeUnpermitted,
         }),
       ).rejects.toThrow(/not permitted to work at this branch/);
-    });
-
-    it('rejects a revoked terminal', async () => {
-      const revoked = await mkTerminal(tenantA, branchA, `CA-REVOKED-${stamp}`);
-      await admin.terminal.update({
-        where: { id: revoked },
-        data: { status: 'revoked' },
-      });
-      // A PIN login on a revoked terminal is refused before any session exists.
-      const res = await request(http)
-        .post('/auth/pin')
-        .send({
-          tenantId: tenantA,
-          terminalId: revoked,
-          employeeCode: `CEA${stamp % 1000}`,
-          pin: PIN_A,
-        });
-      expect(res.status).toBe(401);
     });
   });
 
@@ -938,8 +923,11 @@ describe('Cash session open (e2e)', () => {
 
       expect(shiftEntry).not.toBeNull();
       expect(sessionEntry).not.toBeNull();
-      expect(shiftEntry!.terminalId).toBe(terminalA);
-      expect(sessionEntry!.terminalId).toBe(terminalA);
+      // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: POS is a branch/employee-
+      // scoped session, not a registered device — no terminal provenance is
+      // ever recorded for these audit entries any more.
+      expect(shiftEntry!.terminalId).toBeNull();
+      expect(sessionEntry!.terminalId).toBeNull();
       expect(sessionEntry!.actorId).toBe(userA);
       expect(sessionEntry!.afterState).toMatchObject({
         branchId: branchA,

@@ -31,3 +31,17 @@ export class AcknowledgeViewedDto {
   @Matches(UUID_PATTERN, { each: true })
   ticketIds!: string[];
 }
+
+/**
+ * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 — the ticket-scoped KDS mutation
+ * routes (`start`/`bump`/`bump-all`/`recall`) carry no `:stationId` path
+ * segment (the ticket itself is the addressed resource), so the caller
+ * names the station it is operating as a `?stationId=` query parameter
+ * instead — `KdsStationGuard` validates it belongs to the session's own
+ * branch before the handler runs. There is no device binding to derive it
+ * from any more.
+ */
+export class KdsStationSelectionQueryDto {
+  @Matches(UUID_PATTERN)
+  stationId!: string;
+}

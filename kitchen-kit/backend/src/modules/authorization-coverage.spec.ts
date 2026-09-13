@@ -353,8 +353,7 @@ describe('Authorization coverage gate (B1-3)', () => {
             invalid.push(route.id);
           }
           break;
-        case 'posTerminalBranch':
-        case 'sessionTerminalBranch':
+        case 'sessionBranch':
           break;
       }
     }

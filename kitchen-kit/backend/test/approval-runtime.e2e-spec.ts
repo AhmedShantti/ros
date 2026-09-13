@@ -17,9 +17,9 @@ import {
   CreateApprovalRequestCommand,
 } from './../src/modules/governance/contract';
 import {
-  TERMINAL_PIN_VERIFIER,
-  TerminalPinVerifier,
-  VerifiedTerminalPrincipal,
+  APPROVER_PIN_VERIFIER,
+  ApproverPinVerifier,
+  VerifiedApproverPrincipal,
 } from './../src/modules/identity/contract';
 import { PinService } from './../src/modules/identity/employees/pin.service';
 import { PermissionsService } from './../src/modules/identity/authz/permissions.service';
@@ -43,7 +43,7 @@ import { createMigratorClient } from './rls-admin';
  * docs/reports/claude/2026-08-29_APPROVAL_runtime-design-acceptance-closure.md
  * (CONTROLLING).
  *
- * All calls go through the real `APPROVAL_COMMANDS`/`TERMINAL_PIN_VERIFIER`
+ * All calls go through the real `APPROVAL_COMMANDS`/`APPROVER_PIN_VERIFIER`
  * services directly (not HTTP — Governance publishes no route at all, D-14
  * A-1), exactly the P1G-0 CONCURRENCY-block precedent this file follows for
  * every genuinely concurrent scenario.
@@ -53,7 +53,7 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
   let admin: PrismaClient;
   let prisma: PrismaService;
   let approvals: ApprovalCommands;
-  let pinVerifier: TerminalPinVerifier;
+  let pinVerifier: ApproverPinVerifier;
   let gatedAudit: GatedApprovalDecisionAudit;
 
   const stamp = Date.now();
@@ -61,13 +61,12 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
 
   let tenantId: string;
   let branchId: string;
-  let terminalId: string;
 
   let ownerUserId: string;
   let ownerEmployeeId: string;
-  let manager1: VerifiedTerminalPrincipal;
-  let manager2: VerifiedTerminalPrincipal;
-  let noPermPrincipal: VerifiedTerminalPrincipal;
+  let manager1: VerifiedApproverPrincipal;
+  let manager2: VerifiedApproverPrincipal;
+  let noPermPrincipal: VerifiedApproverPrincipal;
 
   const PERMISSION = INVENTORY_PERMISSIONS.APPROVE_HIGH_VARIANCE;
   const PIN_OWNER = '1111';
@@ -163,7 +162,7 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
     admin = createMigratorClient(app);
     prisma = app.get(PrismaService);
     approvals = app.get<ApprovalCommands>(APPROVAL_COMMANDS);
-    pinVerifier = app.get<TerminalPinVerifier>(TERMINAL_PIN_VERIFIER);
+    pinVerifier = app.get<ApproverPinVerifier>(APPROVER_PIN_VERIFIER);
 
     const permissions = app.get(PermissionsService);
     await permissions.ensureIdentityPermissions();
@@ -208,18 +207,6 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
       },
     });
 
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId,
-        branchId,
-        name: 'Approval-POS',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    terminalId = terminal.id;
-
     const users = app.get(UsersService);
     const memberships = app.get(MembershipsService);
     const roles = app.get(RolesService);
@@ -232,13 +219,13 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
     await roles.addPermissions(tenantId, role.id, [PERMISSION]);
 
     /** Create a PIN-capable Employee (active, user-linked, permitted branch)
-     *  and return its VerifiedTerminalPrincipal once via a real PIN login. */
+     *  and return its VerifiedApproverPrincipal once via a real PIN login. */
     const mkPrincipal = async (
       code: string,
       pin: string,
       grantPermission: boolean,
     ): Promise<{
-      principal: VerifiedTerminalPrincipal;
+      principal: VerifiedApproverPrincipal;
       userId: string;
       employeeId: string;
     }> => {
@@ -270,9 +257,9 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
         data: { tenantId, employeeId: employee.id, branchId },
       });
       await pinService.setPin(tenantId, user.id, employee.id, pin);
-      const principal = await pinVerifier.verifyTerminalPin({
+      const principal = await pinVerifier.verifyApproverPin({
         tenantId,
-        terminalId,
+        branchId,
         employeeCode: employee.code,
         pin,
       });
@@ -318,7 +305,7 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
   };
 
   const decideAs = (
-    approver: VerifiedTerminalPrincipal,
+    approver: VerifiedApproverPrincipal,
     approvalRequestId: string,
     decision: 'approved' | 'rejected',
     overrides: { id?: string; comment?: string } = {},
@@ -460,7 +447,7 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
       );
     });
 
-    it('decide rejects malformed permanent ids using a real VerifiedTerminalPrincipal (no fabricated brand)', async () => {
+    it('decide rejects malformed permanent ids using a real VerifiedApproverPrincipal (no fabricated brand)', async () => {
       const { request } = await mkRequest();
       await expect(
         prisma.withAuthContext({ userId: manager1.userId, tenantId }, (tx) =>
@@ -571,11 +558,11 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
 
   // ====================================================== SCENARIOS 13/14
   describe('SCENARIOS 13 & 14 — PIN verification integration', () => {
-    it('wrong PIN -> no VerifiedTerminalPrincipal, no decision possible', async () => {
+    it('wrong PIN -> no VerifiedApproverPrincipal, no decision possible', async () => {
       await expect(
-        pinVerifier.verifyTerminalPin({
+        pinVerifier.verifyApproverPin({
           tenantId,
-          terminalId,
+          branchId,
           employeeCode: `mgr1${stamp % 1000}`,
           pin: '0000',
         }),
@@ -612,9 +599,9 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
       // 5 wrong attempts (PIN_MAX_FAILED_ATTEMPTS default) trip the lock.
       for (let i = 0; i < 5; i++) {
         await expect(
-          pinVerifier.verifyTerminalPin({
+          pinVerifier.verifyApproverPin({
             tenantId,
-            terminalId,
+            branchId,
             employeeCode: employee.code,
             pin: '0000',
           }),
@@ -622,9 +609,9 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
       }
       // The CORRECT PIN is now also refused — lockout, not just a bad guess.
       await expect(
-        pinVerifier.verifyTerminalPin({
+        pinVerifier.verifyApproverPin({
           tenantId,
-          terminalId,
+          branchId,
           employeeCode: employee.code,
           pin: realPin,
         }),
@@ -632,14 +619,13 @@ describe('Governance Approval runtime (e2e) — migration 32', () => {
     }, 20_000);
 
     it('a valid manager PIN yields a principal with correct identity facts and permissions, and a decision succeeds', async () => {
-      const principal = await pinVerifier.verifyTerminalPin({
+      const principal = await pinVerifier.verifyApproverPin({
         tenantId,
-        terminalId,
+        branchId,
         employeeCode: `mgr1${stamp % 1000}`,
         pin: PIN_MGR1,
       });
       expect(principal.branchId).toBe(branchId);
-      expect(principal.terminalId).toBe(terminalId);
       expect(principal.permissions.has(PERMISSION)).toBe(true);
 
       const { request } = await mkRequest();

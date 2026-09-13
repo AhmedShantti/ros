@@ -107,7 +107,7 @@ export class DeclareCashSessionCloseDto {
  * ── MANAGER PIN FIELDS ────────────────────────────────────────────────────
  * Mirrors `PinLoginDto` exactly: PIN authentication identifies by employee
  * code, not email. Verified OUTSIDE the business transaction via Identity's
- * `TERMINAL_PIN_VERIFIER` contract — failed-attempt/lockout counters must
+ * `APPROVER_PIN_VERIFIER` contract — failed-attempt/lockout counters must
  * survive a later business-transaction rollback.
  */
 export class FinalizeCashSessionCloseDto {

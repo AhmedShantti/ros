@@ -96,6 +96,7 @@ describe('POS-FIN-1 (e2e)', () => {
   let branchOther: string; // a second branch under tenantA — the "wrong branch" for manager approval
   let terminalA: string;
   let stationFallbackId: string; // branchA's ONE fallback KDS station — real Fire routing (H section)
+  let branchB: string;
   let terminalB: string;
   let employeeCashier: string; // pos.discount.apply, pos.comp.apply, pos.order.void_line_postfire, pos.refund.issue
   let employeeCashierCode: string;
@@ -238,7 +239,7 @@ describe('POS-FIN-1 (e2e)', () => {
     };
     branchA = await mkBranch(tenantA, `PFA${stamp % 10000}`);
     branchOther = await mkBranch(tenantA, `PFO${stamp % 10000}`);
-    const branchB = await mkBranch(tenantB, `PFB${stamp % 10000}`);
+    branchB = await mkBranch(tenantB, `PFB${stamp % 10000}`);
 
     const mkTerminal = (tenantId: string, branchId: string, name: string) =>
       admin.terminal
@@ -574,23 +575,23 @@ describe('POS-FIN-1 (e2e)', () => {
 
   const pinLogin = async (
     tid: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) => {
     const res = await request(http)
       .post('/auth/pin')
-      .send({ tenantId: tid, terminalId, employeeCode, pin });
+      .send({ tenantId: tid, branchId, employeeCode, pin, sessionType: 'pos' });
     return res;
   };
 
   const pinLoginOk = async (
     tid: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) => {
-    const res = await pinLogin(tid, terminalId, employeeCode, pin);
+    const res = await pinLogin(tid, branchId, employeeCode, pin);
     expect(res.status).toBe(200);
     return (res.body as { accessToken: string }).accessToken;
   };
@@ -606,7 +607,7 @@ describe('POS-FIN-1 (e2e)', () => {
   const mkOpenOrder = async (
     opts: {
       tenantId?: string;
-      terminalId?: string;
+      branchId?: string;
       employeeId?: string;
       userId?: string;
     } = {},
@@ -614,7 +615,7 @@ describe('POS-FIN-1 (e2e)', () => {
     const tenantId = opts.tenantId ?? tenantA;
     const userId = opts.userId ?? userCashier;
     const order = await orders.create(tenantId, userId, {
-      terminalId: opts.terminalId ?? terminalA,
+      branchId: opts.branchId ?? branchA,
       openedByEmployeeId: opts.employeeId ?? employeeCashier,
       orderType: 'takeaway',
       channel: 'pos',
@@ -707,7 +708,7 @@ describe('POS-FIN-1 (e2e)', () => {
     beforeAll(async () => {
       cashierToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeCashierCode,
         PIN_CASHIER,
       );
@@ -1051,7 +1052,7 @@ describe('POS-FIN-1 (e2e)', () => {
     beforeAll(async () => {
       cashierToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeCashierCode,
         PIN_CASHIER,
       );
@@ -1176,7 +1177,7 @@ describe('POS-FIN-1 (e2e)', () => {
     it('B5. a manager not permitted at this branch cannot even authenticate on this terminal (PIN login itself fails)', async () => {
       const res = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         employeeWrongBranchManagerCode,
         PIN_WRONGBRANCH_MANAGER,
       );
@@ -1186,7 +1187,7 @@ describe('POS-FIN-1 (e2e)', () => {
     it('B6. holder of pos.discount.unlimited bypasses approval entirely, even far above threshold', async () => {
       const unlimitedToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeUnlimitedCode,
         PIN_UNLIMITED,
       );
@@ -1238,13 +1239,13 @@ describe('POS-FIN-1 (e2e)', () => {
     beforeAll(async () => {
       cashierToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeCashierCode,
         PIN_CASHIER,
       );
       managerToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeManagerCode,
         PIN_MANAGER,
       );
@@ -1542,7 +1543,7 @@ describe('POS-FIN-1 (e2e)', () => {
         userId: u.id,
       });
       await app.get(PinService).setPin(tenantA, u.id, emp.id, '7777');
-      const noDiffToken = await pinLoginOk(tenantA, terminalA, code, '7777');
+      const noDiffToken = await pinLoginOk(tenantA, branchA, code, '7777');
 
       const { order, paymentId } = await mkCompletedOrder(10_000n);
       const rejected = await postFresh(noDiffToken, order, '/refunds', {
@@ -1643,7 +1644,7 @@ describe('POS-FIN-1 (e2e)', () => {
     beforeAll(async () => {
       cashierToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeCashierCode,
         PIN_CASHIER,
       );
@@ -1724,7 +1725,7 @@ describe('POS-FIN-1 (e2e)', () => {
     beforeAll(async () => {
       cashierToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeCashierCode,
         PIN_CASHIER,
       );
@@ -2096,7 +2097,7 @@ describe('POS-FIN-1 (e2e)', () => {
     beforeAll(async () => {
       cashierToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeCashierCode,
         PIN_CASHIER,
       );
@@ -2166,11 +2167,11 @@ describe('POS-FIN-1 (e2e)', () => {
     beforeAll(async () => {
       cashierToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeCashierCode,
         PIN_CASHIER,
       );
-      tokenB = await pinLoginOk(tenantB, terminalB, employeeBCode, '9999');
+      tokenB = await pinLoginOk(tenantB, branchB, employeeBCode, '9999');
     });
 
     it('G1. tenant B cannot discount tenant A order (404, never 403)', async () => {
@@ -2223,7 +2224,7 @@ describe('POS-FIN-1 (e2e)', () => {
     beforeAll(async () => {
       cashierToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeCashierCode,
         PIN_CASHIER,
       );
@@ -2356,7 +2357,7 @@ describe('POS-FIN-1 (e2e)', () => {
     beforeAll(async () => {
       cashierToken = await pinLoginOk(
         tenantA,
-        terminalA,
+        branchA,
         employeeCashierCode,
         PIN_CASHIER,
       );

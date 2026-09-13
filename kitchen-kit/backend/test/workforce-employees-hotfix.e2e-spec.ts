@@ -56,15 +56,6 @@ describe('Workforce employees + PIN login hotfix (e2e)', () => {
     };
   }
 
-  async function registerTerminal(accessToken: string, branchId: string) {
-    const res = await request(http)
-      .post('/auth/terminals')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: `POS-${Date.now()}`, terminalType: 'pos', branchId })
-      .expect(201);
-    return (res.body as { id: string }).id;
-  }
-
   function employeeBody(homeBranchId: string, overrides: Record<string, unknown> = {}) {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return {
@@ -166,11 +157,15 @@ describe('Workforce employees + PIN login hotfix (e2e)', () => {
       .send({ pin: '4321' })
       .expect(204);
 
-    const terminalId = await registerTerminal(accessToken, branchId);
-
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '4321',
+        sessionType: 'pos',
+      })
       .expect(200);
     expect((login.body as { tokenType: string }).tokenType).toBe('Bearer');
   });
@@ -190,19 +185,22 @@ describe('Workforce employees + PIN login hotfix (e2e)', () => {
       .set('Idempotency-Key', idemKey())
       .send({ pin: '4321' })
       .expect(204);
-    const terminalId = await registerTerminal(accessToken, branchId);
-
     await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '9999' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '9999',
+        sessionType: 'pos',
+      })
       .expect(401);
   });
 
-  it('a terminal registered to a branch NOT in the employee permitted set is rejected', async () => {
+  it('sign-in at a branch NOT in the employee permitted set is rejected', async () => {
     const { accessToken, branchId, tenantId } = await signUpOwner();
 
-    // Second branch, so a terminal there is genuinely outside the employee's
-    // permitted set.
+    // Second branch, genuinely outside the employee's permitted set.
     const brands = await request(http)
       .get('/org/brands')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -236,15 +234,14 @@ describe('Workforce employees + PIN login hotfix (e2e)', () => {
       .send({ pin: '4321' })
       .expect(204);
 
-    const wrongBranchTerminalId = await registerTerminal(accessToken, otherBranchId);
-
     await request(http)
       .post('/auth/pin')
       .send({
         tenantId,
-        terminalId: wrongBranchTerminalId,
+        branchId: otherBranchId,
         employeeCode: employee.code,
         pin: '4321',
+        sessionType: 'pos',
       })
       .expect(401);
   });

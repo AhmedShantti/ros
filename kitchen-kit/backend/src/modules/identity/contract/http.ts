@@ -38,6 +38,7 @@ export {
   RequireAnyPermission,
 } from '../authz/decorators/require-permission.decorator';
 export { AllowPosSession } from '../auth/decorators/pos-session.decorator';
+export { AllowKdsSession } from '../auth/decorators/kds-session.decorator';
 export { CurrentPrincipal } from '../auth/decorators/current-principal.decorator';
 export {
   CurrentAuthorization,

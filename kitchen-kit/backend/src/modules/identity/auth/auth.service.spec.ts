@@ -8,7 +8,6 @@ import { TerminalsService } from '../terminals/terminals.service';
 import { UsersRepository } from '../users/users.repository';
 import { AccessTokenService } from './access-token.service';
 import { AuditService } from '../../governance/audit/audit.service';
-import { EmployeesService } from '../employees/employees.service';
 import { PinService } from '../employees/pin.service';
 import { AuthorizationSnapshotService } from '../authz/authorization-snapshot.service';
 import { AuthService } from './auth.service';
@@ -60,6 +59,9 @@ describe('AuthService.login', () => {
     const memberships = {
       resolveActiveContext: jest.fn().mockResolvedValue(null),
     } as unknown as MembershipsService;
+    // Sync/offline device channel only (trm-claim preservation on refresh).
+    // These specs never resolve a tenant context, so this is never invoked;
+    // it exists only to satisfy the constructor's dependency.
     const terminals = {
       findInTenant: jest.fn().mockResolvedValue(null),
     } as unknown as TerminalsService;
@@ -67,12 +69,6 @@ describe('AuthService.login', () => {
     // PIN authentication has its own suites; these password/refresh specs only
     // need the dependency to exist.
     const pins = { authenticate: jest.fn() } as unknown as PinService;
-    // DEMO-POS-EMPLOYEE-SESSION-HOTFIX: these specs never resolve a tenant
-    // context (login/password paths, not refresh), so this is never invoked;
-    // it exists only to satisfy the constructor's dependency.
-    const employees = {
-      findByUser: jest.fn().mockResolvedValue(null),
-    } as unknown as EmployeesService;
     // B1-2: the T-4-LIVE snapshot builder. These specs assert token SHAPE and
     // session mechanics, not scope resolution, so an empty snapshot suffices —
     // and an empty snapshot is a real state (zero authority), never a wildcard.
@@ -94,7 +90,6 @@ describe('AuthService.login', () => {
       terminals,
       audit,
       pins,
-      employees,
       snapshots,
       config,
     );

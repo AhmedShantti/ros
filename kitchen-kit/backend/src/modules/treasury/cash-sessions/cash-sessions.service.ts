@@ -13,8 +13,8 @@
  *
  * ── WHAT THE CLIENT MAY DECIDE, AND WHAT IT MAY NOT ────────────────────────
  * It supplies two permanent ULIDs (FR-OFF-015), a drawer, and the float it
- * counted. Everything else — tenant, branch, employee, terminal, currency,
- * status, opened-at — is derived from the trusted POS session. The DTO has no
+ * counted. Everything else — tenant, branch, employee, currency, status,
+ * opened-at — is derived from the trusted POS session. The DTO has no
  * field for any of them, so a caller cannot even express the attempt.
  *
  * ── WHERE EACH INVARIANT ACTUALLY LIVES ────────────────────────────────────
@@ -64,8 +64,12 @@ export interface OpenCashSessionInput {
   readonly drawerId: string;
   /** Declared opening float, minor units, as an exact integer string. */
   readonly openingFloat: string;
-  /** Trusted terminal from the POS session. NEVER from the request body. */
-  readonly terminalId: string;
+  /**
+   * Trusted operating branch from the POS session's own live-verified
+   * `TenantContext.branchId` (CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0).
+   * NEVER from the request body.
+   */
+  readonly branchId: string;
   /** Trusted employee from the POS session. NEVER from the request body. */
   readonly employeeId: string;
   /** Server clock. Exposed for deterministic tests, not for callers. */
@@ -115,17 +119,9 @@ export class CashSessionsService {
     return this.prisma.withAuthContext(
       { userId: actorUserId, tenantId },
       async (tx) => {
-        // The terminal is the root of trust for the branch (FR-SEC-028).
-        // Invisible cross-tenant under RLS -> 404, never 403.
-        const terminal = await tx.terminal.findUnique({
-          where: { id: input.terminalId },
-          select: { id: true, branchId: true, status: true },
-        });
-        if (!terminal) throw new NotFoundException('Terminal not found.');
-        if (terminal.status !== 'active') {
-          throw new ConflictException('That terminal is not active.');
-        }
-
+        // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: the branch is trusted
+        // directly from the caller's live-verified POS session
+        // (`input.branchId`), never derived from a terminal registration.
         // Organisation's PUBLIC contract, SAME transaction (SRS §5.5.1) —
         // never a direct `tx.branch.*` query (SRS §5.2.3; the acceptance-
         // closure correction already applied to `CashClosePolicyService`,
@@ -133,7 +129,7 @@ export class CashSessionsService {
         // whose scan is widened by this same slice to cover this file).
         const branchFacts = await this.branchCurrency.find(tx, {
           tenantId,
-          branchId: terminal.branchId,
+          branchId: input.branchId,
         });
         if (!branchFacts) throw new NotFoundException('Branch not found.');
         const branch = {
@@ -165,7 +161,6 @@ export class CashSessionsService {
           tx,
           input.drawerId,
           branch.id,
-          terminal.id,
         );
 
         // P1D-A: the Workforce concept, obtained through its public port. Same
@@ -253,7 +248,6 @@ export class CashSessionsService {
             actorType: 'user',
             actorId: actorUserId,
             entityId: shift.id,
-            terminalId: terminal.id,
             metadata: {
               branchId: branch.id,
               employeeId: employee.id,
@@ -269,7 +263,6 @@ export class CashSessionsService {
           actorType: 'user',
           actorId: actorUserId,
           entityId: session.id,
-          terminalId: terminal.id,
           metadata: {
             branchId: branch.id,
             drawerId: drawer.id,
@@ -318,7 +311,7 @@ export class CashSessionsService {
 
   /**
    * DEMO-CASH-SESSION-RECOVERY-P0 — the CALLER'S OWN open cash session at
-   * THEIR OWN terminal-bound branch, for `GET /cash-sessions/current`.
+   * THEIR OWN POS session branch, for `GET /cash-sessions/current`.
    *
    * ── WHY THIS IS NOT THE `findOne` READ D-20 WITHHOLDS ──────────────────────
    * `findOne` is unexposed because it is a BY-ID read of ANY session — an
@@ -345,18 +338,12 @@ export class CashSessionsService {
    */
   async findCurrentForEmployee(
     tenantId: string,
-    terminalId: string,
+    branchId: string,
     employeeId: string,
   ): Promise<CashSession | null> {
     return this.prisma.withAuthContext({ tenantId }, async (tx) => {
-      const terminal = await tx.terminal.findUnique({
-        where: { id: terminalId },
-        select: { branchId: true },
-      });
-      if (!terminal) throw new NotFoundException('Terminal not found.');
-
       const open = await tx.cashSession.findMany({
-        where: { branchId: terminal.branchId, employeeId, status: 'open' },
+        where: { branchId, employeeId, status: 'open' },
         take: 2,
       });
       return open.length === 1 ? open[0] : null;

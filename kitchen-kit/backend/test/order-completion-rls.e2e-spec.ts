@@ -88,7 +88,6 @@ describe('RLS / append-only / grants — P1F-2 tables (P1F-2 acceptance closure 
     tenantId: string;
     branchId: string;
     locationId: string;
-    terminalId: string;
     employeeId: string;
     userId: string;
     priceListId: string;
@@ -133,16 +132,6 @@ describe('RLS / append-only / grants — P1F-2 tables (P1F-2 acceptance closure 
         locationType: 'branch',
         refId: branch.id,
         branchId: branch.id,
-      },
-    });
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId,
-        branchId: branch.id,
-        name: `POS-${slug}`,
-        terminalType: 'pos',
-        status: 'active',
       },
     });
     const user = await admin.user.create({
@@ -214,7 +203,6 @@ describe('RLS / append-only / grants — P1F-2 tables (P1F-2 acceptance closure 
       tenantId,
       branchId: branch.id,
       locationId: location.id,
-      terminalId: terminal.id,
       employeeId: employee.id,
       userId: user.id,
       priceListId: priceList.id,
@@ -445,7 +433,7 @@ describe('RLS / append-only / grants — P1F-2 tables (P1F-2 acceptance closure 
     ]);
 
     const order = await orders.create(t.tenantId, t.userId, {
-      terminalId: t.terminalId,
+      branchId: t.branchId,
       openedByEmployeeId: t.employeeId,
       orderType: 'takeaway',
       channel: 'pos',
@@ -482,7 +470,6 @@ describe('RLS / append-only / grants — P1F-2 tables (P1F-2 acceptance closure 
       amountMinor: opened.grandTotal,
       cashSessionId: t.cashSessionId,
       employeeId: t.employeeId,
-      terminalId: t.terminalId,
       tenderedAmountMinor: opened.grandTotal,
     });
 

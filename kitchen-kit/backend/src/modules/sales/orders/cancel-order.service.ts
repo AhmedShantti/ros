@@ -66,7 +66,7 @@ import { AuditService } from '../../governance/audit/audit.service';
 import { APPROVAL_COMMANDS } from '../../governance/contract';
 import type { ApprovalCommands } from '../../governance/contract';
 import { CountryPackService } from '../../localisation/country-pack/country-pack.service';
-import type { VerifiedTerminalPrincipal } from '../../identity/contract';
+import type { VerifiedApproverPrincipal } from '../../identity/contract';
 import { SALES_PERMISSIONS } from '../sales.permissions';
 import {
   ORDER_LINE_VOIDED_POSTFIRE_EVENT_TYPE,
@@ -93,7 +93,7 @@ const CANCEL_APPROVAL_REQUEST_TYPE = 'order.cancel_after_production';
 export interface ManagerApprovalInput {
   readonly approvalRequestId: string;
   readonly approvalDecisionId: string;
-  readonly approver: VerifiedTerminalPrincipal;
+  readonly approver: VerifiedApproverPrincipal;
 }
 
 export interface CancelOrderLineDispositionInput {

@@ -156,7 +156,6 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
 
   let tenantA: string;
   let branchA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let priceListA: string;
@@ -230,18 +229,6 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
         branchId: branchA,
       },
     });
-
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: tenantA,
-        branchId: branchA,
-        name: 'P1G0-Closure-POS',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    terminalA = terminal.id;
 
     const user = await admin.user.create({
       data: {
@@ -356,7 +343,7 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
     version: number;
   }> => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -439,7 +426,7 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
     amountMinor: over.amountMinor ?? '3000',
     reason: over.reason ?? 'p1g0 closure race',
     employeeId: employeeA,
-    terminalId: terminalA,
+    branchId: branchA,
   });
 
   const capture = (
@@ -459,7 +446,6 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
       amountMinor: order.grandTotal,
       cashSessionId,
       employeeId: employeeA,
-      terminalId: terminalA,
       tenderedAmountMinor: order.grandTotal,
     });
 
@@ -484,7 +470,6 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
       amountMinor: half,
       cashSessionId,
       employeeId: employeeA,
-      terminalId: terminalA,
       tenderedAmountMinor: half,
     });
   };
@@ -506,7 +491,6 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
       amountMinor: order.grandTotal,
       cashSessionId,
       employeeId: employeeA,
-      terminalId: terminalA,
       terminalReference: `manual-ref-${newId()}`,
     });
 
@@ -525,7 +509,6 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
       sessionId: newId(),
       tenantId: tenantA,
       membershipId: newId(),
-      terminalId: terminalA,
       sessionType: 'pos',
       employeeId: employeeA,
       branchId: branchA,
@@ -638,7 +621,7 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
     closeService.declareClose(
       tenantA,
       userA,
-      { employeeId: employeeA, terminalId: terminalA },
+      { employeeId: employeeA },
       closeAuthorization(),
       { cashSessionId: sessionId, closeAttemptId: newId(), countedTotalMinorUnits: '0' },
     );
@@ -757,7 +740,7 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
         closeService.declareClose(
           tenantA,
           userA,
-          { employeeId: employeeA, terminalId: terminalA },
+          { employeeId: employeeA },
           closeAuthorization(),
           { cashSessionId: sid, closeAttemptId: newId(), countedTotalMinorUnits: '0' },
         ),
@@ -814,7 +797,7 @@ describe('P1G-0/P1G-1 acceptance closure — cross-module concurrency (§D Payme
         closeService.declareClose(
           tenantA,
           userA,
-          { employeeId: employeeA, terminalId: terminalA },
+          { employeeId: employeeA },
           closeAuthorization(),
           { cashSessionId: sid, closeAttemptId: newId(), countedTotalMinorUnits: '0' },
         ),

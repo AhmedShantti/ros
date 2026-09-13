@@ -577,10 +577,14 @@ components:
           type: string
         terminalId:
           description: |-
-            Optional device binding. When set, a cash session may only be opened
-            against this drawer from THAT terminal — `DrawersService.create`
-            enforces same-branch (ADR 0008 D-16). Omitted = any terminal in the
-            branch may open a session over this drawer.
+            Optional LEGACY device binding — `DrawersService.create` still enforces
+            same-branch (ADR 0008 D-16) when a value is supplied. CROSSCUT-POS-KDS-
+            TERMINAL-DECOUPLING-P0 (2026-09-13): opening a cash session no longer
+            checks this field at all — POS is a branch/employee-scoped application
+            session with no terminal identity, so a drawer bound to a terminal is
+            selectable from any POS session at the same branch exactly as an
+            unbound drawer is. Retained only as administrative/hardware-inventory
+            metadata for tenants that still track it.
           type: string
       required:
         - name
@@ -839,11 +843,6 @@ components:
             `origin_device_time`; it never decides the business day.
           type: string
         tableId:
-          type: string
-        terminalId:
-          description: |-
-            The terminal the sale is on. Optional for a terminal-bound session, where
-            it is taken from the token; when supplied it must MATCH the bound terminal.
           type: string
       required:
         - orderType
@@ -1369,6 +1368,16 @@ components:
       type: object
     DecidePurchaseOrderDto:
       properties:
+        approvalBranchId:
+          description: |-
+            CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 §9 — a Purchase Order may be
+            tenant-wide (warehouse/central-kitchen delivery), so no single
+            unambiguous branch is always derivable from the order itself. This is
+            OPERATIONAL identity context ONLY — the branch the approving
+            employee's PIN/membership is verified against — never a device
+            identity. Never the branch a Purchase Order is attributed or delivered
+            to.
+          type: string
         approvalDecisionId:
           description: FR-OFF-015-style client-generated permanent id for THIS decision.
           type: string
@@ -1386,12 +1395,10 @@ components:
           maxLength: 12
           minLength: 4
           type: string
-        terminalId:
-          type: string
       required:
         - expectedVersion
         - approvalDecisionId
-        - terminalId
+        - approvalBranchId
         - employeeCode
         - pin
       type: object
@@ -1695,8 +1702,10 @@ components:
       type: object
     PinLoginDto:
       properties:
+        branchId:
+          type: string
         employeeCode:
-          description: Employee code, not an email — a POS operator identifies by staff code.
+          description: Employee code, not an email — a POS/KDS operator identifies by staff code.
           maxLength: 32
           minLength: 1
           type: string
@@ -1704,15 +1713,20 @@ components:
           description: 'FR-SEC-020: 4–8 digits. Never logged, never echoed.'
           pattern: ^\d{4,8}$
           type: string
-        tenantId:
+        sessionType:
+          description: Which application session this PIN login establishes.
+          enum:
+            - pos
+            - kds
           type: string
-        terminalId:
+        tenantId:
           type: string
       required:
         - tenantId
-        - terminalId
+        - branchId
         - employeeCode
         - pin
+        - sessionType
       type: object
     PlaceMenuItemDto:
       properties:
@@ -5798,13 +5812,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Unknown terminal, branch, or employee.
+          description: Unknown branch or employee.
         '409':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: The terminal or employee is not active, or the Idempotency-Key was already used with a different request body / is still in flight.
+          description: The employee is not active, or the Idempotency-Key was already used with a different request body / is still in flight.
       security:
         - bearer: []
       summary: |-
@@ -5883,7 +5897,7 @@ paths:
                       - object
                       - 'null'
                 type: object
-          description: The caller's own open cash session at their own terminal-bound branch, or null if none (or more than one) exists.
+          description: The caller's own open cash session at their own POS session branch, or null if none (or more than one) exists.
         '401':
           content:
             application/json:
@@ -5900,7 +5914,7 @@ paths:
         - bearer: []
       summary: |-
         DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at
-        THEIR OWN terminal-bound branch, if exactly one exists.
+        THEIR OWN POS session branch, if exactly one exists.
 
         Recovery contract: after a fresh PIN login (e.g. after a frontend
         reload/deploy wiped the locally-remembered `cashSessionId`), the POS
@@ -5915,7 +5929,7 @@ paths:
         already requires, deliberately not a new/invented read permission. This
         mirrors `GET /cash-sessions/drawers` immediately above: a narrow read of
         state the caller may already act on, scoped to their own
-        terminal-derived branch and their own employee identity, never a
+        session-derived branch and their own employee identity, never a
         generic CashSession read (`findOne` stays internal-only — see its own
         docblock and D-20).
       tags:
@@ -5951,7 +5965,7 @@ paths:
                         - 'null'
                   type: object
                 type: array
-          description: The caller's own terminal-bound branch's drawers.
+          description: The caller's own POS session branch's drawers.
         '401':
           content:
             application/json:
@@ -5968,14 +5982,14 @@ paths:
         - bearer: []
       summary: |-
         DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over,
-        for the POS Open-Shift drawer selector. Resolves the branch from the
-        CALLER'S OWN terminal (`DrawersService.listForTerminal`), never a
-        caller-supplied branchId — a cashier cannot browse another branch's
-        drawers by asking for one. Gated on `cash.session.open`, the SAME
-        permission `POST /cash-sessions` already requires, deliberately NOT
-        `settings.branch.manage` — this is a read of what a Cashier may already
-        act on, not a drawer-administration grant (that lives on the separate
-        `DrawersController`).
+        for the POS Open-Shift drawer selector. Resolves the drawer list from
+        the CALLER'S OWN live-verified POS session branch
+        (`DrawersService.listForBranch`), never a caller-supplied branchId — a
+        cashier cannot browse another branch's drawers by asking for one.
+        Gated on `cash.session.open`, the SAME permission `POST /cash-sessions`
+        already requires, deliberately NOT `settings.branch.manage` — this is a
+        read of what a Cashier may already act on, not a drawer-administration
+        grant (that lives on the separate `DrawersController`).
       tags:
         - treasury
   /cash-sessions/{sessionId}/close:
@@ -6265,7 +6279,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Invalid manager PIN, terminal, or employee code.
+          description: Invalid manager PIN, branch, or employee code.
         '403':
           content:
             application/json:
@@ -6291,7 +6305,7 @@ paths:
         [M], FR-SEC-016/030/032/033.
 
         The manager PIN is verified BEFORE the business transaction opens
-        (`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/
+        (`identity/contract`'s `APPROVER_PIN_VERIFIER` — a failed-attempt/
         lockout counter must survive a later rollback, and never runs at all on
         an idempotent replay). The verified manager's permission set — not the
         calling cashier's — is what `cash.variance.approve` is checked against,
@@ -6394,7 +6408,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Unknown cash session or terminal.
+          description: Unknown cash session.
         '409':
           content:
             application/json:
@@ -6497,7 +6511,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Unknown cash session or terminal.
+          description: Unknown cash session.
         '409':
           content:
             application/json:
@@ -6600,7 +6614,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Unknown cash session or terminal.
+          description: Unknown cash session.
         '409':
           content:
             application/json:
@@ -11857,7 +11871,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: No kds.operate, non-KDS/inactive terminal, no or ambiguous station binding, or wrong station.
+          description: No kds.operate, no KDS session, or the named station does not belong to this session's branch.
       security:
         - bearer: []
       summary: Read a KDS station queue (FIFO, read-only).
@@ -11918,6 +11932,12 @@ paths:
           schema:
             example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
             format: uuid
+            type: string
+        - description: 'The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller''s own KDS session branch.'
+          in: query
+          name: stationId
+          required: true
+          schema:
             type: string
       responses:
         '200':
@@ -12138,6 +12158,12 @@ paths:
           schema:
             example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
             format: uuid
+            type: string
+        - description: 'The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller''s own KDS session branch.'
+          in: query
+          name: stationId
+          required: true
+          schema:
             type: string
       responses:
         '200':
@@ -12446,6 +12472,12 @@ paths:
             example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
             format: uuid
             type: string
+        - description: 'The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller''s own KDS session branch.'
+          in: query
+          name: stationId
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           content:
@@ -12739,6 +12771,12 @@ paths:
           schema:
             example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
             format: uuid
+            type: string
+        - description: 'The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller''s own KDS session branch.'
+          in: query
+          name: stationId
+          required: true
+          schema:
             type: string
         - description: REQUIRED — recall increments recall_count and is not naturally idempotent.
           in: header
@@ -18780,7 +18818,9 @@ paths:
                       terminalId:
                         example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                         format: uuid
-                        type: string
+                        type:
+                          - string
+                          - 'null'
                     type: object
                   remainingBalance:
                     description: Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).

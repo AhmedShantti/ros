@@ -292,7 +292,7 @@ describe('Order Completion (P1F-2 e2e)', () => {
 
   const mkOpenOrder = async () => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -497,9 +497,10 @@ describe('Order Completion (P1F-2 e2e)', () => {
     await pins.setPin(tenantA, userA, employeeA, '2468');
     const login = await request(http).post('/auth/pin').send({
       tenantId: tenantA,
-      terminalId: terminalA,
+      branchId: branchA,
       employeeCode,
       pin: '2468',
+      sessionType: 'pos',
     });
     token = (login.body as { accessToken: string }).accessToken;
 

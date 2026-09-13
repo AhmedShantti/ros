@@ -62,7 +62,6 @@ describe('NFR-PERF-006 — Order Completion performance (P1F-2 e2e)', () => {
   let tenantA: string;
   let branchA: string;
   let locationA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let unitKg: string;
@@ -153,19 +152,6 @@ describe('NFR-PERF-006 — Order Completion performance (P1F-2 e2e)', () => {
         },
       })
     ).id;
-    terminalA = (
-      await admin.terminal.create({
-        data: {
-          id: newId(),
-          tenantId: tenantA,
-          branchId: branchA,
-          name: 'Perf-POS',
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-    ).id;
-
     const user = await admin.user.create({
       data: {
         id: newId(),
@@ -505,7 +491,7 @@ describe('NFR-PERF-006 — Order Completion performance (P1F-2 e2e)', () => {
 
     // ---- the order: 30 lines, alternating modifier presence -----------
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',

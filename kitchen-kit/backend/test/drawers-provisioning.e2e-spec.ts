@@ -10,7 +10,7 @@ import { PrismaService } from './../src/prisma/prisma.service';
  * DEMO-OPS-HOTFIX-3 (Part B) — a real, HTTP-reachable Drawer administration
  * surface (`branches/:branchId/drawers`), and the Cashier-facing counterpart
  * (`GET /cash-sessions/drawers`) that resolves the branch from the caller's
- * OWN terminal. Proves the actual reported blocker end to end: an Owner
+ * OWN POS session. Proves the actual reported blocker end to end: an Owner
  * provisions a real drawer, and a Cashier's `POST /cash-sessions` succeeds
  * against it (no more "404 Drawer not found").
  */
@@ -51,15 +51,6 @@ describe('Drawer provisioning + cashier shift-open (e2e)', () => {
     const branchId = (branches.body as { id: string }[])[0].id;
 
     return { tenantId: out.tenant.id, accessToken: out.auth.accessToken, branchId };
-  }
-
-  async function registerTerminal(accessToken: string, branchId: string) {
-    const res = await request(http)
-      .post('/auth/terminals')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: `POS-${Date.now()}`, terminalType: 'pos', branchId })
-      .expect(201);
-    return (res.body as { id: string }).id;
   }
 
   function employeeBody(homeBranchId: string) {
@@ -154,11 +145,9 @@ describe('Drawer provisioning + cashier shift-open (e2e)', () => {
       .send({ pin: '4321' })
       .expect(204);
 
-    const terminalId = await registerTerminal(accessToken, branchId);
-
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({ tenantId, branchId, employeeCode: employee.code, pin: '4321', sessionType: 'pos' })
       .expect(200);
     const posToken = (login.body as { accessToken: string }).accessToken;
 
@@ -232,10 +221,9 @@ describe('Drawer provisioning + cashier shift-open (e2e)', () => {
       .set('Idempotency-Key', idemKey())
       .send({ pin: '4321' })
       .expect(204);
-    const terminalId = await registerTerminal(accessToken, branchId);
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({ tenantId, branchId, employeeCode: employee.code, pin: '4321', sessionType: 'pos' })
       .expect(200);
     const posToken = (login.body as { accessToken: string }).accessToken;
 
@@ -269,10 +257,9 @@ describe('Drawer provisioning + cashier shift-open (e2e)', () => {
       .set('Idempotency-Key', idemKey())
       .send({ pin: '4321' })
       .expect(204);
-    const terminalId = await registerTerminal(accessToken, branchId);
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({ tenantId, branchId, employeeCode: employee.code, pin: '4321', sessionType: 'pos' })
       .expect(200);
     const posToken = (login.body as { accessToken: string }).accessToken;
 
@@ -353,10 +340,9 @@ describe('Drawer provisioning + cashier shift-open (e2e)', () => {
       .set('Idempotency-Key', idemKey())
       .send({ pin: '4321' })
       .expect(204);
-    const terminalId = await registerTerminal(accessToken, branchId);
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({ tenantId, branchId, employeeCode: employee.code, pin: '4321', sessionType: 'pos' })
       .expect(200);
     const posToken = (login.body as { accessToken: string }).accessToken;
 
@@ -418,10 +404,9 @@ describe('Drawer provisioning + cashier shift-open (e2e)', () => {
       .set('Idempotency-Key', idemKey())
       .send({ pin: '4321' })
       .expect(204);
-    const terminalId = await registerTerminal(accessToken, branchId);
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({ tenantId, branchId, employeeCode: employee.code, pin: '4321', sessionType: 'pos' })
       .expect(200);
     const posToken = (login.body as { accessToken: string }).accessToken;
 

@@ -460,13 +460,14 @@ POST /auth/tenant
 { "tenantId": "${tenantA.id}" }
 \`\`\`
 
-\`POST /auth/pin\` body (Downtown terminal):
+\`POST /auth/pin\` body (Downtown branch, POS session):
 \`\`\`json
 {
   "tenantId": "${tenantA.id}",
-  "terminalId": "${terminalDowntown.id}",
+  "branchId": "${branchDowntown.id}",
   "employeeCode": "${employee.code}",
-  "pin": "${DEV_PIN}"
+  "pin": "${DEV_PIN}",
+  "sessionType": "pos"
 }
 \`\`\`
 
@@ -548,7 +549,7 @@ decision from seeding data.
 # PIN login (Downtown cashier)
 curl -X POST http://localhost:3000/auth/pin \\
   -H "Content-Type: application/json" \\
-  -d '{"tenantId":"${tenantA.id}","terminalId":"${terminalDowntown.id}","employeeCode":"${employee.code}","pin":"${DEV_PIN}"}'
+  -d '{"tenantId":"${tenantA.id}","branchId":"${branchDowntown.id}","employeeCode":"${employee.code}","pin":"${DEV_PIN}","sessionType":"pos"}'
 
 # Owner A password login + tenant selection
 curl -X POST http://localhost:3000/auth/login \\
@@ -575,7 +576,7 @@ curl http://localhost:3000/catalogue/items -H "Authorization: Bearer <scopedAcce
   console.log(`Owner A login: ${ownerA.email} / ${DEV_PASSWORD}`);
   console.log(`Owner B login: ${ownerB.email} / ${DEV_PASSWORD}`);
   console.log(
-    `Downtown Cashier PIN login: employeeCode=${employee.code} pin=${DEV_PIN} terminalId=${terminalDowntown.id}`,
+    `Downtown Cashier PIN login: employeeCode=${employee.code} pin=${DEV_PIN} branchId=${branchDowntown.id}`,
   );
 }
 

@@ -79,7 +79,6 @@ describe('Order Completion — historical pinning, gap semantics, modifier compo
   let tenantA: string;
   let branchA: string;
   let locationA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let priceListA: string;
@@ -147,18 +146,6 @@ describe('Order Completion — historical pinning, gap semantics, modifier compo
         },
       })
     ).id;
-
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: tenantA,
-        branchId: branchA,
-        name: 'Pin-POS',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    terminalA = terminal.id;
 
     const user = await admin.user.create({
       data: {
@@ -406,7 +393,7 @@ describe('Order Completion — historical pinning, gap semantics, modifier compo
 
   const mkOpenOrder = async () => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -518,7 +505,6 @@ describe('Order Completion — historical pinning, gap semantics, modifier compo
       amountMinor: fresh.grandTotal,
       cashSessionId: cashSessionA,
       employeeId: employeeA,
-      terminalId: terminalA,
       tenderedAmountMinor: fresh.grandTotal,
     });
   };

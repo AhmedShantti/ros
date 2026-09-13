@@ -8,7 +8,7 @@ import {
   ApprovalRequestConflictError,
   ApproverNotPermittedError,
 } from '../../governance/contract';
-import type { VerifiedTerminalPrincipal } from '../../identity/contract';
+import type { VerifiedApproverPrincipal } from '../../identity/contract';
 
 /**
  * POS-FIN-1 shared approval helper — discount, comp and refund approval all
@@ -63,7 +63,7 @@ export interface ObtainSynchronousApprovalParams {
   /** FR-OFF-015-style client-generated permanent ids. */
   readonly approvalRequestId: string;
   readonly approvalDecisionId: string;
-  readonly approver: VerifiedTerminalPrincipal;
+  readonly approver: VerifiedApproverPrincipal;
 }
 
 export interface SynchronousApprovalResult {

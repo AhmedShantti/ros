@@ -37,10 +37,12 @@ const CHANNELS = ['pos', 'kiosk', 'qr', 'aggregator', 'phone', 'api'] as const;
 /**
  * Open an order.
  *
- * Note what is ABSENT and why: no `branchId` (derived from the terminal's
- * registration), no `businessDay` (derived from the branch's FR-FIN-024
- * cutover), no `countryPackVersion` (derived from the branch's jurisdiction and
- * the transaction instant), no `currency`, and no totals. Accepting any of them
+ * Note what is ABSENT and why: no `branchId` (CROSSCUT-POS-KDS-TERMINAL-
+ * DECOUPLING-P0 — trusted from the POS session's own live-verified
+ * operating branch, never a device registration, and never a request
+ * field), no `businessDay` (derived from the branch's FR-FIN-024 cutover),
+ * no `countryPackVersion` (derived from the branch's jurisdiction and the
+ * transaction instant), no `currency`, and no totals. Accepting any of them
  * would let a device decide something financial.
  */
 export class CreateOrderDto {
@@ -49,12 +51,6 @@ export class CreateOrderDto {
    * order created offline keeps one identity for its whole life.
    */
   @IsOptional() @Matches(UUID_PATTERN) id?: string;
-
-  /**
-   * The terminal the sale is on. Optional for a terminal-bound session, where
-   * it is taken from the token; when supplied it must MATCH the bound terminal.
-   */
-  @IsOptional() @Matches(UUID_PATTERN) terminalId?: string;
 
   /** Optional for a PIN session, where the employee comes from the token. */
   @IsOptional() @Matches(UUID_PATTERN) openedByEmployeeId?: string;

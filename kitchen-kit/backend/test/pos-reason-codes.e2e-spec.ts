@@ -50,7 +50,6 @@ describe('POS reason codes (e2e)', () => {
   let tenantA: string;
   let tenantB: string;
   let branchA: string;
-  let terminalA: string;
 
   let posCashierToken: string;
   let posSupervisorToken: string;
@@ -126,18 +125,8 @@ describe('POS reason codes (e2e)', () => {
         },
       })
     ).id;
-    terminalA = (
-      await admin.terminal.create({
-        data: {
-          id: newId(),
-          tenantId: tenantA,
-          branchId: branchA,
-          name: 'PRC-POS-1',
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-    ).id;
+    // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no Terminal row is created —
+    // PIN login below is branch/employee-scoped, and none is needed.
 
     // ── roles ───────────────────────────────────────────────────────────
     // True Cashier shape: reason-requiring actions minus post-fire void
@@ -274,9 +263,10 @@ describe('POS reason codes (e2e)', () => {
     const pinLogin = async (employeeCode: string, pin: string) => {
       const res = await request(http).post('/auth/pin').send({
         tenantId: tenantA,
-        terminalId: terminalA,
+        branchId: branchA,
         employeeCode,
         pin,
+        sessionType: 'pos',
       });
       expect(res.status).toBe(200);
       return (res.body as { accessToken: string }).accessToken;

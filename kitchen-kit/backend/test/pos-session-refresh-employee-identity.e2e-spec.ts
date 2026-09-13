@@ -8,34 +8,43 @@ import { CredentialsService } from './../src/modules/identity/credentials/creden
 import { PrismaService } from './../src/prisma/prisma.service';
 
 /**
- * DEMO-POS-EMPLOYEE-SESSION-HOTFIX — a request that reaches
+ * DEMO-POS-EMPLOYEE-SESSION-HOTFIX — originally: a request that reaches
  * `TreasuryController` with a valid terminal+branch scope (passing
  * `PermissionGuard`) but no `employeeId` claim fails deep inside
  * `requirePosIdentity` with "Opening a cash session requires a session
- * that identifies the employee taking custody of the drawer." Two REAL
- * code paths could mint exactly that shape of token:
+ * that identifies the employee taking custody of the drawer."
  *
- * 1. `TerminalSessionService.bind()` (`POST /auth/terminal`) — a
- *    DASHBOARD-authenticated session binding itself to a terminal. It
- *    signs `trm` but never looked up whether the caller IS an Employee, so
- *    it never signed `emp` even when one genuinely existed
- *    (`Employee.userId` is unique — the same identity a PIN login would
- *    have resolved). **This is the proven, fixed root cause** — reproduced
- *    below with a real password-linked Employee.
- * 2. `AuthService.refresh()` restored `trm` (terminal) across rotation but
- *    never re-derived `emp` for a session whose context DID survive
- *    rotation (i.e., one that had already gone through tenant selection
- *    AND a terminal bind, both of which persist onto the `Session` row).
- *    Also fixed, verified below by refreshing a bound session.
+ * ── CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13) ────────────────────
+ * REWRITTEN. Of the two original root causes this file proved fixed:
  *
- * A PURE PIN-issued session's OWN refresh is deliberately unaffected by
- * either fix: `AuthService.loginWithPin` never persists `membershipId`
- * onto its `Session` row (a documented, ratified anti-escalation
- * decision — "a POS session ends with its access token and the employee
- * re-enters their PIN"), so refreshing it restores no tenant context at
- * all and fails at the EARLIER "session is not terminal-bound" stage,
- * never reaching the employee-identity check. That is unchanged,
- * intentional behaviour, also verified below.
+ * 1. `TerminalSessionService.bind()` (`POST /auth/terminal`) minting a
+ *    terminal-bound DASHBOARD session that reached POS routes with the
+ *    caller's own employee identity attached — this ENTIRE CODE PATH IS
+ *    GONE. `POST /auth/terminal` still exists, but exclusively for the
+ *    Sync/offline device channel now; the token it mints carries no
+ *    `sessionType` at all, so `TreasuryController`'s class-level
+ *    `@AllowPosSession()` refuses it outright at `JwtAuthGuard`, before
+ *    `requirePosIdentity` (or any employee-identity question) is ever
+ *    reached. There is no longer a way to construct "a POS-capable session
+ *    with no employee identity" at all: POS sessions are now issued ONLY by
+ *    PIN login, which always resolves and signs a real `emp` claim. The old
+ *    "dashboard session bound to a terminal carries the caller's own
+ *    Employee identity" test below is rewritten to assert this NEW,
+ *    stronger guarantee (403 refusal, not merely "no employeeId") instead
+ *    of being deleted — see that test's own comment.
+ * 2. `AuthService.refresh()` restoring `trm` (terminal) across rotation
+ *    without re-deriving `emp` — also moot: refresh no longer restores any
+ *    terminal/branch/employee custody at all (see `AuthService.refresh`'s
+ *    own docblock), so there is nothing left to test on that path either;
+ *    the refreshed-dashboard-session assertion below is rewritten to match.
+ *
+ * A PURE PIN-issued session's OWN refresh remains deliberately unaffected:
+ * `AuthService.loginWithPin` never persists `membershipId` onto its
+ * `Session` row (a documented, ratified anti-escalation decision — "a POS
+ * session ends with its access token and the employee re-enters their
+ * PIN"), so refreshing it restores no tenant context at all and fails at
+ * the EARLIER "session is not terminal-bound" stage. That is unchanged,
+ * intentional behaviour, still verified below.
  */
 
 function idemKey(): string {
@@ -146,11 +155,20 @@ describe('POS/terminal session employee identity (e2e)', () => {
       .set('Idempotency-Key', idemKey())
       .send({ pin: '4321' })
       .expect(204);
-    const terminalId = await registerTerminal(accessToken, branchId);
 
+    // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no terminal is registered or
+    // bound here at all — PIN login is branch/employee-scoped, never
+    // terminal-scoped, and this is deliberately the file's proof that no
+    // Terminal row is needed for a POS session to work end to end.
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '4321',
+        sessionType: 'pos',
+      })
       .expect(200);
     const posToken = (login.body as { accessToken: string }).accessToken;
 
@@ -185,7 +203,7 @@ describe('POS/terminal session employee identity (e2e)', () => {
     expect(row?.employeeId).toBe(employee.id);
   });
 
-  it('a DASHBOARD session bound to a terminal via POST /auth/terminal carries the caller\'s OWN Employee identity, fixing the exact reported 403', async () => {
+  it('CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (judgment call): a DASHBOARD session — even one bound to a terminal via POST /auth/terminal — is now refused OUTRIGHT at POS-only routes, both before and after a refresh (replaces the old "carries the caller\'s own Employee identity, fixing the exact reported 403" acceptance test: that code path — a dashboard-bound-terminal session reaching POS routes at all — no longer exists. /auth/terminal now serves ONLY the Sync/offline device channel; the token it mints carries no sessionType, so TreasuryController\'s class-level @AllowPosSession() refuses it at JwtAuthGuard, well before any employee-identity question is reached. This asserts the NEW, stronger guarantee instead of the old permissive one.)', async () => {
     const { tenantId, accessToken, branchId } = await signUpOwner();
 
     await request(http)
@@ -237,51 +255,36 @@ describe('POS/terminal session employee identity (e2e)', () => {
       .expect(200);
     const boundToken = (bound.body as { accessToken: string }).accessToken;
 
-    const drawers = await request(http)
+    // The bound token carries no sessionType at all — TreasuryController's
+    // class-level @AllowPosSession() refuses it at JwtAuthGuard, before
+    // PermissionGuard, TenantContextGuard, or any employee-identity check
+    // ever runs.
+    await request(http)
       .get('/cash-sessions/drawers')
       .set('Authorization', `Bearer ${boundToken}`)
-      .expect(200);
-    const rows = drawers.body as { id: string; name: string }[];
-    expect(rows).toHaveLength(1);
-
-    const cashSessionId = newId();
-    await request(http)
-      .post('/cash-sessions')
-      .set('Authorization', `Bearer ${boundToken}`)
-      .set('Idempotency-Key', idemKey())
-      .send({
-        shiftId: newId(),
-        cashSessionId,
-        drawerId: rows[0].id,
-        openingFloat: '50000',
-      })
-      .expect(201);
-
-    const row = await prisma.withAuthContext({ tenantId }, (tx) =>
-      tx.cashSession.findUnique({
-        where: { id: cashSessionId },
-        select: { employeeId: true },
-      }),
-    );
-    expect(row?.employeeId).toBe(employee.id);
+      .expect(403);
 
     // Refresh — `/auth/tenant` and `/auth/terminal` both re-sign the access
-    // token for the SAME session (session id / refresh token unchanged), so
-    // the ORIGINAL login's refresh token still names this exact,
-    // now-terminal-bound session. Its context (tenant + terminal) DID
-    // survive a normal dashboard login, so the employee identity must
-    // survive rotation too.
+    // token for the SAME session, so the ORIGINAL login's refresh token
+    // still names this exact, now-terminal-bound session. Refresh restores
+    // ONLY tenant context (tid/mid) now — no branch/terminal/employee
+    // custody at all (AuthService.refresh's own docblock) — so the
+    // refreshed token is a plain dashboard token, still refused the same
+    // way.
     const refreshed = await request(http)
       .post('/auth/refresh')
-      .send({ refreshToken: (dashboardLogin.body as { refreshToken: string }).refreshToken })
+      .send({
+        refreshToken: (dashboardLogin.body as { refreshToken: string })
+          .refreshToken,
+      })
       .expect(200);
-    const refreshedToken = (refreshed.body as { accessToken: string }).accessToken;
+    const refreshedToken = (refreshed.body as { accessToken: string })
+      .accessToken;
 
-    const drawersAfterRefresh = await request(http)
+    await request(http)
       .get('/cash-sessions/drawers')
       .set('Authorization', `Bearer ${refreshedToken}`)
-      .expect(200);
-    expect((drawersAfterRefresh.body as unknown[]).length).toBe(1);
+      .expect(403);
   });
 
   it('a refreshed PURE PIN session (never tenant-selected, membership never persisted) fails closed at the terminal-binding stage — unchanged, deliberate behaviour', async () => {
@@ -301,11 +304,15 @@ describe('POS/terminal session employee identity (e2e)', () => {
       .set('Idempotency-Key', idemKey())
       .send({ pin: '4321' })
       .expect(204);
-    const terminalId = await registerTerminal(accessToken, branchId);
-
     const login = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employee.code, pin: '4321' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '4321',
+        sessionType: 'pos',
+      })
       .expect(200);
     const original = login.body as { refreshToken: string };
 
@@ -366,11 +373,15 @@ describe('POS/terminal session employee identity (e2e)', () => {
       .send({ name: 'Shared Drawer' })
       .expect(201);
 
-    const terminalId = await registerTerminal(accessToken, branchId);
-
     const loginA = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode: employeeA.code, pin: '1111' })
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employeeA.code,
+        pin: '1111',
+        sessionType: 'pos',
+      })
       .expect(200);
     const tokenA = (loginA.body as { accessToken: string }).accessToken;
 

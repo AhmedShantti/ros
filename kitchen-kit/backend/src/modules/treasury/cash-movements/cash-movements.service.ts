@@ -80,8 +80,12 @@ export interface RecordCashMovementInput {
   readonly occurredAt?: Date;
   /** Trusted employee from the POS session. NEVER from the request body. */
   readonly employeeId: string;
-  /** Trusted terminal from the POS session. NEVER from the request body. */
-  readonly terminalId: string;
+  /**
+   * Trusted operating branch from the POS session's own live-verified
+   * `TenantContext.branchId` (CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0).
+   * NEVER from the request body.
+   */
+  readonly branchId: string;
 }
 
 export interface RecordCashMovementResult {
@@ -201,16 +205,9 @@ export class CashMovementsService {
           throw new ConflictException('That cash session is not open.');
         }
 
-        const terminal = await tx.terminal.findUnique({
-          where: { id: input.terminalId },
-          select: { branchId: true },
-        });
-        if (!terminal) {
-          throw new NotFoundException('Terminal not found.');
-        }
-        if (terminal.branchId !== session.branchId) {
+        if (input.branchId !== session.branchId) {
           throw new ForbiddenException(
-            'That cash session belongs to a different branch than this terminal.',
+            'That cash session belongs to a different branch than this POS session.',
           );
         }
         // Own-session only — no `_other` permission exists for any movement
@@ -276,7 +273,6 @@ export class CashMovementsService {
           actorType: 'user',
           actorId: actorUserId,
           entityId: movement.id,
-          terminalId: input.terminalId,
           metadata: {
             movementType: movement.movementType,
             cashSessionId: movement.cashSessionId,

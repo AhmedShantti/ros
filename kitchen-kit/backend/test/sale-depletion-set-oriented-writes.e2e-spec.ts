@@ -65,7 +65,6 @@ describe('SaleDepletionService — A1-3B set-oriented group writes', () => {
   let tenantA: string;
   let branchA: string;
   let locationA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let unitKg: string;
@@ -169,19 +168,6 @@ describe('SaleDepletionService — A1-3B set-oriented group writes', () => {
         },
       })
     ).id;
-    terminalA = (
-      await admin.terminal.create({
-        data: {
-          id: newId(),
-          tenantId: tenantA,
-          branchId: branchA,
-          name: 'A13B-POS',
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-    ).id;
-
     const user = await admin.user.create({
       data: {
         id: newId(),
@@ -320,7 +306,7 @@ describe('SaleDepletionService — A1-3B set-oriented group writes', () => {
     n: number,
   ): Promise<{ orderId: string; businessDay: Date; lineIds: string[] }> => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',

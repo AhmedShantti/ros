@@ -98,6 +98,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
   let tenantB: string;
   let branchA: string; // EG, cash rounding ENABLED (step 25, HALF_UP)
   let branchU: string; // AE, cash rounding DISABLED
+  let branchB: string;
   let terminalA: string;
   let terminalA2: string; // a second, unrelated terminal at branchA
   let terminalU: string; // branchU's own terminal
@@ -273,7 +274,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
     };
     branchA = await mkBranch(tenantA, `PA${stamp % 10000}`, 'EG', 'EGP');
     branchU = await mkBranch(tenantA, `PU${stamp % 10000}`, 'AE', 'AED');
-    const branchB = await mkBranch(tenantB, `PB${stamp % 10000}`, 'EG', 'EGP');
+    branchB = await mkBranch(tenantB, `PB${stamp % 10000}`, 'EG', 'EGP');
 
     const mkTerminal = (tenantId: string, branchId: string, name: string) =>
       admin.terminal
@@ -580,13 +581,13 @@ describe('Sales Payment (P1F-1 e2e)', () => {
 
   const pinLogin = async (
     tid: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) => {
     const res = await request(http)
       .post('/auth/pin')
-      .send({ tenantId: tid, terminalId, employeeCode, pin })
+      .send({ tenantId: tid, branchId, employeeCode, pin, sessionType: 'pos' })
       .expect(200);
     return (res.body as { accessToken: string }).accessToken;
   };
@@ -602,12 +603,12 @@ describe('Sales Payment (P1F-1 e2e)', () => {
   /** Opens an order and moves it straight to OPEN (no Fire needed for Payment). */
   const mkOpenOrder = async (
     opts: {
-      terminalId?: string;
+      branchId?: string;
       tenantId?: string;
     } = {},
   ) => {
     const order = await orders.create(opts.tenantId ?? tenantA, userA, {
-      terminalId: opts.terminalId ?? terminalA,
+      branchId: opts.branchId ?? branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -720,7 +721,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
         `Row-${newId()}`,
       );
       await mkLine(order.id, order.businessDay, item.itemId, item.variantId);
-      const token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      const token = await pinLogin(tenantA, branchA, employeeACode, '1111');
       const res = await payAndExpect(
         token,
         order,
@@ -799,7 +800,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
         // proof that its Payment is unreachable via the API surface.
         const tokenB = await pinLogin(
           tenantB,
-          terminalB,
+          branchB,
           employeeBCode,
           '4444',
         );
@@ -997,7 +998,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
       await mkLine(order.id, order.businessDay, item.itemId, item.variantId);
       const token = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         employeeNoAuthCode,
         '3333',
       );
@@ -1025,7 +1026,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
       await mkLine(order.id, order.businessDay, item.itemId, item.variantId);
       const token = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         employeeNoAuthCode,
         '3333',
       );
@@ -1051,7 +1052,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
         `Auth3-${newId()}`,
       );
       await mkLine(order.id, order.businessDay, item.itemId, item.variantId);
-      const token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      const token = await pinLogin(tenantA, branchA, employeeACode, '1111');
       await payAndExpect(
         token,
         order,
@@ -1070,7 +1071,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
   describe('order state (§25.C)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('OPEN + partial -> PARTIALLY_PAID', async () => {
@@ -1136,7 +1137,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
 
     it('DRAFT is rejected', async () => {
       const order = await orders.create(tenantA, userA, {
-        terminalId: terminalA,
+        branchId: branchA,
         openedByEmployeeId: employeeA,
         orderType: 'takeaway',
         channel: 'pos',
@@ -1290,7 +1291,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
   describe('CASH capture (§25.D)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('requires an open, valid CashSession', async () => {
@@ -1355,7 +1356,16 @@ describe('Sales Payment (P1F-1 e2e)', () => {
       expect(res.status).toBe(422);
     });
 
-    it('rejects a session bound to a different terminal', async () => {
+    // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: POS is a branch/employee-
+    // scoped application session with no terminal identity any more, so a
+    // Drawer's legacy `terminalId` binding can no longer be matched against
+    // the capturing session and is no longer enforced at payment capture
+    // (see `sales-payment.service.ts`'s own comment on the removed check).
+    // This proves the ABSENCE of that check, not its presence — a cash
+    // session whose drawer happens to carry a legacy terminal binding is
+    // exactly as usable as any other correct-branch/employee/currency
+    // session.
+    it('accepts a session whose drawer carries a legacy terminal binding (no longer enforced)', async () => {
       const order = await mkOpenOrder();
       const item = await mkSellable(
         tenantA,
@@ -1370,7 +1380,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
         tenderedAmountMinor: '2000',
         cashSessionId: cashSessionWrongTerminal,
       });
-      expect(res.status).toBe(422);
+      expect(res.status).toBe(201);
     });
 
     it('rejects a session in a different currency', async () => {
@@ -1492,7 +1502,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
 
     it('the rounding-DISABLED country pack applies zero rounding', async () => {
       // branchU is pinned to the AE pack (cashRounding.enabled: false).
-      const openU = await mkOpenOrder({ terminalId: terminalU });
+      const openU = await mkOpenOrder({ branchId: branchU });
       const item = await mkSellable(
         tenantA,
         taxClassStandardU,
@@ -1510,7 +1520,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
       // terminalA/branchA, and Payment's terminal composite FK is now
       // branch-safe, so a branchA-terminal capture on a branchU order is
       // correctly refused. Log in via `terminalU` for this one test.
-      const tokenU = await pinLogin(tenantA, terminalU, employeeACode, '1111');
+      const tokenU = await pinLogin(tenantA, branchU, employeeACode, '1111');
       const res = await payAndExpect(
         tokenU,
         openU,
@@ -1562,7 +1572,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
   describe('MANUAL_EXTERNAL_CARD capture (§25.E)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('terminalReference is required', async () => {
@@ -1682,7 +1692,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
   describe('idempotency (§25.F)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('same key exact replay — one Payment, one projection change, one audit', async () => {
@@ -1885,7 +1895,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
   describe('If-Match (§25.G)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('missing If-Match is rejected', async () => {
@@ -1994,7 +2004,7 @@ describe('Sales Payment (P1F-1 e2e)', () => {
   describe('audit (§25.I)', () => {
     let token: string;
     beforeAll(async () => {
-      token = await pinLogin(tenantA, terminalA, employeeACode, '1111');
+      token = await pinLogin(tenantA, branchA, employeeACode, '1111');
     });
 
     it('exactly one PAYMENT_CAPTURED audit entry on success, identifying order/payment/tender/amount/session/employee', async () => {

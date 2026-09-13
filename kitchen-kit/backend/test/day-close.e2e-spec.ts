@@ -486,7 +486,7 @@ describe('DayClose (e2e) — Migration 35', () => {
       const posToken = await pinToken(
         http,
         fx.tenantId,
-        fx.terminalId,
+        fx.branchId,
         fx.employeeCode,
         fx.pin,
       );
@@ -578,7 +578,7 @@ describe('DayClose (e2e) — Migration 35', () => {
       const posToken = await pinToken(
         http,
         fx.tenantId,
-        fx.terminalId,
+        fx.branchId,
         fx.employeeCode,
         fx.pin,
       );
@@ -985,7 +985,7 @@ describe('DayClose (e2e) — Migration 35', () => {
       const posToken = await pinToken(
         http,
         fx.tenantId,
-        fx.terminalId,
+        fx.branchId,
         fx.employeeCode,
         fx.pin,
       );

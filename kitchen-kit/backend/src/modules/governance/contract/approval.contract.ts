@@ -1,5 +1,5 @@
 import { Prisma } from '../../../generated/prisma/client';
-import type { VerifiedTerminalPrincipal } from '../../identity/contract';
+import type { VerifiedApproverPrincipal } from '../../identity/contract';
 
 /**
  * Governance PUBLIC contract — the shared Approval runtime (FR-SEC-030..033).
@@ -85,12 +85,12 @@ export interface DecideApprovalCommand {
   readonly decision: 'approved' | 'rejected';
   readonly comment?: string;
   /**
-   * Obtained from `TERMINAL_PIN_VERIFIER.verifyTerminalPin(...)` (Identity's
+   * Obtained from `APPROVER_PIN_VERIFIER.verifyApproverPin(...)` (Identity's
    * contract) BEFORE this transaction was opened. `approverId` on the
    * resulting decision is ALWAYS `approver.userId` — never a second,
    * independently caller-supplied field.
    */
-  readonly approver: VerifiedTerminalPrincipal;
+  readonly approver: VerifiedApproverPrincipal;
 }
 
 export interface ApprovalDecisionRecord {

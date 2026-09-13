@@ -53,9 +53,6 @@ describe('Cash movements (e2e) — P1G-0', () => {
   let branchA: string;
   let branchA2: string;
   let branchB: string;
-  let terminalA: string;
-  let terminalA2: string;
-  let terminalB: string;
   let drawerA: string;
   let drawerB: string;
 
@@ -165,29 +162,15 @@ describe('Cash movements (e2e) — P1G-0', () => {
     return branch.id;
   };
 
-  const mkTerminal = (tenantId: string, branchId: string, name: string) =>
-    admin.terminal
-      .create({
-        data: {
-          id: newId(),
-          tenantId,
-          branchId,
-          name,
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-      .then((t) => t.id);
-
   const pinLogin = async (
     tenantId: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) => {
     const res = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode, pin })
+      .send({ tenantId, branchId, employeeCode, pin, sessionType: 'pos' })
       .expect(200);
     return (res.body as { accessToken: string }).accessToken;
   };
@@ -242,9 +225,6 @@ describe('Cash movements (e2e) — P1G-0', () => {
     branchA = await mkBranch(tenantA, `MA${stamp % 10000}`);
     branchA2 = await mkBranch(tenantA, `MX${stamp % 10000}`);
     branchB = await mkBranch(tenantB, `MB${stamp % 10000}`);
-    terminalA = await mkTerminal(tenantA, branchA, 'CM-POS-1');
-    terminalA2 = await mkTerminal(tenantA, branchA2, 'CM-POS-2');
-    terminalB = await mkTerminal(tenantB, branchB, 'CM-POS-B');
 
     const mkUser = async (email: string, tenantId: string) => {
       const u = await users.createUser({ email, password, displayName: 'CM' });
@@ -386,27 +366,27 @@ describe('Cash movements (e2e) — P1G-0', () => {
     );
     await pins.setPin(tenantB, userB, employeeB, PIN_TENANT_B);
 
-    ownerToken = await pinLogin(tenantA, terminalA, codeOwner, PIN_OWNER);
+    ownerToken = await pinLogin(tenantA, branchA, codeOwner, PIN_OWNER);
     otherEmployeeToken = await pinLogin(
       tenantA,
-      terminalA,
+      branchA,
       codeOther,
       PIN_OTHER_EMPLOYEE,
     );
     payInOnlyToken = await pinLogin(
       tenantA,
-      terminalA,
+      branchA,
       codePayInOnly,
       PIN_PAYIN_ONLY,
     );
-    noPermToken = await pinLogin(tenantA, terminalA, codeNoPerm, PIN_NO_PERM);
+    noPermToken = await pinLogin(tenantA, branchA, codeNoPerm, PIN_NO_PERM);
     wrongBranchToken = await pinLogin(
       tenantA,
-      terminalA2,
+      branchA2,
       codeWrongBranch,
       PIN_WRONG_BRANCH,
     );
-    tenantBToken = await pinLogin(tenantB, terminalB, codeB, PIN_TENANT_B);
+    tenantBToken = await pinLogin(tenantB, branchB, codeB, PIN_TENANT_B);
 
     drawerA = (
       await drawers.create(tenantA, userOwner, {
@@ -426,7 +406,7 @@ describe('Cash movements (e2e) — P1G-0', () => {
       cashSessionId: newId(),
       drawerId: drawerA,
       openingFloat: '50000',
-      terminalId: terminalA,
+      branchId: branchA,
       employeeId: employeeOwner,
     });
     sessionA = openedA.session.id;
@@ -436,7 +416,7 @@ describe('Cash movements (e2e) — P1G-0', () => {
       cashSessionId: newId(),
       drawerId: drawerB,
       openingFloat: '20000',
-      terminalId: terminalB,
+      branchId: branchB,
       employeeId: employeeB,
     });
     sessionB = openedB.session.id;
@@ -455,7 +435,7 @@ describe('Cash movements (e2e) — P1G-0', () => {
       cashSessionId: newId(),
       drawerId: closedDrawer,
       openingFloat: '10000',
-      terminalId: terminalA,
+      branchId: branchA,
       employeeId: employeeOwner,
     });
     closedSession = closedShift.session.id;
@@ -573,7 +553,7 @@ describe('Cash movements (e2e) — P1G-0', () => {
         cashSessionId: newId(),
         drawerId: drawer.id,
         openingFloat: '0',
-        terminalId: terminalA,
+        branchId: branchA,
         employeeId: (
           await admin.cashSession.findUniqueOrThrow({ where: { id: sessionA } })
         ).employeeId,
@@ -614,7 +594,7 @@ describe('Cash movements (e2e) — P1G-0', () => {
         cashSessionId: newId(),
         drawerId: drawer.id,
         openingFloat: '0',
-        terminalId: terminalA,
+        branchId: branchA,
         employeeId: payInOnlyEmployeeId,
       });
       const sid = opened.session.id;
@@ -827,7 +807,7 @@ describe('Cash movements (e2e) — P1G-0', () => {
         cashSessionId: newId(),
         drawerId: drawer.id,
         openingFloat: '0',
-        terminalId: terminalA,
+        branchId: branchA,
         employeeId: owner.employeeId,
       });
       return { sid: opened.session.id, employeeId: owner.employeeId };
@@ -843,7 +823,7 @@ describe('Cash movements (e2e) — P1G-0', () => {
       amountMinor: over.amountMinor ?? '1000',
       reason: over.reason ?? 'race test',
       employeeId,
-      terminalId: terminalA,
+      branchId: branchA,
     });
 
     for (let run = 1; run <= 3; run++) {

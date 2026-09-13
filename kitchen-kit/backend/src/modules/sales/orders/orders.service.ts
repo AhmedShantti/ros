@@ -33,13 +33,14 @@ export interface CreateOrderInput {
   /** FR-OFF-015 - the device's ULID. Persisted exactly; never reassigned. */
   readonly id?: string;
   /**
-   * The registered terminal the sale is being made on.
-   *
-   * The BRANCH is derived from it rather than accepted: a terminal is bound to
-   * exactly one branch (FR-SEC-028), so taking the branch from the request would
-   * add a trust surface that buys nothing.
+   * The POS session's operating branch — CROSSCUT-POS-KDS-TERMINAL-
+   * DECOUPLING-P0. POS is a branch/employee-scoped application session, not
+   * a registered device identity, so the branch is trusted from the
+   * caller's own live-verified `TenantContext.branchId` (never a request
+   * body), exactly as it was previously trusted from a terminal's
+   * registration.
    */
-  readonly terminalId: string;
+  readonly branchId: string;
   readonly openedByEmployeeId: string;
   readonly orderType: string;
   readonly channel: string;
@@ -119,20 +120,29 @@ export class OrdersService {
   ) {}
 
   /**
-   * Reserve the next order number for a terminal on a business day.
+   * Reserve the next order number for a branch on a business day.
    *
-   * FR-POS-002 / FR-OFF-016: numbers come from a terminal-held block. A row lock
-   * on the block row serialises concurrent allocation, so two terminals — or two
-   * concurrent requests on one terminal — can never receive the same sequence.
-   * `MAX(order_number) + 1` is never used; it would need connectivity and would
-   * race.
+   * FR-POS-002 / FR-OFF-016: numbers come from a block held for the BRANCH.
+   * A row lock on the block row serialises concurrent allocation, so two
+   * concurrent requests at one branch can never receive the same sequence.
+   * `MAX(order_number) + 1` is never used; it would need connectivity and
+   * would race.
+   *
+   * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: blocks were previously held
+   * PER TERMINAL (contiguous ranges within the branch, so terminals never
+   * overlapped) even though the advisory lock below already serialises at
+   * (branch, business day) granularity — the only concurrency boundary that
+   * actually matters here. POS is a branch/employee-scoped application
+   * session with no terminal identity any more, so this now allocates from
+   * a SINGLE block held per (branch, business day); `order_number_blocks
+   * .terminal_id` is written `null` and kept only as a legacy, unused
+   * column (see the schema comment).
    */
   private async allocateOrderNumber(
     tx: Prisma.TransactionClient,
     tenantId: string,
     branchId: string,
     branchCode: string,
-    terminalId: string,
     businessDay: Date,
   ): Promise<string> {
     // Serialise allocation for this (branch, business day).
@@ -143,7 +153,7 @@ export class OrdersService {
     );
 
     const existing = await tx.orderNumberBlock.findFirst({
-      where: { branchId, terminalId, businessDay, exhaustedAt: null },
+      where: { branchId, businessDay, exhaustedAt: null },
       orderBy: { blockStart: 'desc' },
     });
 
@@ -155,8 +165,7 @@ export class OrdersService {
           data: { exhaustedAt: new Date() },
         });
       }
-      // Contiguous with whatever this BRANCH has already issued, so blocks held
-      // by different terminals never overlap.
+      // Contiguous with whatever this BRANCH has already issued.
       const highest = await tx.orderNumberBlock.findFirst({
         where: { branchId, businessDay },
         orderBy: { blockEnd: 'desc' },
@@ -171,7 +180,6 @@ export class OrdersService {
           id: newId(),
           tenantId,
           branchId,
-          terminalId,
           businessDay,
           blockStart: fresh.blockStart,
           blockEnd: fresh.blockEnd,
@@ -206,22 +214,15 @@ export class OrdersService {
     return this.prisma.withAuthContext(
       { userId: actorUserId, tenantId },
       async (tx) => {
-        // The terminal is the root of trust for the branch (FR-SEC-028).
-        // Invisible cross-tenant under RLS -> 404, never 403.
-        const terminal = await tx.terminal.findUnique({
-          where: { id: input.terminalId },
-          select: { id: true, branchId: true, status: true },
-        });
-        if (!terminal) throw new NotFoundException('Terminal not found.');
-        if (terminal.status !== 'active') {
-          throw new ConflictException('That terminal is not active.');
-        }
-
         // Branch supplies the currency, the code the order number is built from,
         // the timezone/cutover the business day comes from, and the jurisdiction
-        // the country pack is selected by (FR-BRN-002/003).
+        // the country pack is selected by (FR-BRN-002/003). Invisible
+        // cross-tenant under RLS -> 404, never 403. CROSSCUT-POS-KDS-
+        // TERMINAL-DECOUPLING-P0: the branch is now trusted directly from
+        // the caller's live-verified POS session (`input.branchId`), never
+        // derived from a terminal registration.
         const branch = await tx.branch.findUnique({
-          where: { id: terminal.branchId },
+          where: { id: input.branchId },
           select: {
             id: true,
             code: true,
@@ -286,7 +287,6 @@ export class OrdersService {
           tenantId,
           branch.id,
           branch.code,
-          terminal.id,
           businessDay,
         );
 
@@ -311,7 +311,6 @@ export class OrdersService {
             id,
             tenantId,
             branchId: branch.id,
-            terminalId: terminal.id,
             orderNumber,
             businessDay,
             orderType: input.orderType as never,
@@ -338,7 +337,6 @@ export class OrdersService {
           actorType: 'user',
           actorId: actorUserId,
           entityId: order.id,
-          terminalId: input.terminalId,
           metadata: {
             orderNumber: order.orderNumber,
             orderType: order.orderType,

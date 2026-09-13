@@ -234,7 +234,6 @@ describe('Order Completion — the 3 missing concurrency scenarios (P1F-2 accept
   let tenantA: string;
   let branchA: string;
   let locationA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let priceListA: string;
@@ -320,18 +319,6 @@ describe('Order Completion — the 3 missing concurrency scenarios (P1F-2 accept
         },
       })
     ).id;
-
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: tenantA,
-        branchId: branchA,
-        name: 'Closure-POS',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    terminalA = terminal.id;
 
     const user = await admin.user.create({
       data: {
@@ -567,7 +554,7 @@ describe('Order Completion — the 3 missing concurrency scenarios (P1F-2 accept
     version: number;
   }> => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -627,7 +614,6 @@ describe('Order Completion — the 3 missing concurrency scenarios (P1F-2 accept
       amountMinor: order.grandTotal,
       cashSessionId,
       employeeId: employeeA,
-      terminalId: terminalA,
       tenderedAmountMinor: order.grandTotal,
     });
 

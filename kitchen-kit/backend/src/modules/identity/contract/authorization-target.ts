@@ -97,28 +97,25 @@ export type AuthorizationTargetSpec =
       readonly key: string;
     }
   /**
-   * BRANCH target = the POS session's operating branch, derived live from
-   * `identity.terminals` by `TenantContextService` on THIS request. Never from
-   * a body, never from a JWT claim (ADR 0009 D-07).
-   */
-  | { readonly kind: 'posTerminalBranch' }
-  /**
-   * BRANCH target = the branch of the TERMINAL this session is bound to, read
-   * live from `identity.terminals` on this request.
+   * BRANCH target = a POS/KDS session's operating branch.
    *
-   * Broader than `posTerminalBranch` and deliberately so: a route that requires
-   * a terminal-bound session is not necessarily reachable only by a PIN-issued
-   * `pos` session, and `TenantContext.branchId` is populated for `pos` sessions
-   * ONLY (ADR 0009 D-07). Opening an order is the worked example — it demands
-   * `principal.terminalId` but accepts a terminal-bound session that supplies
-   * its own `openedByEmployeeId`.
+   * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: POS and KDS are application
+   * sessions, not registered device identities. `TenantContext.branchId` is
+   * populated ONLY once `TenantContextService.resolveSessionBranch` has
+   * re-verified, live and in THIS request's own transaction, that the
+   * session's employee is still permitted at the branch the token claims —
+   * never from a body, never trusted from the JWT claim alone (ADR 0009
+   * D-07). Absent means this is not a POS/KDS session, and a route that
+   * declares this target has no other meaning — refuse.
    *
-   * For a `pos` session this is exactly the already-live-verified
-   * `TenantContext.branchId`; for any other terminal-bound session the terminal
-   * row is read tenant-safely and must still be `active`. Either way the branch
-   * comes from server state, never from the request.
+   * Replaces the former, now-merged `posTerminalBranch`/
+   * `sessionTerminalBranch` pair: both derived the SAME live-verified branch
+   * before this decoupling, differing only in a terminal-lookup fallback
+   * for a dashboard session bound to a terminal via the now-retired
+   * `/auth/terminal` flow. That fallback has no POS/KDS runtime meaning any
+   * more.
    */
-  | { readonly kind: 'sessionTerminalBranch' }
+  | { readonly kind: 'sessionBranch' }
   /**
    * BRANCH target = a branch id an EARLIER guard already derived from trusted
    * server state and attached to the request (e.g. `KdsStationGuard`'s
@@ -314,12 +311,8 @@ export const branchFromQueryOrTenant = (
   key,
 });
 
-export const posTerminalBranchTarget = (): AuthorizationTargetSpec => ({
-  kind: 'posTerminalBranch',
-});
-
-export const sessionTerminalBranchTarget = (): AuthorizationTargetSpec => ({
-  kind: 'sessionTerminalBranch',
+export const sessionBranchTarget = (): AuthorizationTargetSpec => ({
+  kind: 'sessionBranch',
 });
 
 export const requestBranchTarget = (

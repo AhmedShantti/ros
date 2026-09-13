@@ -19,6 +19,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
@@ -30,7 +31,7 @@ import {
   uuidSchema,
 } from '../../common/openapi/schema-helpers';
 import {
-  AllowPosSession,
+  AllowKdsSession,
   CurrentPrincipal,
   JwtAuthGuard,
   RequirePermission,
@@ -45,7 +46,11 @@ import type {
 import { CurrentKdsStation } from './auth/current-kds-station.decorator';
 import { KdsStationGuard } from './auth/kds-station.guard';
 import type { KdsStation } from './auth/kds-station.guard';
-import { AcknowledgeViewedDto, StationQueueQueryDto } from './kitchen.dto';
+import {
+  AcknowledgeViewedDto,
+  KdsStationSelectionQueryDto,
+  StationQueueQueryDto,
+} from './kitchen.dto';
 import { KDS_PERMISSIONS } from './kitchen.permissions';
 import { KdsOperationsService } from './tickets/kds-operations.service';
 import { TicketReaderService } from './tickets/ticket-reader.service';
@@ -81,9 +86,11 @@ import { KDS_TICKET_TARGET_RESOLVER } from './contract';
  * types — not against the Prisma schema or the SRS.
  *
  * Guard chain: `JwtAuthGuard` (401) -> `TenantContextGuard` (403) ->
- * `PermissionGuard` (`kds.operate`, 403) -> `KdsStationGuard` (terminal +
- * exactly-one-station, 403 — acceptance correction §3.3/§4). `@AllowPosSession`
- * opts every route in for PIN-issued sessions, exactly as Sales/Treasury do.
+ * `PermissionGuard` (`kds.operate`, 403) -> `KdsStationGuard` (branch +
+ * caller-supplied station, 403 — see that guard's own docblock,
+ * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0). `@AllowKdsSession` opts every
+ * route in for PIN-issued KDS sessions — a DISJOINT audience from
+ * `@AllowPosSession` (Sales/Treasury); a POS-typed session is refused here.
  */
 const ticketCardModifierSchema = {
   type: 'object',
@@ -206,7 +213,7 @@ const recallResultSchema = {
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard, KdsStationGuard)
 @RequirePermission(KDS_PERMISSIONS.OPERATE)
-@AllowPosSession()
+@AllowKdsSession()
 @Controller('kds')
 export class KitchenController {
   constructor(
@@ -228,7 +235,7 @@ export class KitchenController {
     resourceTarget(
       ORG_STATION_TARGET_RESOLVER,
       { stationId: fromParam('stationId') },
-      'The station row carries the branch; KdsStationGuard separately proves the terminal is bound to exactly this station.',
+      'The station row carries the branch; KdsStationGuard separately proves the caller-supplied station belongs to the session\'s own branch.',
       'Station not found.',
     ),
   )
@@ -240,7 +247,7 @@ export class KitchenController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid bearer token.' })
   @ApiForbiddenResponse({
     description:
-      'No kds.operate, non-KDS/inactive terminal, no or ambiguous station binding, or wrong station.',
+      'No kds.operate, no KDS session, or the named station does not belong to this session\'s branch.',
   })
   async getStationQueue(
     @Param('stationId') stationId: string,
@@ -280,7 +287,7 @@ export class KitchenController {
     resourceTarget(
       ORG_STATION_TARGET_RESOLVER,
       { stationId: fromParam('stationId') },
-      'The station row carries the branch; KdsStationGuard separately proves the terminal is bound to exactly this station.',
+      'The station row carries the branch; KdsStationGuard separately proves the caller-supplied station belongs to the session\'s own branch.',
       'Station not found.',
     ),
   )
@@ -331,6 +338,12 @@ export class KitchenController {
   )
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark a ticket line started.' })
+  @ApiQuery({
+    name: 'stationId',
+    required: true,
+    description:
+      'The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller\'s own KDS session branch.',
+  })
   @ApiOkResponse({
     description: 'The updated ticket and line.',
     schema: ticketAndLineResultSchema,
@@ -343,6 +356,7 @@ export class KitchenController {
   async startLine(
     @Param('ticketId') ticketId: string,
     @Param('lineId') lineId: string,
+    @Query() _query: KdsStationSelectionQueryDto,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @CurrentTenantContext() context: TenantContext,
     @CurrentKdsStation() kdsStation: KdsStation,
@@ -378,6 +392,12 @@ export class KitchenController {
   @ApiForbiddenResponse({
     description: 'Wrong station, or no employee identity.',
   })
+  @ApiQuery({
+    name: 'stationId',
+    required: true,
+    description:
+      'The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller\'s own KDS session branch.',
+  })
   @ApiUnprocessableEntityResponse({ description: 'The line is cancelled.' })
   @ApiConflictResponse({
     description: 'Serialization retries exhausted — reload and retry.',
@@ -385,6 +405,7 @@ export class KitchenController {
   async bumpLine(
     @Param('ticketId') ticketId: string,
     @Param('lineId') lineId: string,
+    @Query() _query: KdsStationSelectionQueryDto,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @CurrentTenantContext() context: TenantContext,
     @CurrentKdsStation() kdsStation: KdsStation,
@@ -422,11 +443,18 @@ export class KitchenController {
   @ApiForbiddenResponse({
     description: 'Wrong station, or no employee identity.',
   })
+  @ApiQuery({
+    name: 'stationId',
+    required: true,
+    description:
+      'The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller\'s own KDS session branch.',
+  })
   @ApiConflictResponse({
     description: 'Serialization retries exhausted — reload and retry.',
   })
   async bumpAll(
     @Param('ticketId') ticketId: string,
+    @Query() _query: KdsStationSelectionQueryDto,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @CurrentTenantContext() context: TenantContext,
     @CurrentKdsStation() kdsStation: KdsStation,
@@ -471,12 +499,19 @@ export class KitchenController {
   @ApiUnprocessableEntityResponse({
     description: 'The ticket is not bumped, or the recall window has expired.',
   })
+  @ApiQuery({
+    name: 'stationId',
+    required: true,
+    description:
+      'The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller\'s own KDS session branch.',
+  })
   @ApiConflictResponse({
     description:
       'Idempotency-Key fingerprint mismatch, concurrent modification, or exhausted serialization retries.',
   })
   async recall(
     @Param('ticketId') ticketId: string,
+    @Query() _query: KdsStationSelectionQueryDto,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @CurrentTenantContext() context: TenantContext,
     @CurrentKdsStation() kdsStation: KdsStation,
@@ -492,16 +527,17 @@ export class KitchenController {
   }
 
   /**
-   * A path `:stationId` not equal to the terminal-derived one is already
-   * refused by `KdsStationGuard` — this is a defense-in-depth restatement
+   * A path `:stationId` not equal to the one `KdsStationGuard` already
+   * validated is structurally impossible (the guard resolves the station
+   * from that SAME path parameter) — this is a defense-in-depth restatement
    * for the one route where a mismatch would otherwise silently read the
    * WRONG queue rather than throw (design gate §6: "Supplied stationId MUST
-   * equal the single terminal-derived stationId").
+   * equal the single [session-]derived stationId").
    */
   private assertStation(pathStationId: string, kdsStation: KdsStation): void {
     if (pathStationId !== kdsStation.stationId) {
       throw new ForbiddenException(
-        'This terminal is not the display for the requested station.',
+        'This session is not authorized for the requested station.',
       );
     }
   }

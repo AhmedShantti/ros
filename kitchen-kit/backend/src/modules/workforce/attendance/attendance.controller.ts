@@ -69,19 +69,20 @@ export class AttendanceController {
     private readonly settings: AttendanceSettingsService,
   ) {}
 
+  /**
+   * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no `terminalId` any more — POS
+   * is a branch/employee-scoped application session, not a registered
+   * device identity.
+   */
   private requirePosIdentity(principal: AuthenticatedPrincipal): {
-    terminalId: string;
     employeeId: string;
   } {
-    if (!principal.terminalId || !principal.employeeId) {
+    if (!principal.employeeId) {
       throw new ForbiddenException(
-        'Clocking in/out requires a terminal-bound POS session that identifies the employee (FR-SEC-021).',
+        'Clocking in/out requires a POS session that identifies the employee (FR-SEC-021).',
       );
     }
-    return {
-      terminalId: principal.terminalId,
-      employeeId: principal.employeeId,
-    };
+    return { employeeId: principal.employeeId };
   }
 
   /**
@@ -104,17 +105,16 @@ export class AttendanceController {
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @Body() dto: ClockInDto,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { employeeId } = this.requirePosIdentity(principal);
     const branchId = context.branchId;
     if (!branchId) {
       throw new ForbiddenException(
-        'Clocking in requires a terminal-bound session with a resolved operating branch.',
+        'Clocking in requires a POS session with a resolved operating branch.',
       );
     }
     return this.attendance.clockIn(context.tenantId, context.userId, {
       employeeId,
       branchId,
-      terminalId,
       gps: dto.gps,
     });
   }
@@ -130,10 +130,9 @@ export class AttendanceController {
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @Body() dto: ClockOutDto,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { employeeId } = this.requirePosIdentity(principal);
     return this.attendance.clockOut(context.tenantId, context.userId, {
       employeeId,
-      terminalId,
       gps: dto.gps,
     });
   }

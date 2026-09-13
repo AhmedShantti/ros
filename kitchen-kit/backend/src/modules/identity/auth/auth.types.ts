@@ -26,15 +26,35 @@ export interface AccessTokenPayload {
   sid: string; // session id
   tid?: string; // selected tenant id (present once tenant context established)
   mid?: string; // membership id backing the tenant context
-  trm?: string; // bound terminal id (present only for POS/terminal sessions)
-  emp?: string; // employee id behind a POS session (FR-SEC-021)
+  /**
+   * The operating branch claimed at PIN login (present only for POS/KDS
+   * sessions). CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: POS/KDS are
+   * application sessions, not registered device identities, so a PIN
+   * session's own operating context is this branch claim, never a
+   * terminal. NEVER trusted on its own: `TenantContextService`
+   * re-verifies the employee's live permitted-branch membership at `brc`
+   * on every request (T-4-LIVE — the claim only carries a candidate to
+   * re-check).
+   */
+  brc?: string;
+  /**
+   * Bound terminal id — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: retained
+   * ONLY for the Sync/offline device channel's own terminal-bound session
+   * (`POST /auth/terminal`, `SyncTerminalGuard`), a genuinely independent
+   * subsystem this task does not redesign (see the P0 report §17). NEVER
+   * set by PIN login (`AuthService.loginWithPin`) — POS and KDS sessions
+   * carry `brc`/`typ` instead and never this claim. Zero POS/KDS runtime
+   * path reads it.
+   */
+  trm?: string;
+  emp?: string; // employee id behind a POS/KDS session (FR-SEC-021)
   /**
    * Session audience. Absent means a normal dashboard/back-office session, so
-   * every existing token keeps working unchanged. `pos` is issued ONLY by PIN
-   * authentication and is refused by every route that has not opted in
-   * (FR-SEC-021: "SHALL NOT grant access to the web dashboard").
+   * every existing token keeps working unchanged. `pos`/`kds` are issued
+   * ONLY by PIN authentication and are refused by every route that has not
+   * opted in (FR-SEC-021: "SHALL NOT grant access to the web dashboard").
    */
-  typ?: 'pos';
+  typ?: 'pos' | 'kds';
   /**
    * FR-API-012 "scope set" — the assignment scopes held at mint time, rendered
    * compactly (`tenant`, `brand:<id>`, `branch:<id>`). Present on tenant-bound
@@ -56,16 +76,29 @@ export interface AccessTokenPayload {
 }
 
 /** Trusted, server-established request identity. Only fields that have actually
- * been established are populated (tenant/membership/terminal arrive later). */
+ * been established are populated (tenant/membership arrive later). */
 export interface AuthenticatedPrincipal {
   userId: string;
   sessionId: string;
-  /** `pos` for PIN-issued sessions; undefined for dashboard sessions. */
-  sessionType?: 'pos';
-  /** Employee behind a POS session (FR-SEC-021 permitted-branch checks). */
+  /** `pos`/`kds` for PIN-issued sessions; undefined for dashboard sessions. */
+  sessionType?: 'pos' | 'kds';
+  /** Employee behind a POS/KDS session (FR-SEC-021 permitted-branch checks). */
   employeeId?: string;
   tenantId?: string;
   membershipId?: string;
+  /**
+   * The operating branch CLAIMED by a POS/KDS session's token (`brc`).
+   * UNVERIFIED on its own — `TenantContextService` re-checks it live against
+   * the employee's current permitted branches on every request and is the
+   * only place authorization may rely on a session's operating branch (see
+   * `TenantContext.branchId`).
+   */
+  branchId?: string;
+  /**
+   * Bound terminal id (`trm`) — the Sync/offline device channel's own
+   * session identity ONLY. See `AccessTokenPayload.trm`'s docblock. No
+   * POS/KDS/Sales/Treasury/Governance runtime path reads this field.
+   */
   terminalId?: string;
   /**
    * The authorization epoch the token was minted at (T-4-LIVE). Absent on a

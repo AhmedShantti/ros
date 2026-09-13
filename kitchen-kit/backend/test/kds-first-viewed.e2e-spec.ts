@@ -71,9 +71,10 @@ describe('KDS first-viewed acknowledgement (e2e)', () => {
     return pinLogin(
       http,
       fixture.tenantId,
-      fixture.kdsTerminalId,
+      fixture.branchId,
       fixture.employeeCode,
       fixture.pin,
+      'kds',
     );
   }
 

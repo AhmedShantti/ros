@@ -26,10 +26,17 @@ import {
  * ratified 2026-08-30) — Fire itself still has no HTTP endpoint (explicit
  * non-goal). Imports `IdentityModule` purely to reuse the EXISTING guard
  * chain (`JwtAuthGuard` -> `TenantContextGuard` -> `PermissionGuard`),
- * published as `identity/contract`'s cross-cutting HTTP surface, and its
- * `TERMINAL_FACTS_QUERY` public contract; `OrganisationModule` for its
- * published `contract/` (`RoutingConfigQuery`, `StationDisplayBindingQuery`,
- * `KdsBranchConfigQuery`) — see `module-boundaries.spec.ts`.
+ * published as `identity/contract`'s cross-cutting HTTP surface;
+ * `OrganisationModule` for its published `contract/` (`RoutingConfigQuery`,
+ * `ORG_STATION_TARGET_RESOLVER`, `KdsBranchConfigQuery`) — see
+ * `module-boundaries.spec.ts`.
+ *
+ * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13): `KdsStationGuard` no
+ * longer consumes Identity's `TERMINAL_FACTS_QUERY` or Organisation's
+ * (now-orphaned) `StationDisplayBindingQuery` — KDS is a branch/employee-
+ * scoped application session, not a registered terminal display. It
+ * resolves a caller-supplied `stationId` through Organisation's published
+ * `ORG_STATION_TARGET_RESOLVER` instead. See that guard's own docblock.
  *
  * `AuditModule` is deliberately NOT imported here (acceptance correction
  * Blocker A, 2026-08-31): it is `@Global()`, so `AuditService` is already

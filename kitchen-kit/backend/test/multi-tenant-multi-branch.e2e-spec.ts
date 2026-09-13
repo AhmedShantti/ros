@@ -58,7 +58,7 @@ import {
   WORKFORCE_PERMISSION_DEFS,
 } from './../src/modules/workforce/workforce.permissions';
 import { createMigratorClient } from './rls-admin';
-import { dashboardTerminalToken, fireTicketLine } from './kds-fixtures';
+import { fireTicketLine } from './kds-fixtures';
 
 /**
  * MTMB-1 — MULTI-TENANT / MULTI-BRANCH OPERATIONAL HARDENING.
@@ -242,13 +242,13 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
 
   const pinLogin = (
     tenantId: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) =>
     request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode, pin });
+      .send({ tenantId, branchId, employeeCode, pin, sessionType: 'pos' });
 
   const auth = (t: string) => ({ Authorization: `Bearer ${t}` });
 
@@ -657,13 +657,13 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
 
   describe('POS: orders are branch-local', () => {
     const openOrder = async (
-      terminalId: string,
+      branchId: string,
       employeeCode: string,
       pin: string,
     ) => {
       const posRes = await pinLogin(
         tenantA,
-        terminalId,
+        branchId,
         employeeCode,
         pin,
       ).expect(200);
@@ -683,7 +683,7 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
 
     it('9. an order opened at A1 is visible via ?branchId=A1 and invisible via ?branchId=A2', async () => {
       const orderA1 = await openOrder(
-        terminalA1,
+        branchA1,
         posEmployeeA1.code,
         posEmployeeA1.pin,
       );
@@ -727,26 +727,47 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
 
   describe('KDS: a fired ticket is visible only in its own branch/station', () => {
     it('10. A1 ticket appears on A1 queue, never on A2 queue', async () => {
-      const kdsUserA1Email = `mtmb.kds-a1.${stamp}@example.com`;
-      const kdsUserA2Email = `mtmb.kds-a2.${stamp}@example.com`;
-      for (const [email, terminalId] of [
-        [kdsUserA1Email, kdsTerminalA1],
-        [kdsUserA2Email, kdsTerminalA2],
-      ] as const) {
-        const u = await users.createUser({
-          email,
-          displayName: 'kds-op',
+      // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: KDS is a branch/employee-
+      // scoped PIN session (`sessionType: 'kds'`), not a terminal-bound
+      // dashboard session any more — `KdsStationGuard` refuses a dashboard/
+      // terminal-bound token outright. Each KDS operator here is a real
+      // PIN-authenticated employee, permitted ONLY at their own branch —
+      // branch-locality is now proven the SAME way every other POS/KDS
+      // branch-locality case in this suite is (live-verified session
+      // branch), not by a terminal/station display binding.
+      await roles.addPermissions(tenantA, demoRole, [KDS_PERMISSIONS.OPERATE]);
+
+      const mkKdsEmployee = async (
+        label: string,
+        homeBranchId: string,
+        pin: string,
+      ) => {
+        const kdsUser = await users.createUser({
+          email: `mtmb.${label}.${stamp}@example.com`,
+          displayName: label,
           password,
         });
-        const m = await memberships.grant(u.id, tenantA, 'active');
+        const kdsMembership = await memberships.grant(
+          kdsUser.id,
+          tenantA,
+          'active',
+        );
         await assignments.create(tenantA, adminUserId, {
-          membershipId: m.id,
+          membershipId: kdsMembership.id,
           roleId: demoRole,
           scope: { type: 'tenant' },
         });
-        void terminalId;
-      }
-      await roles.addPermissions(tenantA, demoRole, [KDS_PERMISSIONS.OPERATE]);
+        const code = `${label.toUpperCase()}${stamp % 100000}`;
+        const employee = await employeesService.create(
+          tenantA,
+          adminUserId,
+          { code, displayName: label, homeBranchId, userId: kdsUser.id },
+        );
+        await pins.setPin(tenantA, adminUserId, employee.id, pin);
+        return code;
+      };
+      const kdsEmployeeA1Code = await mkKdsEmployee('kdsA1', branchA1, '551122');
+      const kdsEmployeeA2Code = await mkKdsEmployee('kdsA2', branchA2, '551133');
 
       const businessDay = new Date(`${today()}T00:00:00.000Z`);
       const fixture = await fireTicketLine(admin, {
@@ -759,18 +780,15 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
         openedBy: posEmployeeA1.id,
       });
 
-      const tokenA1 = await dashboardTerminalToken(
-        http,
-        kdsUserA1Email,
-        tenantA,
-        kdsTerminalA1,
-      );
-      const tokenA2 = await dashboardTerminalToken(
-        http,
-        kdsUserA2Email,
-        tenantA,
-        kdsTerminalA2,
-      );
+      const kdsPinLogin = async (branchId: string, employeeCode: string, pin: string) => {
+        const res = await request(http)
+          .post('/auth/pin')
+          .send({ tenantId: tenantA, branchId, employeeCode, pin, sessionType: 'kds' })
+          .expect(200);
+        return (res.body as { accessToken: string }).accessToken;
+      };
+      const tokenA1 = await kdsPinLogin(branchA1, kdsEmployeeA1Code, '551122');
+      const tokenA2 = await kdsPinLogin(branchA2, kdsEmployeeA2Code, '551133');
 
       const queueA1 = await request(http)
         .get(`/kds/stations/${stationA1}/queue`)
@@ -782,9 +800,9 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
         ),
       ).toBe(true);
 
-      // A2's own terminal is bound to A2's OWN station: it cannot even
-      // address A1's station (KdsStationGuard — terminal/station binding is
-      // a SECOND, independent branch-locality mechanism, not the RBAC
+      // A2's KDS session is permitted only at Branch A2: it cannot even
+      // address A1's station (KdsStationGuard's live branch check — a
+      // SECOND, independent branch-locality mechanism from the RBAC
       // lattice, which is proven elsewhere).
       await request(http)
         .get(`/kds/stations/${stationA1}/queue`)
@@ -899,14 +917,14 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
       ).id;
 
       const openSession = async (
-        terminalId: string,
+        branchId: string,
         employeeCode: string,
         pin: string,
         drawerId: string,
       ) => {
         const pos = await pinLogin(
           tenantA,
-          terminalId,
+          branchId,
           employeeCode,
           pin,
         ).expect(200);
@@ -927,13 +945,13 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
       };
 
       const sessionA1 = await openSession(
-        terminalA1,
+        branchA1,
         posEmployeeA1.code,
         posEmployeeA1.pin,
         drawerA1,
       );
       const sessionA2 = await openSession(
-        terminalA2,
+        branchA2,
         posEmployeeA12.code,
         posEmployeeA12.pin,
         drawerA2,
@@ -967,13 +985,13 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
     it("13. POS employee A1 (permitted A1 only) is refused sign-in at A2's terminal", async () => {
       await pinLogin(
         tenantA,
-        terminalA1,
+        branchA1,
         posEmployeeA1.code,
         posEmployeeA1.pin,
       ).expect(200);
       await pinLogin(
         tenantA,
-        terminalA2,
+        branchA2,
         posEmployeeA1.code,
         posEmployeeA1.pin,
       ).expect(401);
@@ -1013,10 +1031,10 @@ describe('Multi-tenant / multi-branch operational hardening (MTMB-1, e2e)', () =
     });
 
     it('14. POS employee A12 (home A1, permitted A1+A2 via fixture setup) signs in and clocks in at BOTH', async () => {
-      for (const terminalId of [terminalA1, terminalA2]) {
+      for (const branchId of [branchA1, branchA2]) {
         const pos = await pinLogin(
           tenantA,
-          terminalId,
+          branchId,
           posEmployeeA12.code,
           posEmployeeA12.pin,
         ).expect(200);

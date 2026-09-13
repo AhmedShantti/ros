@@ -77,7 +77,7 @@ import {
   branchFromParam,
   declaredScopeFromBody,
   fromParam,
-  posTerminalBranchTarget,
+  sessionBranchTarget,
   resourceTarget,
   tenantTarget,
 } from '../identity/contract';
@@ -434,8 +434,9 @@ export class CatalogueController {
    * DEMO-POS-MENU-BACKEND-P0 — the sellable menu for a POS/PIN session's OWN
    * branch. `@AllowPosSession` opts this ONE route in for PIN-issued sessions
    * (FR-SEC-021); every other route on this controller is still refused to
-   * them by `JwtAuthGuard`'s default. The branch is `posTerminalBranchTarget()`
-   * — derived live from the authenticated terminal, never a client-supplied
+   * them by `JwtAuthGuard`'s default. The branch is `sessionBranchTarget()`
+   * — the session's own live-verified operating branch
+   * (`TenantContextService.resolveSessionBranch`), never a client-supplied
    * id — so a POS session cannot browse another branch's menu, and this
    * target also REFUSES a non-POS (dashboard) caller outright, keeping this
    * route POS-only regardless of what a dashboard actor's own grants cover.
@@ -448,7 +449,7 @@ export class CatalogueController {
    */
   @Get('pos-menu')
   @AllowPosSession()
-  @AuthorizationTarget(posTerminalBranchTarget())
+  @AuthorizationTarget(sessionBranchTarget())
   @RequirePermission(
     CATALOGUE_PERMISSIONS.ITEM_READ,
     CATALOGUE_PERMISSIONS.PRICE_READ,
@@ -471,7 +472,7 @@ export class CatalogueController {
     @Query() query: PosMenuQueryDto,
   ) {
     if (!c.branchId) {
-      // Unreachable in practice: `posTerminalBranchTarget()` already denies
+      // Unreachable in practice: `sessionBranchTarget()` already denies
       // any request with no live POS terminal branch before this handler
       // runs. Kept as a defensive, typed guard rather than a non-null
       // assertion.

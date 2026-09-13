@@ -768,7 +768,7 @@
             "type": "string"
           },
           "terminalId": {
-            "description": "Optional device binding. When set, a cash session may only be opened\nagainst this drawer from THAT terminal — `DrawersService.create`\nenforces same-branch (ADR 0008 D-16). Omitted = any terminal in the\nbranch may open a session over this drawer.",
+            "description": "Optional LEGACY device binding — `DrawersService.create` still enforces\nsame-branch (ADR 0008 D-16) when a value is supplied. CROSSCUT-POS-KDS-\nTERMINAL-DECOUPLING-P0 (2026-09-13): opening a cash session no longer\nchecks this field at all — POS is a branch/employee-scoped application\nsession with no terminal identity, so a drawer bound to a terminal is\nselectable from any POS session at the same branch exactly as an\nunbound drawer is. Retained only as administrative/hardware-inventory\nmetadata for tenants that still track it.",
             "type": "string"
           }
         },
@@ -1103,10 +1103,6 @@
             "type": "string"
           },
           "tableId": {
-            "type": "string"
-          },
-          "terminalId": {
-            "description": "The terminal the sale is on. Optional for a terminal-bound session, where\nit is taken from the token; when supplied it must MATCH the bound terminal.",
             "type": "string"
           }
         },
@@ -1833,6 +1829,10 @@
       },
       "DecidePurchaseOrderDto": {
         "properties": {
+          "approvalBranchId": {
+            "description": "CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 §9 — a Purchase Order may be\ntenant-wide (warehouse/central-kitchen delivery), so no single\nunambiguous branch is always derivable from the order itself. This is\nOPERATIONAL identity context ONLY — the branch the approving\nemployee's PIN/membership is verified against — never a device\nidentity. Never the branch a Purchase Order is attributed or delivered\nto.",
+            "type": "string"
+          },
           "approvalDecisionId": {
             "description": "FR-OFF-015-style client-generated permanent id for THIS decision.",
             "type": "string"
@@ -1854,15 +1854,12 @@
             "maxLength": 12,
             "minLength": 4,
             "type": "string"
-          },
-          "terminalId": {
-            "type": "string"
           }
         },
         "required": [
           "expectedVersion",
           "approvalDecisionId",
-          "terminalId",
+          "approvalBranchId",
           "employeeCode",
           "pin"
         ],
@@ -2279,8 +2276,11 @@
       },
       "PinLoginDto": {
         "properties": {
+          "branchId": {
+            "type": "string"
+          },
           "employeeCode": {
-            "description": "Employee code, not an email — a POS operator identifies by staff code.",
+            "description": "Employee code, not an email — a POS/KDS operator identifies by staff code.",
             "maxLength": 32,
             "minLength": 1,
             "type": "string"
@@ -2290,18 +2290,24 @@
             "pattern": "^\\d{4,8}$",
             "type": "string"
           },
-          "tenantId": {
+          "sessionType": {
+            "description": "Which application session this PIN login establishes.",
+            "enum": [
+              "pos",
+              "kds"
+            ],
             "type": "string"
           },
-          "terminalId": {
+          "tenantId": {
             "type": "string"
           }
         },
         "required": [
           "tenantId",
-          "terminalId",
+          "branchId",
           "employeeCode",
-          "pin"
+          "pin",
+          "sessionType"
         ],
         "type": "object"
       },
@@ -8217,7 +8223,7 @@
                 }
               }
             },
-            "description": "Unknown terminal, branch, or employee."
+            "description": "Unknown branch or employee."
           },
           "409": {
             "content": {
@@ -8227,7 +8233,7 @@
                 }
               }
             },
-            "description": "The terminal or employee is not active, or the Idempotency-Key was already used with a different request body / is still in flight."
+            "description": "The employee is not active, or the Idempotency-Key was already used with a different request body / is still in flight."
           }
         },
         "security": [
@@ -8321,7 +8327,7 @@
                 }
               }
             },
-            "description": "The caller's own open cash session at their own terminal-bound branch, or null if none (or more than one) exists."
+            "description": "The caller's own open cash session at their own POS session branch, or null if none (or more than one) exists."
           },
           "401": {
             "content": {
@@ -8349,7 +8355,7 @@
             "bearer": []
           }
         ],
-        "summary": "DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at\nTHEIR OWN terminal-bound branch, if exactly one exists.\n\nRecovery contract: after a fresh PIN login (e.g. after a frontend\nreload/deploy wiped the locally-remembered `cashSessionId`), the POS\ncalls this BEFORE showing Open Shift. A non-null `cashSession` means the\nemployee already holds an open shift here — the client resumes it\nin-place; `POST /cash-sessions` is never called again for it, and no new\ndrawer is opened. `null` means either no open session exists (normal\nOpen Shift) or more than one does (ambiguous — see\n`CashSessionsService.findCurrentForEmployee`).\n\nGated on `cash.session.open` — the SAME permission `POST /cash-sessions`\nalready requires, deliberately not a new/invented read permission. This\nmirrors `GET /cash-sessions/drawers` immediately above: a narrow read of\nstate the caller may already act on, scoped to their own\nterminal-derived branch and their own employee identity, never a\ngeneric CashSession read (`findOne` stays internal-only — see its own\ndocblock and D-20).",
+        "summary": "DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at\nTHEIR OWN POS session branch, if exactly one exists.\n\nRecovery contract: after a fresh PIN login (e.g. after a frontend\nreload/deploy wiped the locally-remembered `cashSessionId`), the POS\ncalls this BEFORE showing Open Shift. A non-null `cashSession` means the\nemployee already holds an open shift here — the client resumes it\nin-place; `POST /cash-sessions` is never called again for it, and no new\ndrawer is opened. `null` means either no open session exists (normal\nOpen Shift) or more than one does (ambiguous — see\n`CashSessionsService.findCurrentForEmployee`).\n\nGated on `cash.session.open` — the SAME permission `POST /cash-sessions`\nalready requires, deliberately not a new/invented read permission. This\nmirrors `GET /cash-sessions/drawers` immediately above: a narrow read of\nstate the caller may already act on, scoped to their own\nsession-derived branch and their own employee identity, never a\ngeneric CashSession read (`findOne` stays internal-only — see its own\ndocblock and D-20).",
         "tags": [
           "treasury"
         ]
@@ -8397,7 +8403,7 @@
                 }
               }
             },
-            "description": "The caller's own terminal-bound branch's drawers."
+            "description": "The caller's own POS session branch's drawers."
           },
           "401": {
             "content": {
@@ -8425,7 +8431,7 @@
             "bearer": []
           }
         ],
-        "summary": "DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over,\nfor the POS Open-Shift drawer selector. Resolves the branch from the\nCALLER'S OWN terminal (`DrawersService.listForTerminal`), never a\ncaller-supplied branchId — a cashier cannot browse another branch's\ndrawers by asking for one. Gated on `cash.session.open`, the SAME\npermission `POST /cash-sessions` already requires, deliberately NOT\n`settings.branch.manage` — this is a read of what a Cashier may already\nact on, not a drawer-administration grant (that lives on the separate\n`DrawersController`).",
+        "summary": "DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over,\nfor the POS Open-Shift drawer selector. Resolves the drawer list from\nthe CALLER'S OWN live-verified POS session branch\n(`DrawersService.listForBranch`), never a caller-supplied branchId — a\ncashier cannot browse another branch's drawers by asking for one.\nGated on `cash.session.open`, the SAME permission `POST /cash-sessions`\nalready requires, deliberately NOT `settings.branch.manage` — this is a\nread of what a Cashier may already act on, not a drawer-administration\ngrant (that lives on the separate `DrawersController`).",
         "tags": [
           "treasury"
         ]
@@ -8822,7 +8828,7 @@
                 }
               }
             },
-            "description": "Invalid manager PIN, terminal, or employee code."
+            "description": "Invalid manager PIN, branch, or employee code."
           },
           "403": {
             "content": {
@@ -8860,7 +8866,7 @@
             "bearer": []
           }
         ],
-        "summary": "The manager's decision on a frozen (above-tolerance) close — FR-FIN-006\n[M], FR-SEC-016/030/032/033.\n\nThe manager PIN is verified BEFORE the business transaction opens\n(`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/\nlockout counter must survive a later rollback, and never runs at all on\nan idempotent replay). The verified manager's permission set — not the\ncalling cashier's — is what `cash.variance.approve` is checked against,\nby the Approval Runtime itself, never by a route-level permission guard\n(the approver is a different actor than the caller).\n\nR-6(a): an explicit REJECTED decision COMMITS and returns 200 with\n`outcome: \"rejected\"` — never an error. The session stays `closing`; a\nretry supplies FRESH `approvalRequestId`/`approvalDecisionId` values.",
+        "summary": "The manager's decision on a frozen (above-tolerance) close — FR-FIN-006\n[M], FR-SEC-016/030/032/033.\n\nThe manager PIN is verified BEFORE the business transaction opens\n(`identity/contract`'s `APPROVER_PIN_VERIFIER` — a failed-attempt/\nlockout counter must survive a later rollback, and never runs at all on\nan idempotent replay). The verified manager's permission set — not the\ncalling cashier's — is what `cash.variance.approve` is checked against,\nby the Approval Runtime itself, never by a route-level permission guard\n(the approver is a different actor than the caller).\n\nR-6(a): an explicit REJECTED decision COMMITS and returns 200 with\n`outcome: \"rejected\"` — never an error. The session stays `closing`; a\nretry supplies FRESH `approvalRequestId`/`approvalDecisionId` values.",
         "tags": [
           "treasury"
         ]
@@ -8998,7 +9004,7 @@
                 }
               }
             },
-            "description": "Unknown cash session or terminal."
+            "description": "Unknown cash session."
           },
           "409": {
             "content": {
@@ -9154,7 +9160,7 @@
                 }
               }
             },
-            "description": "Unknown cash session or terminal."
+            "description": "Unknown cash session."
           },
           "409": {
             "content": {
@@ -9310,7 +9316,7 @@
                 }
               }
             },
-            "description": "Unknown cash session or terminal."
+            "description": "Unknown cash session."
           },
           "409": {
             "content": {
@@ -17323,7 +17329,7 @@
                 }
               }
             },
-            "description": "No kds.operate, non-KDS/inactive terminal, no or ambiguous station binding, or wrong station."
+            "description": "No kds.operate, no KDS session, or the named station does not belong to this session's branch."
           }
         },
         "security": [
@@ -17421,6 +17427,15 @@
             "schema": {
               "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller's own KDS session branch.",
+            "in": "query",
+            "name": "stationId",
+            "required": true,
+            "schema": {
               "type": "string"
             }
           }
@@ -17733,6 +17748,15 @@
             "schema": {
               "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller's own KDS session branch.",
+            "in": "query",
+            "name": "stationId",
+            "required": true,
+            "schema": {
               "type": "string"
             }
           }
@@ -18168,6 +18192,15 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "description": "The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller's own KDS session branch.",
+            "in": "query",
+            "name": "stationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -18579,6 +18612,15 @@
             "schema": {
               "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The station this operation is performed at — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no device binding derives it any more; must belong to the caller's own KDS session branch.",
+            "in": "query",
+            "name": "stationId",
+            "required": true,
+            "schema": {
               "type": "string"
             }
           },
@@ -26704,7 +26746,10 @@
                         "terminalId": {
                           "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                           "format": "uuid",
-                          "type": "string"
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "type": "object"

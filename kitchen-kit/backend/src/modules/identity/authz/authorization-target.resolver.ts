@@ -283,53 +283,17 @@ export class AuthorizationTargetResolver {
           : { outcome: 'target', target: { type: 'branch', branchId: value } };
       }
 
-      case 'posTerminalBranch': {
-        // Populated by TenantContextService from LIVE `identity.terminals`
-        // state on this request, for `pos` sessions only. Absent means this is
-        // not a POS session, and a route that declares this target has no other
-        // meaning — refuse.
+      case 'sessionBranch': {
+        // Populated by TenantContextService.resolveSessionBranch from LIVE
+        // server state on this request, for `pos`/`kds` sessions only.
+        // Absent means this is not a POS/KDS session, and a route that
+        // declares this target has no other meaning — refuse.
         const branchId = auth.context.branchId;
         if (branchId === undefined) {
           return {
             outcome: 'deny',
-            reason: 'no POS terminal branch on this session',
+            reason: 'no POS/KDS session branch on this session',
           };
-        }
-        return { outcome: 'target', target: { type: 'branch', branchId } };
-      }
-
-      case 'sessionTerminalBranch': {
-        if (auth.context.branchId !== undefined) {
-          // A `pos` session: TenantContextService already re-verified the
-          // terminal's status and the employee's live branch permission on this
-          // request, so no second read is warranted.
-          return {
-            outcome: 'target',
-            target: { type: 'branch', branchId: auth.context.branchId },
-          };
-        }
-        const terminalId = auth.context.terminalId;
-        if (terminalId === undefined) {
-          return { outcome: 'deny', reason: 'session is not terminal-bound' };
-        }
-        const branchId = await this.prisma.withAuthContext(
-          { userId: auth.context.userId, tenantId: auth.context.tenantId },
-          async (tx) => {
-            const terminal = await tx.terminal.findUnique({
-              where: { id: terminalId },
-              select: { branchId: true, status: true },
-            });
-            // A revoked or suspended terminal has no operating branch. Failing
-            // closed here matters: it is the same answer a revoked POS terminal
-            // already gets from TenantContextService, so the two paths cannot
-            // disagree about what a dead terminal may do.
-            return terminal && terminal.status === 'active'
-              ? terminal.branchId
-              : null;
-          },
-        );
-        if (branchId === null) {
-          return { outcome: 'deny', reason: 'terminal is not active' };
         }
         return { outcome: 'target', target: { type: 'branch', branchId } };
       }

@@ -68,7 +68,6 @@ describe('SaleDepletionService — A1-2 lock grouping + group-state correctness'
   let tenantA: string;
   let branchA: string;
   let locationA: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let unitKg: string;
@@ -161,19 +160,6 @@ describe('SaleDepletionService — A1-2 lock grouping + group-state correctness'
         },
       })
     ).id;
-    terminalA = (
-      await admin.terminal.create({
-        data: {
-          id: newId(),
-          tenantId: tenantA,
-          branchId: branchA,
-          name: 'LockGrp-POS',
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-    ).id;
-
     const user = await admin.user.create({
       data: {
         id: newId(),
@@ -320,7 +306,7 @@ describe('SaleDepletionService — A1-2 lock grouping + group-state correctness'
     n: number,
   ): Promise<{ orderId: string; businessDay: Date; lineIds: string[] }> => {
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',

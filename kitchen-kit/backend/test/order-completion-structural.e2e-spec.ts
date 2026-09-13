@@ -90,7 +90,6 @@ describe('Structural FK negative proofs — C-20 (P1F-2 acceptance closure §3)'
   let branchA: string;
   let locationA: string;
   let locationA2: string;
-  let terminalA: string;
   let employeeA: string;
   let userA: string;
   let priceListA: string;
@@ -184,18 +183,6 @@ describe('Structural FK negative proofs — C-20 (P1F-2 acceptance closure §3)'
         },
       })
     ).id;
-
-    const terminal = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId: tenantA,
-        branchId: branchA,
-        name: 'Struct-POS',
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    terminalA = terminal.id;
 
     const user = await admin.user.create({
       data: {
@@ -428,7 +415,7 @@ describe('Structural FK negative proofs — C-20 (P1F-2 acceptance closure §3)'
     const { itemId, variantId } = await mkSellable(`Struct-${newId()}`);
     await mkPublishedRecipe(variantId, stockItemId, '2');
     const order = await orders.create(tenantA, userA, {
-      terminalId: terminalA,
+      branchId: branchA,
       openedByEmployeeId: employeeA,
       orderType: 'takeaway',
       channel: 'pos',
@@ -464,7 +451,6 @@ describe('Structural FK negative proofs — C-20 (P1F-2 acceptance closure §3)'
       amountMinor: opened.grandTotal,
       cashSessionId: cashSessionA,
       employeeId: employeeA,
-      terminalId: terminalA,
       tenderedAmountMinor: opened.grandTotal,
     });
     const effect = await admin.saleDepletionEffect.findFirstOrThrow({

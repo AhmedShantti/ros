@@ -38,11 +38,11 @@ import { createMigratorClient } from './rls-admin';
  * Discovery is a DASHBOARD route (no `@AllowPosSession` — see
  * `OpenCashSessionsController`'s docblock), so the manager reaches it with a
  * DASHBOARD token (`/auth/login` + `/auth/tenant`). The existing close-other
- * routes on `TreasuryController` still require a terminal-bound identity
- * (`requirePosIdentity`), so completing the workflow on a discovered id uses
- * the SAME manager's PIN/POS token instead. Both tokens resolve to the same
- * underlying employee/permissions — this mirrors a real manager who checks
- * the back-office console, then acts at the terminal.
+ * routes on `TreasuryController` still require a branch/employee-scoped POS
+ * session identity (`requirePosIdentity`), so completing the workflow on a
+ * discovered id uses the SAME manager's PIN/POS token instead. Both tokens
+ * resolve to the same underlying employee/permissions — this mirrors a real
+ * manager who checks the back-office console, then acts on the floor.
  */
 
 const password = 's3cure-passphrase';
@@ -80,8 +80,6 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
   let tenantA: string;
   let branchA: string;
   let branchB: string;
-  let terminalA: string;
-  let terminalB: string;
 
   let userManager: string;
   let employeeManager: string;
@@ -135,29 +133,15 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
     return branch.id;
   };
 
-  const mkTerminal = (tenantId: string, branchId: string, name: string) =>
-    admin.terminal
-      .create({
-        data: {
-          id: newId(),
-          tenantId,
-          branchId,
-          name,
-          terminalType: 'pos',
-          status: 'active',
-        },
-      })
-      .then((t) => t.id);
-
   const pinLogin = async (
     tenantId: string,
-    terminalId: string,
+    branchId: string,
     employeeCode: string,
     pin: string,
   ) => {
     const res = await request(http)
       .post('/auth/pin')
-      .send({ tenantId, terminalId, employeeCode, pin })
+      .send({ tenantId, branchId, employeeCode, pin, sessionType: 'pos' })
       .expect(200);
     return (res.body as { accessToken: string }).accessToken;
   };
@@ -212,7 +196,6 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
   const openSession = async (
     branchId: string,
     employeeId: string,
-    terminalId: string,
     openingFloat = '50000',
   ): Promise<{ sessionId: string; drawerId: string; drawerName: string }> => {
     drawerSeq += 1;
@@ -226,7 +209,7 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
       cashSessionId: newId(),
       drawerId: drawer.id,
       openingFloat,
-      terminalId,
+      branchId,
       employeeId,
     });
     return { sessionId: session.id, drawerId: drawer.id, drawerName };
@@ -273,8 +256,6 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
 
     branchA = await mkBranch(tenantA, `DMA${stamp % 10000}`);
     branchB = await mkBranch(tenantA, `DMB${stamp % 10000}`);
-    terminalA = await mkTerminal(tenantA, branchA, 'DM-POS-A');
-    terminalB = await mkTerminal(tenantA, branchB, 'DM-POS-B');
 
     const mkUser = async (email: string) => {
       const u = await users.createUser({ email, password, displayName: 'DM' });
@@ -427,18 +408,8 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
 
   describe('authorized manager discovery', () => {
     it('A/B: sees open sessions at their branch, with drawer + employee ownership fields', async () => {
-      const s1 = await openSession(
-        branchA,
-        employeeCashierA1,
-        terminalA,
-        '50000',
-      );
-      const s2 = await openSession(
-        branchA,
-        employeeCashierA2,
-        terminalA,
-        '30000',
-      );
+      const s1 = await openSession(branchA, employeeCashierA1, '50000');
+      const s2 = await openSession(branchA, employeeCashierA2, '30000');
 
       const managerDashboardToken = await dashboardLogin(emailManager);
       const res = await listOpen(managerDashboardToken, branchA).expect(200);
@@ -468,7 +439,7 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
 
   describe('branch scoping', () => {
     it('C: cannot see sessions at an unauthorized branch', async () => {
-      await openSession(branchB, employeeCashierB, terminalB, '10000');
+      await openSession(branchB, employeeCashierB, '10000');
 
       const managerDashboardToken = await dashboardLogin(emailManager);
       const res = await listOpen(managerDashboardToken, branchB);
@@ -493,24 +464,14 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
       const managerDashboardToken = await dashboardLogin(emailManager);
       const managerPosToken = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         codeManager,
         PIN_MANAGER,
       );
 
       // Two fresh stranded sessions, discovered together.
-      const within = await openSession(
-        branchA,
-        employeeCashierA1,
-        terminalA,
-        '20000',
-      );
-      const above = await openSession(
-        branchA,
-        employeeCashierA2,
-        terminalA,
-        '40000',
-      );
+      const within = await openSession(branchA, employeeCashierA1, '20000');
+      const above = await openSession(branchA, employeeCashierA2, '40000');
 
       const before = (
         await listOpen(managerDashboardToken, branchA).expect(200)
@@ -520,7 +481,7 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
 
       // F: the discovered id is a real close-other admission ticket —
       // close-context works for a NON-owner manager (via their POS token,
-      // since `TreasuryController` requires a terminal-bound identity).
+      // since `TreasuryController` requires a POS session identity).
       const ctxRes = await context(managerPosToken, within.sessionId).expect(
         200,
       );
@@ -597,7 +558,7 @@ describe('Manager cash-session discovery (e2e) — GET /branches/:branchId/cash-
     it('rejects a POS/PIN session — this is a dashboard-only route', async () => {
       const posToken = await pinLogin(
         tenantA,
-        terminalA,
+        branchA,
         codeManager,
         PIN_MANAGER,
       );

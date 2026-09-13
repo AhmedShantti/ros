@@ -9,7 +9,11 @@ import {
   SYNC_MAX_OPERATIONS_PER_BATCH,
 } from './../src/modules/sync/protocol/protocol.constants';
 import { createMigratorClient } from './rls-admin';
-import { createKdsFixture, KdsFixture } from './kds-fixtures';
+import {
+  createKdsFixture,
+  dashboardTerminalToken,
+  KdsFixture,
+} from './kds-fixtures';
 import {
   BatchResultView,
   SYNC_BATCH_PATH,
@@ -229,7 +233,12 @@ describe('P-D4-02 — NFR-PERF-032 production-handler benchmark (e2e)', () => {
     http = app.getHttpServer() as App;
     admin = createMigratorClient(app);
     fixture = await createKdsFixture(app, admin, stamp);
-    token = await terminalToken(http, fixture, fixture.posTerminalId);
+    token = await dashboardTerminalToken(
+      http,
+      fixture.dashboardEmail,
+      fixture.tenantId,
+      fixture.posTerminalId,
+    );
     node = hlcNodeFromTerminalId(fixture.posTerminalId);
   }, 90_000);
 

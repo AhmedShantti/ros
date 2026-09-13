@@ -9,14 +9,18 @@ import type { AssignmentScope } from '../authz/scope';
  * Field classification:
  *  - userId, sessionId   → authentication identity
  *  - tenantId, membershipId → tenant authorization (the active membership)
- *  - terminalId          → device/terminal identity (present for terminal sessions)
- *  - sessionType/employeeId → POS session identity (PIN-issued sessions only)
- *  - branchId            → the POS session's OPERATING branch (B1-2). Populated
- *      ONLY for `pos` sessions, and ONLY from live server-side terminal state
- *      (`identity.terminals.branch_id`, which carries a tenant-safe composite FK
- *      to `org.branches`). NEVER from a request body and NEVER from a JWT branch
- *      claim. For dashboard sessions it stays undefined: a dashboard actor has
- *      no single operating branch, it has SCOPED ASSIGNMENTS (see
+ *  - sessionType/employeeId → POS/KDS session identity (PIN-issued sessions only)
+ *  - branchId            → the POS/KDS session's OPERATING branch (B1-2,
+ *      re-scoped by CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0). Populated
+ *      ONLY for `pos`/`kds` sessions, and ONLY once
+ *      `TenantContextService.resolveSessionBranch` has RE-VERIFIED, live and
+ *      in THIS request's own transaction, that the employee is still
+ *      permitted at the branch the token claims (`AuthenticatedPrincipal
+ *      .branchId`, the JWT `brc` claim). NEVER from a request body. POS and
+ *      KDS are application sessions, not registered device identities — there
+ *      is no terminal to derive a branch from any more. For dashboard
+ *      sessions it stays undefined: a dashboard actor has no single
+ *      operating branch, it has SCOPED ASSIGNMENTS (see
  *      `RequestAuthorization.grants`).
  */
 export interface TenantContext {
@@ -24,12 +28,18 @@ export interface TenantContext {
   sessionId: string;
   tenantId: string;
   membershipId: string;
-  terminalId?: string;
-  /** `pos` for PIN-issued sessions; undefined for dashboard sessions. */
-  sessionType?: 'pos';
-  /** Employee behind a POS session (FR-SEC-021). */
+  /** `pos`/`kds` for PIN-issued sessions; undefined for dashboard sessions. */
+  sessionType?: 'pos' | 'kds';
+  /** Employee behind a POS/KDS session (FR-SEC-021). */
   employeeId?: string;
   branchId?: string;
+  /**
+   * Bound terminal id — the Sync/offline device channel's own session
+   * identity ONLY (`POST /auth/terminal`). See
+   * `AuthenticatedPrincipal.terminalId`'s docblock; no POS/KDS runtime path
+   * reads this.
+   */
+  terminalId?: string;
 }
 
 /**

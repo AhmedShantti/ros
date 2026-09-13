@@ -97,13 +97,13 @@ import {
   fromParam,
   RequireAnyPermission,
   resourceTarget,
-  sessionTerminalBranchTarget,
+  sessionBranchTarget,
   tenantTarget,
-  TERMINAL_PIN_VERIFIER,
+  APPROVER_PIN_VERIFIER,
 } from '../../identity/contract';
 import type {
   RequestAuthorization,
-  TerminalPinVerifier,
+  ApproverPinVerifier,
 } from '../../identity/contract';
 import { SALES_ORDER_TARGET_RESOLVER } from '../contract';
 
@@ -308,7 +308,7 @@ const paymentSchema = {
     roundingAdjustment: moneyStringSchema(),
     cashSessionId: uuidSchema(),
     employeeId: uuidSchema(),
-    terminalId: uuidSchema(),
+    terminalId: nullable(uuidSchema()),
     tenderedAmount: nullable(moneyStringSchema()),
     changeGiven: nullable(moneyStringSchema()),
     paymentTerminalTxnRef: nullable({ type: 'string' }),
@@ -438,8 +438,8 @@ export class OrdersController {
     private readonly refunds: RefundsService,
     private readonly cancelOrderService: CancelOrderService,
     private readonly reasonCodes: PosReasonCodesService,
-    @Inject(TERMINAL_PIN_VERIFIER)
-    private readonly pinVerifier: TerminalPinVerifier,
+    @Inject(APPROVER_PIN_VERIFIER)
+    private readonly pinVerifier: ApproverPinVerifier,
   ) {}
 
   /**
@@ -451,7 +451,7 @@ export class OrdersController {
    * with `Idempotent-Replay: true`.
    */
   @Post()
-  @AuthorizationTarget(sessionTerminalBranchTarget())
+  @AuthorizationTarget(sessionBranchTarget())
   @HttpCode(HttpStatus.CREATED)
   @Idempotent()
   @RequirePermission(SALES_PERMISSIONS.ORDER_CREATE)
@@ -482,12 +482,12 @@ export class OrdersController {
     @Headers('idempotency-key') idempotencyKey: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const terminalId = this.resolveTerminal(principal, dto.terminalId);
+    const branchId = this.requireBranch(context);
     const employeeId = this.resolveEmployee(principal, dto.openedByEmployeeId);
 
     const order = await this.orders.create(context.tenantId, context.userId, {
       ...(dto.id ? { id: dto.id } : {}),
-      terminalId,
+      branchId,
       openedByEmployeeId: employeeId,
       orderType: dto.orderType,
       channel: dto.channel,
@@ -762,13 +762,12 @@ export class OrdersController {
   })
   async addLine(
     @CurrentTenantContext() context: TenantContext,
-    @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @Param() params: OrderPathParamsDto,
     @Body() dto: AddOrderLineDto,
     @Headers('if-match') ifMatch: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    this.requireTerminal(principal);
+    this.requireBranch(context);
     const { line, order } = await this.lines.addLine(
       context.tenantId,
       context.userId,
@@ -855,18 +854,16 @@ export class OrdersController {
   })
   async fire(
     @CurrentTenantContext() context: TenantContext,
-    @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @Param() params: OrderPathParamsDto,
     @Headers('if-match') ifMatch: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const terminalId = this.requireTerminal(principal);
+    this.requireBranch(context);
     const { order } = await this.fireService.fire(context.tenantId, {
       orderId: params.id,
       businessDay: parseBusinessDay(params.businessDay),
       expectedVersion: parseIfMatch(ifMatch, params.id),
       actorUserId: context.userId,
-      terminalId,
     });
 
     response.setHeader('ETag', orderETag(order));
@@ -952,7 +949,7 @@ export class OrdersController {
     @Headers('if-match') ifMatch: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { employeeId } = this.requirePosIdentity(context, principal);
 
     const { order, payment } = await this.paymentService.capture(
       context.tenantId,
@@ -966,7 +963,6 @@ export class OrdersController {
         amountMinor: BigInt(dto.amountMinor),
         cashSessionId: dto.cashSessionId,
         employeeId,
-        terminalId,
         ...(dto.tenderedAmountMinor
           ? { tenderedAmountMinor: BigInt(dto.tenderedAmountMinor) }
           : {}),
@@ -1042,13 +1038,12 @@ export class OrdersController {
   })
   async voidLine(
     @CurrentTenantContext() context: TenantContext,
-    @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @Param() params: OrderLinePathParamsDto,
     @Body() dto: VoidOrderLineDto,
     @Headers('if-match') ifMatch: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    this.requireTerminal(principal);
+    this.requireBranch(context);
     const { line, order } = await this.lines.voidLinePreFire(
       context.tenantId,
       context.userId,
@@ -1127,11 +1122,11 @@ export class OrdersController {
     @Headers('if-match') ifMatch: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { branchId, employeeId } = this.requirePosIdentity(context, principal);
     const manager = await this.resolveManager(
       dto,
       context.tenantId,
-      terminalId,
+      branchId,
     );
     const { line, order, discount } = await this.discounts.applyLineDiscount(
       context.tenantId,
@@ -1198,11 +1193,11 @@ export class OrdersController {
     @Headers('if-match') ifMatch: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { branchId, employeeId } = this.requirePosIdentity(context, principal);
     const manager = await this.resolveManager(
       dto,
       context.tenantId,
-      terminalId,
+      branchId,
     );
     const { order, discount } = await this.discounts.applyOrderDiscount(
       context.tenantId,
@@ -1267,7 +1262,7 @@ export class OrdersController {
     @Headers('if-match') ifMatch: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { employeeId } = this.requirePosIdentity(principal);
+    const { employeeId } = this.requirePosIdentity(context, principal);
     const { line, order, discount } = await this.discounts.applyComp(
       context.tenantId,
       context.userId,
@@ -1425,17 +1420,16 @@ export class OrdersController {
   })
   async cancel(
     @CurrentTenantContext() context: TenantContext,
-    @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @Param() params: OrderPathParamsDto,
     @Body() dto: CancelOrderDto,
     @Headers('if-match') ifMatch: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const terminalId = this.requireTerminal(principal);
+    const branchId = this.requireBranch(context);
     const manager = await this.resolveManager(
       dto,
       context.tenantId,
-      terminalId,
+      branchId,
     );
     const { order, postFireVoidRecords } =
       await this.cancelOrderService.cancelOrder(
@@ -1517,11 +1511,11 @@ export class OrdersController {
     @Headers('if-match') ifMatch: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { terminalId, employeeId } = this.requirePosIdentity(principal);
+    const { branchId, employeeId } = this.requirePosIdentity(context, principal);
     const manager = await this.resolveManager(
       dto,
       context.tenantId,
-      terminalId,
+      branchId,
     );
     const { refund, order } = await this.refunds.issueRefund(
       context.tenantId,
@@ -1547,53 +1541,61 @@ export class OrdersController {
 
   // ------------------------------------------------------------- internals
 
-  /** Every Sales WRITE happens at a registered terminal (FR-SEC-028). */
-  private requireTerminal(principal: AuthenticatedPrincipal): string {
-    if (!principal.terminalId) {
+  /**
+   * Every Sales WRITE happens in a POS session's live-verified operating
+   * branch (CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 — supersedes the
+   * former FR-SEC-028 terminal-registration gate). `context.branchId` is
+   * populated ONLY once `TenantContextService.resolveSessionBranch` has
+   * re-checked, live, that the session's employee is still permitted there.
+   */
+  private requireBranch(context: TenantContext): string {
+    if (!context.branchId) {
       throw new ForbiddenException(
-        'This operation requires a terminal-bound session.',
+        'This operation requires a POS session with a resolved operating branch.',
       );
     }
-    return principal.terminalId;
+    return context.branchId;
   }
 
   /**
-   * The terminal AND the employee come from the SESSION, never from the
+   * The branch AND the employee come from the SESSION, never from the
    * body — the exact same requirement `TreasuryController.
    * requirePosIdentity` already enforces for opening a cash session. P1D-E
    * makes the Employee the Payment's financial actor, so a session that
    * cannot identify one cannot capture a payment.
    */
-  private requirePosIdentity(principal: AuthenticatedPrincipal): {
-    terminalId: string;
+  private requirePosIdentity(
+    context: TenantContext,
+    principal: AuthenticatedPrincipal,
+  ): {
+    branchId: string;
     employeeId: string;
   } {
-    if (!principal.terminalId) {
-      throw new ForbiddenException(
-        'Capturing a payment requires a terminal-bound session.',
-      );
-    }
+    const branchId = this.requireBranch(context);
     if (!principal.employeeId) {
       throw new ForbiddenException(
         'Capturing a payment requires a session that identifies the ' +
           'employee taking the payment.',
       );
     }
-    return {
-      terminalId: principal.terminalId,
-      employeeId: principal.employeeId,
-    };
+    return { branchId, employeeId: principal.employeeId };
   }
 
   /**
    * POS-FIN-1 — resolve the optional manager-approval fields into a
    * verified approver, exactly the `treasury.controller.ts` `finalizeClose`
    * precedent: PIN verification happens BEFORE the business transaction
-   * opens (`TERMINAL_PIN_VERIFIER`'s own contract requires this — its
+   * opens (`APPROVER_PIN_VERIFIER`'s own contract requires this — its
    * lockout-counter persistence depends on not joining a caller transaction
    * that might roll back). `undefined` when none of the four fields were
    * supplied — a discount/refund below threshold needs none of them; the
    * service itself refuses with 403 if approval turns out to be required.
+   *
+   * `branchId` is the OPERATIONAL branch the manager's PIN/membership is
+   * verified against — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: derived
+   * from the order (the caller's own live-verified session branch here,
+   * since every route below already scopes to one order), never a device
+   * identity.
    */
   private async resolveManager(
     dto: {
@@ -1603,12 +1605,14 @@ export class OrdersController {
       readonly approvalDecisionId?: string;
     },
     tenantId: string,
-    terminalId: string,
+    branchId: string,
   ): Promise<
     | {
         approvalRequestId: string;
         approvalDecisionId: string;
-        approver: Awaited<ReturnType<TerminalPinVerifier['verifyTerminalPin']>>;
+        approver: Awaited<
+          ReturnType<ApproverPinVerifier['verifyApproverPin']>
+        >;
       }
     | undefined
   > {
@@ -1631,9 +1635,9 @@ export class OrdersController {
           'approvalDecisionId must all be supplied together, or all omitted.',
       );
     }
-    const approver = await this.pinVerifier.verifyTerminalPin({
+    const approver = await this.pinVerifier.verifyApproverPin({
       tenantId,
-      terminalId,
+      branchId,
       employeeCode: dto.managerEmployeeCode,
       pin: dto.managerPin,
     });
@@ -1642,31 +1646,6 @@ export class OrdersController {
       approvalDecisionId: dto.approvalDecisionId,
       approver,
     };
-  }
-
-  /**
-   * The terminal is taken from the SESSION, never from the body.
-   *
-   * A body value is accepted only as a redundant assertion and must match: a
-   * terminal-bound token is the server's own statement about which device is
-   * calling, and letting a request name a different one would let any terminal
-   * book sales onto another branch.
-   */
-  private resolveTerminal(
-    principal: AuthenticatedPrincipal,
-    fromBody: string | undefined,
-  ): string {
-    if (!principal.terminalId) {
-      throw new ForbiddenException(
-        'Opening an order requires a terminal-bound session.',
-      );
-    }
-    if (fromBody && fromBody !== principal.terminalId) {
-      throw new ForbiddenException(
-        'That terminal does not match the one this session is bound to.',
-      );
-    }
-    return principal.terminalId;
   }
 
   /**

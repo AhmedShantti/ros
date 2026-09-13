@@ -69,6 +69,22 @@ const terminalSchema = {
 };
 
 // JwtAuthGuard (401) → TenantContextGuard (403) → PermissionGuard (403).
+//
+// ── CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13) ────────────────────
+// Register/list/set-status/fingerprint remain plain TERMINAL ADMINISTRATION
+// (classification C, "legacy terminal-management/admin surface" in the P0
+// report's impact inventory) — no longer read by any POS/KDS/Sales/
+// Treasury/Governance runtime path.
+//
+// `bind`/`currentTerminal` (`POST`/`GET /auth/terminal`) are RETAINED, but
+// their purpose narrows to exactly ONE remaining consumer: the Sync/offline
+// device channel's own session-binding mechanism (`SyncTerminalGuard`,
+// `sync/auth/sync-terminal.guard.ts`) — a genuinely independent subsystem
+// this task does not redesign (P0 report §4/§17). POS and KDS mint their
+// OWN branch-scoped session directly at PIN login
+// (`AuthService.loginWithPin`) and never call `bind`; the resulting `trm`
+// claim is never read by any POS/KDS runtime path (see
+// `AuthenticatedPrincipal.terminalId`'s docblock).
 @ApiTags('terminals')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing/invalid/expired token.' })
@@ -186,7 +202,11 @@ export class TerminalController {
     await this.terminals.addFingerprint(ctx.tenantId, terminalId, dto);
   }
 
-  /** Bind the caller's current session to a terminal (POS session). */
+  /**
+   * Bind the caller's current session to a terminal — the Sync/offline
+   * device channel's own session-binding mechanism ONLY (see this
+   * controller's own docblock). POS/KDS never call this.
+   */
   @Post('terminal')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Bind the caller's current session to a terminal." })
@@ -214,7 +234,7 @@ export class TerminalController {
     return this.terminalSessions.bind(ctx, dto.terminalId);
   }
 
-  /** Current terminal binding on the request. */
+  /** Current terminal binding on the request (Sync/offline device channel). */
   @Get('terminal')
   @ApiOperation({ summary: 'Current terminal binding on the request.' })
   @ApiOkResponse({

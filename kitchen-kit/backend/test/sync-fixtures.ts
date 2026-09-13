@@ -140,6 +140,8 @@ export interface SyncFixture {
   readonly employeeId: string;
   readonly employeeCode: string;
   readonly employeeUserId: string;
+  /** Login email for the PIN-authenticated employee (dashboard/password login identity). */
+  readonly employeeEmail: string;
   readonly pin: string;
   readonly node: string;
 }
@@ -213,8 +215,9 @@ export async function createSyncFixture(
     'revoked',
   );
 
+  const employeeEmail = `sync.cashier.${seed}@example.com`;
   const employeeUser = await users.createUser({
-    email: `sync.cashier.${seed}@example.com`,
+    email: employeeEmail,
     password: DEV_PASSWORD,
     displayName: 'Cashier',
   });
@@ -239,6 +242,7 @@ export async function createSyncFixture(
     employeeId: employee.id,
     employeeCode,
     employeeUserId: employeeUser.id,
+    employeeEmail,
     pin,
     node: hlcNodeFromTerminalId(terminalId),
   };
@@ -281,22 +285,41 @@ export async function destroySyncFixture(
   await admin.tenant.deleteMany({ where: { id: tenantId } });
 }
 
-/** PIN login binds the session to a terminal and mints a `pos`-audience token. */
+/**
+ * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: PIN login can no longer mint a
+ * `trm`-carrying token — it is branch/employee-scoped only. The Sync/
+ * offline-device channel (`SyncTerminalGuard`) genuinely needs a
+ * terminal-bound session, so this now goes through the same
+ * dashboard-login -> tenant-select -> terminal-bind flow as
+ * `dashboardTerminalToken` in `kds-fixtures.ts`, using the employee's own
+ * login email/password rather than PIN.
+ */
 export async function terminalToken(
   http: App,
-  fixture: { tenantId: string; employeeCode: string; pin: string },
+  fixture: { tenantId: string; employeeEmail: string },
   terminalId: string,
 ): Promise<string> {
-  const res = await request(http)
-    .post('/auth/pin')
-    .send({
-      tenantId: fixture.tenantId,
-      terminalId,
-      employeeCode: fixture.employeeCode,
-      pin: fixture.pin,
-    })
+  const login = await request(http)
+    .post('/auth/login')
+    .send({ email: fixture.employeeEmail, password: DEV_PASSWORD })
     .expect(200);
-  return (res.body as { accessToken: string }).accessToken;
+  const scoped = await request(http)
+    .post('/auth/tenant')
+    .set(
+      'Authorization',
+      `Bearer ${(login.body as { accessToken: string }).accessToken}`,
+    )
+    .send({ tenantId: fixture.tenantId })
+    .expect(200);
+  const bind = await request(http)
+    .post('/auth/terminal')
+    .set(
+      'Authorization',
+      `Bearer ${(scoped.body as { accessToken: string }).accessToken}`,
+    )
+    .send({ terminalId })
+    .expect(200);
+  return (bind.body as { accessToken: string }).accessToken;
 }
 
 // ────────────────────────────────────────────────────────── envelope builders

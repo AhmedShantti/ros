@@ -23,7 +23,6 @@ import { EmployeesService } from './../src/modules/identity/employees/employees.
 import { PinService } from './../src/modules/identity/employees/pin.service';
 import { MembershipsService } from './../src/modules/identity/memberships/memberships.service';
 import { TenantsService } from './../src/modules/identity/tenants/tenants.service';
-import { TerminalsService } from './../src/modules/identity/terminals/terminals.service';
 import { UsersService } from './../src/modules/identity/users/users.service';
 import { BranchesService } from './../src/modules/organisation/branches/branches.service';
 import { BrandsService } from './../src/modules/organisation/brands/brands.service';
@@ -760,19 +759,32 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
   });
 
   // ═══════════════════════════ F. POS SESSIONS ═════════════════════════════
+  // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13): POS is a
+  // branch/employee-scoped application session, not a registered device —
+  // there is no terminal to derive a branch from any more
+  // (`TenantContextService.resolveSessionBranch`'s own docblock). A PIN
+  // login now stamps the JWT `brc` claim with the branch CHOSEN at login,
+  // and every request re-verifies, from live state, that (1) that branch is
+  // still `active` and (2) the session's employee is still permitted there
+  // — replacing the old terminal-registration/terminal-revocation checks
+  // this suite used to exercise.
   describe('F. POS narrowing — EmployeeBranch is AND-only, never a grant', () => {
     const pin = '4417';
     let posEmail: string;
     let employeeCode: string;
-    let terminalX1: string;
-    let terminalX2: string;
     let employeeId: string;
     let posMembership: string;
 
-    const posLogin = (terminalId: string) =>
+    const posLogin = (branchId: string) =>
       request(http)
         .post('/auth/pin')
-        .send({ tenantId: tenantA, terminalId, employeeCode, pin });
+        .send({
+          tenantId: tenantA,
+          branchId,
+          employeeCode,
+          pin,
+          sessionType: 'pos',
+        });
 
     beforeAll(async () => {
       posEmail = `srbac.pos.${stamp}@example.com`;
@@ -786,28 +798,12 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
         .id;
 
       // A TENANT-scoped role. The point of the suite: tenant-wide authority
-      // still cannot cross the terminal's branch on a POS session.
+      // still cannot cross the POS session's own operating branch.
       await assignments.create(tenantA, adminUserId, {
         membershipId: posMembership,
         roleId: roleBiz,
         scope: { type: 'tenant' },
       });
-
-      const terminals = app.get(TerminalsService);
-      terminalX1 = (
-        await terminals.register(tenantA, {
-          branchId: branchX1,
-          name: `T-X1-${stamp % 1000}`,
-          terminalType: 'pos',
-        })
-      ).id;
-      terminalX2 = (
-        await terminals.register(tenantA, {
-          branchId: branchX2,
-          name: `T-X2-${stamp % 1000}`,
-          terminalType: 'pos',
-        })
-      ).id;
 
       employeeId = (
         await app.get(EmployeesService).create(tenantA, adminUserId, {
@@ -821,8 +817,8 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
       await app.get(PinService).setPin(tenantA, adminUserId, employeeId, pin);
     });
 
-    it('a TENANT-scoped role still cannot act on another terminal’s branch', async () => {
-      const res = await posLogin(terminalX1).expect(200);
+    it('a TENANT-scoped role still cannot act outside the POS session’s own branch', async () => {
+      const res = await posLogin(branchX1).expect(200);
       const token = (res.body as Tokens).accessToken;
       const auth = await (async () => {
         const p = await tokens.verify(token);
@@ -831,7 +827,7 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
           sessionId: p.sid,
           tenantId: p.tid,
           membershipId: p.mid,
-          terminalId: p.trm,
+          branchId: p.brc,
           employeeId: p.emp,
           sessionType: 'pos',
           authzEpoch: p.epo,
@@ -844,13 +840,15 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
 
       expect(await ask({ type: 'branch', branchId: branchX1 })).toBe(true);
       // Permitted by EmployeeBranch AND covered by the tenant-scoped role —
-      // and STILL denied, because the terminal binds the session to X1.
+      // and STILL denied, because the session narrows to the branch chosen
+      // at login (X1), never every branch the employee happens to be
+      // permitted at.
       expect(await ask({ type: 'branch', branchId: branchX2 })).toBe(false);
       expect(await ask({ type: 'branch', branchId: branchY1 })).toBe(false);
     });
 
-    it('removing the employee from the terminal’s branch denies the NEXT request on a live token', async () => {
-      const res = await posLogin(terminalX2).expect(200);
+    it('removing the employee from the session’s branch denies the NEXT request on a live token', async () => {
+      const res = await posLogin(branchX2).expect(200);
       const token = (res.body as Tokens).accessToken;
       const p = await tokens.verify(token);
       const principal = {
@@ -858,7 +856,7 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
         sessionId: p.sid,
         tenantId: p.tid,
         membershipId: p.mid,
-        terminalId: p.trm,
+        branchId: p.brc,
         employeeId: p.emp,
         sessionType: 'pos' as const,
         authzEpoch: p.epo,
@@ -874,8 +872,8 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
       await expect(tenantContext.resolve(principal)).rejects.toThrow();
     });
 
-    it('a revoked terminal denies the NEXT request on a live token (FR-SEC-028)', async () => {
-      const res = await posLogin(terminalX1).expect(200);
+    it('a branch that goes inactive denies the NEXT request on a live token (FR-SEC-028)', async () => {
+      const res = await posLogin(branchX1).expect(200);
       const token = (res.body as Tokens).accessToken;
       const p = await tokens.verify(token);
       const principal = {
@@ -883,20 +881,24 @@ describe('Scoped RBAC — B1-2 (e2e)', () => {
         sessionId: p.sid,
         tenantId: p.tid,
         membershipId: p.mid,
-        terminalId: p.trm,
+        branchId: p.brc,
         employeeId: p.emp,
         sessionType: 'pos' as const,
         authzEpoch: p.epo,
       };
       await expect(tenantContext.resolve(principal)).resolves.toBeDefined();
 
-      await app.get(TerminalsService).setStatus(tenantA, terminalX1, 'revoked');
+      await app
+        .get(BranchesService)
+        .setStatus(tenantA, adminUserId, branchX1, 'inactive');
       await expect(tenantContext.resolve(principal)).rejects.toThrow();
-      await app.get(TerminalsService).setStatus(tenantA, terminalX1, 'active');
+      await app
+        .get(BranchesService)
+        .setStatus(tenantA, adminUserId, branchX1, 'active');
     });
 
     it('a POS token still cannot reach a dashboard route (FR-SEC-021 regression)', async () => {
-      const res = await posLogin(terminalX1).expect(200);
+      const res = await posLogin(branchX1).expect(200);
       const token = (res.body as Tokens).accessToken;
       await request(http)
         .get('/auth/roles')

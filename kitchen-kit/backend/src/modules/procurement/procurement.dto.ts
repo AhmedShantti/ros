@@ -282,13 +282,22 @@ export class ListPurchaseOrdersQueryDto {
 
 /** A PIN-verified manager decision — the ONLY manual approval-decision
  *  channel this repository's Governance runtime actually supports today
- *  (`TERMINAL_PIN_VERIFIER`). See `purchase-order-approval.service.ts`'s
+ *  (`APPROVER_PIN_VERIFIER`). See `purchase-order-approval.service.ts`'s
  *  own docblock for why. */
 export class DecidePurchaseOrderDto {
   @IsInt() expectedVersion!: number;
   /** FR-OFF-015-style client-generated permanent id for THIS decision. */
   @uuid('approvalDecisionId') approvalDecisionId!: string;
-  @uuid('terminalId') terminalId!: string;
+  /**
+   * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 §9 — a Purchase Order may be
+   * tenant-wide (warehouse/central-kitchen delivery), so no single
+   * unambiguous branch is always derivable from the order itself. This is
+   * OPERATIONAL identity context ONLY — the branch the approving
+   * employee's PIN/membership is verified against — never a device
+   * identity. Never the branch a Purchase Order is attributed or delivered
+   * to.
+   */
+  @uuid('approvalBranchId') approvalBranchId!: string;
   @IsString() @Length(1, 32) employeeCode!: string;
   @IsString() @Length(4, 12) pin!: string;
   @IsOptional() @IsString() @Length(1, 1000) comment?: string;

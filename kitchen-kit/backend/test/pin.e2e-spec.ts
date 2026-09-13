@@ -35,9 +35,6 @@ describe('PIN authentication (e2e)', () => {
   let branchA1: string;
   let branchA2: string;
   let branchB: string;
-  let terminalA1: string;
-  let terminalA2: string;
-  let terminalB: string;
   let actorA: string;
 
   // employee in branchA1 only
@@ -74,24 +71,6 @@ describe('PIN authentication (e2e)', () => {
       },
     });
     return branch.id;
-  };
-
-  const mkTerminal = async (
-    tenantId: string,
-    branchId: string,
-    name: string,
-  ): Promise<string> => {
-    const t = await admin.terminal.create({
-      data: {
-        id: newId(),
-        tenantId,
-        branchId,
-        name,
-        terminalType: 'pos',
-        status: 'active',
-      },
-    });
-    return t.id;
   };
 
   const mkUser = async (email: string, tenantId: string): Promise<string> => {
@@ -144,10 +123,6 @@ describe('PIN authentication (e2e)', () => {
     branchA1 = await mkBranch(tenantA, `P1${stamp % 10000}`);
     branchA2 = await mkBranch(tenantA, `P2${stamp % 10000}`);
     branchB = await mkBranch(tenantB, `PB${stamp % 10000}`);
-
-    terminalA1 = await mkTerminal(tenantA, branchA1, 'A1-POS');
-    terminalA2 = await mkTerminal(tenantA, branchA2, 'A2-POS');
-    terminalB = await mkTerminal(tenantB, branchB, 'B-POS');
 
     actorA = await mkUser(`pin.actor.${stamp}@example.com`, tenantA);
     aliceUser = await mkUser(`pin.alice.${stamp}@example.com`, tenantA);
@@ -390,13 +365,28 @@ describe('PIN authentication (e2e)', () => {
   });
 
   // --------------------------------------------------- FR-SEC-021 login ---
+  // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: PIN login is branch/employee-
+  // scoped, not terminal-scoped. No Terminal row is created or referenced
+  // by ANY test in this describe block — proof that none is needed.
   describe('PIN authentication (FR-SEC-021)', () => {
-    it('authenticates with the correct PIN on a permitted-branch terminal', async () => {
+    it('authenticates with the correct PIN at a permitted branch, sessionType pos', async () => {
       const res = await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA1,
+        branchId: branchA1,
         employeeCode: `ALICE${stamp % 1000}`,
         pin: '1234',
+        sessionType: 'pos',
+      }).expect(200);
+      expect((res.body as Tokens).accessToken).toBeTruthy();
+    });
+
+    it('authenticates with the correct PIN at a permitted branch, sessionType kds', async () => {
+      const res = await pinLogin({
+        tenantId: tenantA,
+        branchId: branchA1,
+        employeeCode: `ALICE${stamp % 1000}`,
+        pin: '1234',
+        sessionType: 'kds',
       }).expect(200);
       expect((res.body as Tokens).accessToken).toBeTruthy();
     });
@@ -404,75 +394,116 @@ describe('PIN authentication (e2e)', () => {
     it('rejects a wrong PIN', async () => {
       await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA1,
+        branchId: branchA1,
         employeeCode: `ALICE${stamp % 1000}`,
         pin: '0000',
+        sessionType: 'pos',
       }).expect(401);
     });
 
-    it('rejects a terminal in a branch the employee is not permitted in', async () => {
-      // Alice is permitted only in branchA1; terminalA2 lives in branchA2.
+    it('rejects a branch the employee is not permitted in', async () => {
+      // Alice is permitted only in branchA1.
       await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA2,
+        branchId: branchA2,
         employeeCode: `ALICE${stamp % 1000}`,
         pin: '1234',
+        sessionType: 'pos',
       }).expect(401);
     });
 
-    it('rejects a revoked terminal immediately', async () => {
-      const revoked = await mkTerminal(tenantA, branchA1, 'REVOKED');
-      await admin.terminal.update({
-        where: { id: revoked },
-        data: { status: 'revoked' },
+    it('rejects login at an INACTIVE branch immediately (replaces the old "revoked terminal" case — a Terminal no longer gates PIN login at all; the branch itself is the live-checked resource now)', async () => {
+      const brand = await admin.brand.create({
+        data: { id: newId(), tenantId: tenantA, name: `PinBrand Inactive ${stamp}` },
+      });
+      const inactiveBranch = await admin.branch.create({
+        data: {
+          id: newId(),
+          tenantId: tenantA,
+          brandId: brand.id,
+          code: `PX${stamp % 10000}`,
+          name: `PinBranch Inactive ${stamp}`,
+          timezone: 'Africa/Cairo',
+          baseCurrency: 'EGP',
+          countryCode: 'EG',
+          status: 'inactive',
+        },
+      });
+      await admin.employeeBranch.create({
+        data: { tenantId: tenantA, employeeId: empAlice, branchId: inactiveBranch.id },
       });
       await pinLogin({
         tenantId: tenantA,
-        terminalId: revoked,
+        branchId: inactiveBranch.id,
         employeeCode: `ALICE${stamp % 1000}`,
         pin: '1234',
+        sessionType: 'pos',
       }).expect(401);
     });
 
-    it('rejects an unregistered terminal id', async () => {
+    it('rejects a non-existent branch id (replaces the old "unregistered terminal id" case)', async () => {
       await pinLogin({
         tenantId: tenantA,
-        terminalId: newId(),
+        branchId: newId(),
         employeeCode: `ALICE${stamp % 1000}`,
         pin: '1234',
+        sessionType: 'pos',
       }).expect(401);
     });
 
-    it('enforces the tenant boundary: tenant B terminal, tenant A employee', async () => {
+    it('enforces the tenant boundary: tenant B branch, tenant A employee', async () => {
       await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalB,
+        branchId: branchB,
         employeeCode: `ALICE${stamp % 1000}`,
         pin: '1234',
+        sessionType: 'pos',
       }).expect(401);
     });
 
     it('rejects a malformed PIN at the DTO boundary', async () => {
       await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA1,
+        branchId: branchA1,
         employeeCode: `ALICE${stamp % 1000}`,
         pin: 'abcd',
+        sessionType: 'pos',
       }).expect(400);
       await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA1,
+        branchId: branchA1,
         employeeCode: `ALICE${stamp % 1000}`,
         pin: '12',
+        sessionType: 'pos',
+      }).expect(400);
+    });
+
+    it('rejects a missing sessionType (now REQUIRED — CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0)', async () => {
+      await pinLogin({
+        tenantId: tenantA,
+        branchId: branchA1,
+        employeeCode: `ALICE${stamp % 1000}`,
+        pin: '1234',
+      }).expect(400);
+    });
+
+    it('rejects an unsupported sessionType value', async () => {
+      await pinLogin({
+        tenantId: tenantA,
+        branchId: branchA1,
+        employeeCode: `ALICE${stamp % 1000}`,
+        pin: '1234',
+        sessionType: 'dashboard',
       }).expect(400);
     });
 
     it('rejects unknown fields (global whitelist)', async () => {
       await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA1,
+        branchId: branchA1,
         employeeCode: `ALICE${stamp % 1000}`,
         pin: '1234',
+        sessionType: 'pos',
         rogue: true,
       }).expect(400);
     });
@@ -493,9 +524,10 @@ describe('PIN authentication (e2e)', () => {
       const attempt = (pin: string) =>
         pinLogin({
           tenantId: tenantA,
-          terminalId: terminalA1,
+          branchId: branchA1,
           employeeCode: `LOCK${stamp % 1000}`,
           pin,
+          sessionType: 'pos',
         });
 
       // Configured threshold (env.validation default 5, documented as an
@@ -525,9 +557,10 @@ describe('PIN authentication (e2e)', () => {
       await pins.setPin(tenantA, actorA, e.id, '6666');
       await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA2,
+        branchId: branchA2,
         employeeCode: `CNT${stamp % 1000}`,
         pin: '0001',
+        sessionType: 'pos',
       }).expect(401);
 
       const cred = await admin.credential.findFirst({
@@ -550,9 +583,10 @@ describe('PIN authentication (e2e)', () => {
       // One failure, then a success — the counter must be back to zero.
       await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA1,
+        branchId: branchA1,
         employeeCode: `CLR${stamp % 1000}`,
         pin: '0002',
+        sessionType: 'pos',
       }).expect(401);
       const afterFail = await admin.credential.findFirst({
         where: { userId: u, credentialType: 'pin' },
@@ -561,9 +595,10 @@ describe('PIN authentication (e2e)', () => {
 
       await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA1,
+        branchId: branchA1,
         employeeCode: `CLR${stamp % 1000}`,
         pin: '8181',
+        sessionType: 'pos',
       }).expect(200);
       const afterOk = await admin.credential.findFirst({
         where: { userId: u, credentialType: 'pin' },
@@ -580,9 +615,10 @@ describe('PIN authentication (e2e)', () => {
     beforeAll(async () => {
       const res = await pinLogin({
         tenantId: tenantA,
-        terminalId: terminalA1,
+        branchId: branchA1,
         employeeCode: `ALICE${stamp % 1000}`,
         pin: '1234',
+        sessionType: 'pos',
       }).expect(200);
       posToken = (res.body as Tokens).accessToken;
     });
@@ -608,13 +644,14 @@ describe('PIN authentication (e2e)', () => {
         .expect(403);
     });
 
-    it('carries the terminal and POS audience in the token', () => {
+    it('carries the branch and POS audience in the token, and NO terminal claim (CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0)', () => {
       const [, payload] = posToken.split('.');
       const claims = JSON.parse(
         Buffer.from(payload, 'base64url').toString('utf8'),
-      ) as { typ?: string; trm?: string; tid?: string };
+      ) as { typ?: string; trm?: string; brc?: string; tid?: string };
       expect(claims.typ).toBe('pos');
-      expect(claims.trm).toBe(terminalA1);
+      expect(claims.brc).toBe(branchA1);
+      expect(claims.trm).toBeUndefined();
       expect(claims.tid).toBe(tenantA);
     });
   });
