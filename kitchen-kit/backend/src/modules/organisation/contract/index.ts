@@ -17,6 +17,12 @@ export * from './branch-currency.query';
 export * from './branch-jurisdiction.query';
 export * from './station-display-binding.query';
 export * from './kds-branch-config.query';
+/**
+ * KDS-STATION-DISCOVERY-AUTH-FIX-P0 — the minimal branch-scoped station
+ * picker read a KDS session needs; never `StationSummary`'s management
+ * fields, never `stations/stations.service`.
+ */
+export * from './station-list.query';
 export * from './branch-reporting-scope.query';
 export * from './branch-brand.query';
 export * from './branch-locations.query';

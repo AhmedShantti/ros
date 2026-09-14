@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
 import { OrganisationModule } from '../organisation/organisation.module';
 import { KdsStationGuard } from './auth/kds-station.guard';
+import { KdsStationsController } from './kds-stations.controller';
 import { KitchenController } from './kitchen.controller';
 import { OrderLineFiredHandler } from './tickets/order-line-fired.handler';
 import { OrderLineVoidedPostFireHandler } from './tickets/order-line-voided-postfire.handler';
@@ -28,7 +29,8 @@ import {
  * chain (`JwtAuthGuard` -> `TenantContextGuard` -> `PermissionGuard`),
  * published as `identity/contract`'s cross-cutting HTTP surface;
  * `OrganisationModule` for its published `contract/` (`RoutingConfigQuery`,
- * `ORG_STATION_TARGET_RESOLVER`, `KdsBranchConfigQuery`) — see
+ * `ORG_STATION_TARGET_RESOLVER`, `KdsBranchConfigQuery`,
+ * `StationListQuery` — KDS-STATION-DISCOVERY-AUTH-FIX-P0) — see
  * `module-boundaries.spec.ts`.
  *
  * CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 (2026-09-13): `KdsStationGuard` no
@@ -71,7 +73,7 @@ import {
  */
 @Module({
   imports: [IdentityModule, OrganisationModule],
-  controllers: [KitchenController],
+  controllers: [KitchenController, KdsStationsController],
   providers: [
     TicketTargetResolver,
     { provide: KDS_TICKET_TARGET_RESOLVER, useExisting: TicketTargetResolver },

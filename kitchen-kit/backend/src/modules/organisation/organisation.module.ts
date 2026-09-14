@@ -31,6 +31,7 @@ import {
   LOCATION_FACTS_QUERY,
   ROUTING_CONFIG_QUERY,
   STATION_DISPLAY_BINDING_QUERY,
+  STATION_LIST_QUERY,
   TABLE_DISPLAY_QUERY,
 } from './contract';
 import { LocationsService } from './locations/locations.service';
@@ -41,6 +42,7 @@ import { KdsBranchConfigQueryService } from './routing-config/kds-branch-config.
 import { RoutingConfigQueryService } from './routing-config/routing-config.query.service';
 import { StationRoutingService } from './station-routing/station-routing.service';
 import { StationDisplayBindingQueryService } from './stations/station-display-binding.query.service';
+import { StationListQueryService } from './stations/station-list.query.service';
 import { StationsService } from './stations/stations.service';
 import { TableDisplayQueryService } from './tables/table-display.query.service';
 import { TablesService } from './tables/tables.service';
@@ -104,6 +106,11 @@ import { WarehousesService } from './warehouses/warehouses.service';
       provide: KDS_BRANCH_CONFIG_QUERY,
       useExisting: KdsBranchConfigQueryService,
     },
+    // KDS-STATION-DISCOVERY-AUTH-FIX-P0 — the minimal branch-scoped station
+    // picker read Kitchen's KDS session needs. Not authorization; grants
+    // nothing (Kitchen's own guard chain decides who may call it).
+    StationListQueryService,
+    { provide: STATION_LIST_QUERY, useExisting: StationListQueryService },
     // Minimum Operational Reporting (RPT-R1/R2/R3) — the Internal-MVP
     // single-active-branch fail-closed assertion, consumed only by the
     // `reporting` module. NOT branch-aware RBAC; D-2 untouched.
@@ -168,6 +175,7 @@ import { WarehousesService } from './warehouses/warehouses.service';
     BRANCH_JURISDICTION_QUERY,
     STATION_DISPLAY_BINDING_QUERY,
     KDS_BRANCH_CONFIG_QUERY,
+    STATION_LIST_QUERY,
     BRANCH_REPORTING_SCOPE_QUERY,
     BRANCH_BRAND_QUERY,
     BRANCH_LOCATIONS_QUERY,
