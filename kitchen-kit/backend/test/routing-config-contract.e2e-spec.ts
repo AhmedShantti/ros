@@ -4,7 +4,9 @@ import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { newId } from './../src/common/ids';
 import { PrismaClient } from './../src/generated/prisma/client';
+import { BranchKdsConfigService } from './../src/modules/organisation/branch-kds-config/branch-kds-config.service';
 import { KitchenModule } from './../src/modules/kitchen/kitchen.module';
+import { RoutingNoDestinationError } from './../src/modules/kitchen/routing/routing-resolver.errors';
 import { RoutingResolverService } from './../src/modules/kitchen/routing/routing-resolver.service';
 import { ROUTING_CONFIG_QUERY } from './../src/modules/organisation/contract';
 import type { RoutingConfigQuery } from './../src/modules/organisation/contract';
@@ -31,6 +33,7 @@ describe('Organisation routing contract — DI + transaction + RLS (P1E-3A)', ()
   let admin: PrismaClient;
   let routingConfigQuery: RoutingConfigQuery;
   let resolver: RoutingResolverService;
+  let branchKdsConfig: BranchKdsConfigService;
 
   const ts = Date.now();
   const tenantA = newId();
@@ -38,7 +41,9 @@ describe('Organisation routing contract — DI + transaction + RLS (P1E-3A)', ()
   const brandA = newId();
   const branchA = newId();
   const stationA = newId();
+  const stationFallback = newId();
   const menuItemA = newId();
+  const menuItemUnrouted = newId();
   const ruleA = newId();
 
   beforeAll(async () => {
@@ -51,6 +56,7 @@ describe('Organisation routing contract — DI + transaction + RLS (P1E-3A)', ()
     admin = createMigratorClient(app);
     routingConfigQuery = app.get(ROUTING_CONFIG_QUERY);
     resolver = app.get(RoutingResolverService);
+    branchKdsConfig = app.get(BranchKdsConfigService);
 
     await admin.tenant.createMany({
       data: [tenantA, tenantB].map((id, i) => ({
@@ -79,8 +85,18 @@ describe('Organisation routing contract — DI + transaction + RLS (P1E-3A)', ()
     await admin.station.create({
       data: { id: stationA, branchId: branchA, name: 'Grill' },
     });
+    await admin.station.create({
+      data: { id: stationFallback, branchId: branchA, name: 'Expo' },
+    });
     await admin.menuItem.create({
       data: { id: menuItemA, tenantId: tenantA, names: { en: 'Item' } },
+    });
+    await admin.menuItem.create({
+      data: {
+        id: menuItemUnrouted,
+        tenantId: tenantA,
+        names: { en: 'Unrouted item' },
+      },
     });
     await admin.stationRoutingRule.create({
       data: {
@@ -94,6 +110,7 @@ describe('Organisation routing contract — DI + transaction + RLS (P1E-3A)', ()
   });
 
   afterAll(async () => {
+    await admin.branchKdsConfig.deleteMany({ where: { tenantId: tenantA } });
     await admin.stationRoutingRule.deleteMany({ where: { tenantId: tenantA } });
     await admin.menuItem.deleteMany({ where: { tenantId: tenantA } });
     await admin.station.deleteMany({ where: { branchId: branchA } });
@@ -202,5 +219,59 @@ describe('Organisation routing contract — DI + transaction + RLS (P1E-3A)', ()
     expect(result.menuItemRules).toEqual([
       { ruleId: ruleA, stationId: stationA },
     ]);
+  });
+
+  describe('branch fallback (tier 5) — KDS-BRANCH-FALLBACK-STATION-P0', () => {
+    afterEach(async () => {
+      // Each test below sets/clears the ONE fallback row this branch has —
+      // reset it so tests don't depend on execution order.
+      await branchKdsConfig.set(tenantA, newId(), branchA, null);
+    });
+
+    it('an otherwise-unrouted item throws RoutingNoDestinationError until a fallback is persisted, then resolves to it through the full DI + DB path', async () => {
+      const resolveUnrouted = () =>
+        prisma.withAuthContext({ tenantId: tenantA }, (tx) =>
+          resolver.resolve(tx, {
+            tenantId: tenantA,
+            branchId: branchA,
+            menuItemId: menuItemUnrouted,
+            modifierIds: [],
+            categoryIds: [],
+            lineOverrides: [],
+          }),
+        );
+      await expect(resolveUnrouted()).rejects.toThrow(
+        RoutingNoDestinationError,
+      );
+
+      // Written through the SAME service the new HTTP PATCH endpoint calls —
+      // not a direct `admin.branchKdsConfig` write — so this proves the real
+      // write path, not just the schema.
+      await branchKdsConfig.set(tenantA, newId(), branchA, stationFallback);
+
+      const after = await resolveUnrouted();
+      expect(after.tier).toBe('FALLBACK');
+      expect(after.stationIds).toEqual([stationFallback]);
+    });
+
+    it('an explicit MENU_ITEM rule still wins over a configured fallback — routing precedence is unchanged', async () => {
+      await branchKdsConfig.set(tenantA, newId(), branchA, stationFallback);
+
+      const result = await prisma.withAuthContext(
+        { tenantId: tenantA },
+        (tx) =>
+          resolver.resolve(tx, {
+            tenantId: tenantA,
+            branchId: branchA,
+            menuItemId: menuItemA, // has ruleA -> stationA
+            modifierIds: [],
+            categoryIds: [],
+            lineOverrides: [],
+          }),
+      );
+      expect(result.tier).toBe('MENU_ITEM');
+      expect(result.stationIds).toEqual([stationA]);
+      expect(result.stationIds).not.toEqual([stationFallback]);
+    });
   });
 });

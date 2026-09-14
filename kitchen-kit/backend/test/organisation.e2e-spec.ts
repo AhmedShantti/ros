@@ -904,4 +904,129 @@ describe('Organisation (e2e)', () => {
         .expect(404);
     });
   });
+
+  describe('branch KDS config — fallback station (KDS-BRANCH-FALLBACK-STATION-P0)', () => {
+    let stationKdsA: string;
+    let stationKdsA2: string;
+
+    beforeAll(async () => {
+      stationKdsA = (
+        (await request(http)
+          .post(`/org/branches/${branchA}/stations`)
+          .set(auth(tokenAdminA))
+          .send({ name: `Fallback ${stamp}` })
+          .expect(201)
+        ).body as WithId
+      ).id;
+
+      // A second, DIFFERENT branch in the SAME tenant — for the
+      // "same tenant, wrong branch" rejection, distinct from stationB
+      // (right kind of wrong, but ALSO a different tenant).
+      const branch2 = (
+        await request(http)
+          .post('/org/branches')
+          .set(auth(tokenAdminA))
+          .send({
+            brandId: brandA,
+            code: `A2${stamp % 10000}`,
+            name: `Branch A2 ${stamp}`,
+            timezone: 'Africa/Cairo',
+            baseCurrency: 'EGP',
+            countryCode: 'EG',
+          })
+          .expect(201)
+        ).body as WithId;
+      stationKdsA2 = (
+        (await request(http)
+          .post(`/org/branches/${branch2.id}/stations`)
+          .set(auth(tokenAdminA))
+          .send({ name: `Other branch ${stamp}` })
+          .expect(201)
+        ).body as WithId
+      ).id;
+    });
+
+    it('GET returns fallbackStationId: null when no config row exists yet', async () => {
+      const res = await request(http)
+        .get(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenReadA))
+        .expect(200);
+      expect(res.body).toEqual({ fallbackStationId: null });
+    });
+
+    it('PATCH requires BRANCH_MANAGE, not just BRANCH_READ', async () => {
+      await request(http)
+        .patch(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenReadA))
+        .send({ fallbackStationId: stationKdsA })
+        .expect(403);
+    });
+
+    it('PATCH sets a valid same-branch station, and GET round-trips it', async () => {
+      const patched = await request(http)
+        .patch(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenAdminA))
+        .send({ fallbackStationId: stationKdsA })
+        .expect(200);
+      expect(patched.body).toEqual({ fallbackStationId: stationKdsA });
+
+      const got = await request(http)
+        .get(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenAdminA))
+        .expect(200);
+      expect(got.body).toEqual({ fallbackStationId: stationKdsA });
+    });
+
+    it('PATCH with the same value again is idempotent', async () => {
+      const first = await request(http)
+        .patch(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenAdminA))
+        .send({ fallbackStationId: stationKdsA })
+        .expect(200);
+      const second = await request(http)
+        .patch(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenAdminA))
+        .send({ fallbackStationId: stationKdsA })
+        .expect(200);
+      expect(second.body).toEqual(first.body);
+      expect(second.body).toEqual({ fallbackStationId: stationKdsA });
+    });
+
+    it('PATCH with null clears a previously-set fallback', async () => {
+      await request(http)
+        .patch(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenAdminA))
+        .send({ fallbackStationId: stationKdsA })
+        .expect(200);
+
+      const cleared = await request(http)
+        .patch(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenAdminA))
+        .send({ fallbackStationId: null })
+        .expect(200);
+      expect(cleared.body).toEqual({ fallbackStationId: null });
+
+      const got = await request(http)
+        .get(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenAdminA))
+        .expect(200);
+      expect(got.body).toEqual({ fallbackStationId: null });
+    });
+
+    it('rejects a station from ANOTHER branch in the same tenant → 404', async () => {
+      await request(http)
+        .patch(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenAdminA))
+        .send({ fallbackStationId: stationKdsA2 })
+        .expect(404);
+    });
+
+    it('rejects a station from ANOTHER tenant entirely → 404', async () => {
+      await request(http)
+        .patch(`/org/branches/${branchA}/kds-config`)
+        .set(auth(tokenAdminA))
+        .send({ fallbackStationId: stationB })
+        .expect(404);
+    });
+  });
 });

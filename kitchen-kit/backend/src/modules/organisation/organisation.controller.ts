@@ -36,6 +36,8 @@ import { BrandsService } from './brands/brands.service';
 import { CreateBrandDto } from './brands/dto/create-brand.dto';
 import { UpdateBrandDto } from './brands/dto/update-brand.dto';
 import { BranchesService } from './branches/branches.service';
+import { BranchKdsConfigService } from './branch-kds-config/branch-kds-config.service';
+import { SetBranchKdsConfigDto } from './branch-kds-config/dto/set-branch-kds-config.dto';
 import { CreateBranchDto } from './branches/dto/create-branch.dto';
 import { ReassignBrandDto } from './branches/dto/reassign-brand.dto';
 import { SetBranchStatusDto } from './branches/dto/set-branch-status.dto';
@@ -168,6 +170,13 @@ const stationSchema = {
   },
 };
 
+const branchKdsConfigSchema = {
+  type: 'object',
+  properties: {
+    fallbackStationId: nullable(uuidSchema()),
+  },
+};
+
 const tableSchema = {
   type: 'object',
   properties: {
@@ -272,6 +281,7 @@ export class OrganisationController {
     private readonly operatingHours: OperatingHoursService,
     private readonly printRouting: PrintRoutingService,
     private readonly stationRouting: StationRoutingService,
+    private readonly branchKdsConfig: BranchKdsConfigService,
   ) {}
 
   // ----------------------------- Access discovery (MTMB-1) -----------------
@@ -748,6 +758,53 @@ export class OrganisationController {
     @Body() dto: UpdateStationDto,
   ) {
     return this.stations.update(ctx.tenantId, ctx.userId, stationId, dto);
+  }
+
+  // ------------------------ Branch KDS config -------------------------------
+  // KDS-BRANCH-FALLBACK-STATION-P0 — the one field kitchen routing's tier-5
+  // fallback needs a real write path for. See `BranchKdsConfigService`'s own
+  // docblock for why this is a distinct contract from the station-routing
+  // rules above (explicit line/modifier/item/category rules) and from
+  // `KDS_BRANCH_CONFIG_QUERY` (Kitchen's own private recall-window contract).
+  @Get('branches/:branchId/kds-config')
+  @AuthorizationTarget(branchFromParam('branchId'))
+  @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_READ)
+  @ApiOkResponse({
+    description:
+      "The branch's KDS routing fallback configuration. `fallbackStationId` is null until explicitly set.",
+    schema: branchKdsConfigSchema,
+  })
+  @ApiNotFoundResponse({ description: 'Branch not found.' })
+  getBranchKdsConfig(
+    @CurrentTenantContext() ctx: TenantContext,
+    @Param('branchId') branchId: string,
+  ) {
+    return this.branchKdsConfig.find(ctx.tenantId, branchId);
+  }
+
+  @Patch('branches/:branchId/kds-config')
+  @AuthorizationTarget(branchFromParam('branchId'))
+  @RequirePermission(ORGANISATION_PERMISSIONS.BRANCH_MANAGE)
+  @ApiOkResponse({
+    description:
+      'The updated KDS routing fallback configuration. `fallbackStationId: null` clears it — kitchen routing tiers 1-4 (line override, modifier, menu item, category) are never affected and still take precedence.',
+    schema: branchKdsConfigSchema,
+  })
+  @ApiNotFoundResponse({
+    description:
+      'Branch not found, or fallbackStationId does not name a station in this branch.',
+  })
+  setBranchKdsConfig(
+    @CurrentTenantContext() ctx: TenantContext,
+    @Param('branchId') branchId: string,
+    @Body() dto: SetBranchKdsConfigDto,
+  ) {
+    return this.branchKdsConfig.set(
+      ctx.tenantId,
+      ctx.userId,
+      branchId,
+      dto.fallbackStationId ?? null,
+    );
   }
 
   // ----------------------------- Tables ------------------------------------

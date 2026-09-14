@@ -137,6 +137,7 @@ export const AUDIT_ACTION = {
   PRINT_ROUTING_UPDATED: 'PRINT_ROUTING_UPDATED',
   STATION_ROUTING_CREATED: 'STATION_ROUTING_CREATED',
   STATION_ROUTING_UPDATED: 'STATION_ROUTING_UPDATED',
+  BRANCH_KDS_CONFIG_UPDATED: 'BRANCH_KDS_CONFIG_UPDATED',
 
   // Phase 16 — Catalogue mutations. Reads are NOT audited.
   MENU_CREATED: 'MENU_CREATED',
@@ -383,6 +384,7 @@ export const AUDIT_ENTITY = {
   OPERATING_HOURS: 'operating_hours',
   PRINT_ROUTING: 'print_routing',
   STATION_ROUTING_RULE: 'station_routing_rule',
+  BRANCH_KDS_CONFIG: 'branch_kds_config',
 
   // Phase 16 — Catalogue entities.
   MENU: 'menu',

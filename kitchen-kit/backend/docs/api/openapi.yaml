@@ -2047,6 +2047,15 @@ components:
       required:
         - branchId
       type: object
+    SetBranchKdsConfigDto:
+      properties:
+        fallbackStationId:
+          type:
+            - string
+            - 'null'
+      required:
+        - fallbackStationId
+      type: object
     SetBranchStatusDto:
       properties:
         status:
@@ -20137,6 +20146,105 @@ paths:
       security:
         - bearer: []
       summary: Reassign a branch to another brand within the same tenant.
+      tags:
+        - organisation
+  /org/branches/{branchId}/kds-config:
+    get:
+      operationId: OrganisationController_getBranchKdsConfig
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  fallbackStationId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                type: object
+          description: The branch's KDS routing fallback configuration. `fallbackStationId` is null until explicitly set.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing/invalid/expired token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No tenant context / insufficient permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Branch not found.
+      security:
+        - bearer: []
+      tags:
+        - organisation
+    patch:
+      operationId: OrganisationController_setBranchKdsConfig
+      parameters:
+        - in: path
+          name: branchId
+          required: true
+          schema:
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetBranchKdsConfigDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  fallbackStationId:
+                    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    format: uuid
+                    type:
+                      - string
+                      - 'null'
+                type: object
+          description: 'The updated KDS routing fallback configuration. `fallbackStationId: null` clears it — kitchen routing tiers 1-4 (line override, modifier, menu item, category) are never affected and still take precedence.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing/invalid/expired token.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No tenant context / insufficient permission.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Branch not found, or fallbackStationId does not name a station in this branch.
+      security:
+        - bearer: []
       tags:
         - organisation
   /org/branches/{branchId}/operating-hours:

@@ -6,6 +6,7 @@ import { BranchJurisdictionQueryService } from './branches/branch-jurisdiction.q
 import { BranchBrandQueryService } from './branches/branch-brand.query.service';
 import { BranchReportingScopeQueryService } from './branches/branch-reporting-scope.query.service';
 import { BranchesService } from './branches/branches.service';
+import { BranchKdsConfigService } from './branch-kds-config/branch-kds-config.service';
 import { BranchLocationsQueryService } from './locations/branch-locations.query.service';
 import { LocationFactsQueryService } from './locations/location-facts.query.service';
 import {
@@ -81,6 +82,7 @@ import { WarehousesService } from './warehouses/warehouses.service';
     OperatingHoursService,
     PrintRoutingService,
     StationRoutingService,
+    BranchKdsConfigService,
     RoutingConfigQueryService,
     { provide: ROUTING_CONFIG_QUERY, useExisting: RoutingConfigQueryService },
     TableDisplayQueryService,
@@ -159,6 +161,7 @@ import { WarehousesService } from './warehouses/warehouses.service';
     OperatingHoursService,
     PrintRoutingService,
     StationRoutingService,
+    BranchKdsConfigService,
     ROUTING_CONFIG_QUERY,
     TABLE_DISPLAY_QUERY,
     BRANCH_CURRENCY_QUERY,
