@@ -110,12 +110,15 @@ const CASHIER_PERMISSION_CODES = [
 ] as const;
 
 /**
- * Branch Manager — verbatim the same permission set `seed-dev-data.ts`
- * already seeds for its own demo Branch Manager role. Not altered by this
- * ticket; declared here so both the seed script and this production onboarding
- * path could, in principle, share one definition (the seed script keeps its
- * own literal copy, being outside `src/modules/` and not subject to the
- * architecture test — no behaviour changes there).
+ * Branch Manager — the same permission set `seed-dev-data.ts` seeds for its
+ * own demo Branch Manager role, corrected by DEMO-AUTH-CASH-HOTFIX-P0
+ * (2026-09-14): the template granted `cash.session.open` but neither
+ * `cash.session.close` nor `cash.session.close_other`, so a Branch Manager
+ * could open a drawer but could never close it — not their own, and not a
+ * cashier's, despite being the role this system expects to reconcile a
+ * branch's cash sessions. `seed-dev-data.ts` keeps its own literal copy
+ * (outside `src/modules/`, not subject to the architecture test) and must be
+ * updated identically.
  */
 const BRANCH_MANAGER_PERMISSION_CODES = [
   ORGANISATION_PERMISSIONS.BRANCH_READ,
@@ -129,6 +132,8 @@ const BRANCH_MANAGER_PERMISSION_CODES = [
   INVENTORY_PERMISSIONS.VIEW,
   INVENTORY_PERMISSIONS.ADJUST,
   TREASURY_PERMISSIONS.CASH_SESSION_OPEN,
+  TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
+  TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
   WORKFORCE_PERMISSIONS.EMPLOYEE_VIEW,
   WORKFORCE_PERMISSIONS.EMPLOYEE_MANAGE,
   REPORTING_PERMISSIONS.VIEW_SALES,

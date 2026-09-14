@@ -12,6 +12,7 @@ import { UnitOfWork } from './../src/common/domain-events/unit-of-work';
 import type { DomainEventEnvelope } from './../src/common/domain-events/domain-event.types';
 import type { CashVarianceDetectedPayload } from './../src/modules/treasury/contract';
 import { PrismaClient } from './../src/generated/prisma/client';
+import { CANONICAL_ROLE_TEMPLATES } from './../src/modules/identity/authz/canonical-role-templates';
 import { MembershipRolesService } from './../src/modules/identity/authz/membership-roles.service';
 import { PermissionsService } from './../src/modules/identity/authz/permissions.service';
 import { RolesService } from './../src/modules/identity/authz/roles.service';
@@ -55,6 +56,7 @@ const PIN_OTHER = '2222';
 const PIN_MANAGER = '3333';
 const PIN_NOCLOSE = '4444';
 const PIN_OPENMODE = '5555';
+const PIN_BRANCHMGR = '6666';
 const TOLERANCE = 1_000n;
 
 interface DeclareBody {
@@ -110,11 +112,14 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
   let employeeUnlinked: string; // no userId
   let userOpenMode: string;
   let employeeOpenMode: string;
+  let userBranchManager: string;
+  let employeeBranchManager: string;
 
   let cashierToken: string;
   let otherToken: string;
   let noCloseToken: string;
   let openModeToken: string;
+  let branchManagerToken: string;
 
   // Tenant B — cross-tenant proofs.
   let branchB: string;
@@ -251,6 +256,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     userManager = await mkUser(`csc.manager.${stamp}@example.com`, tenantA);
     userNoClose = await mkUser(`csc.noclose.${stamp}@example.com`, tenantA);
     userOpenMode = await mkUser(`csc.openmode.${stamp}@example.com`, tenantA);
+    userBranchManager = await mkUser(`csc.branchmgr.${stamp}@example.com`, tenantA);
     userB = await mkUser(`csc.b.${stamp}@example.com`, tenantB);
 
     const codeCashier = `CCA${stamp % 1000}`;
@@ -259,6 +265,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     const codeNoClose = `CCN${stamp % 1000}`;
     const codeUnlinked = `CCU${stamp % 1000}`;
     const codeOpenMode = `CCO${stamp % 1000}`;
+    const codeBranchManager = `CCG${stamp % 1000}`;
     const codeB = `CCX${stamp % 1000}`;
 
     employeeCashier = (
@@ -293,6 +300,14 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
         userId: userNoClose,
       })
     ).id;
+    employeeBranchManager = (
+      await employees.create(tenantA, userCashier, {
+        code: codeBranchManager,
+        displayName: 'Branch Manager',
+        homeBranchId: branchA,
+        userId: userBranchManager,
+      })
+    ).id;
     // Deliberately NO userId — FR-SEC-016 fail-closed fixture (item 9).
     employeeUnlinked = (
       await employees.create(tenantA, userCashier, {
@@ -323,6 +338,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     await pins.setPin(tenantA, userCashier, employeeManager, PIN_MANAGER);
     await pins.setPin(tenantA, userCashier, employeeNoClose, PIN_NOCLOSE);
     await pins.setPin(tenantA, userCashier, employeeOpenMode, PIN_OPENMODE);
+    await pins.setPin(tenantA, userCashier, employeeBranchManager, PIN_BRANCHMGR);
 
     // ── Roles ──────────────────────────────────────────────────────────
     const cashierRole = await roles.createTenantRole(tenantA, {
@@ -360,15 +376,30 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     await roles.addPermissions(tenantA, dashboardRole.id, [
       ORGANISATION_PERMISSIONS.BRANCH_MANAGE,
     ]);
+    // DEMO-AUTH-CASH-HOTFIX-P0 — the actual production canonical role
+    // template, not a synthetic permission list, so a regression re-appears
+    // here even if only the seed/template composition regresses.
+    const branchManagerRole = await roles.createTenantRole(tenantA, {
+      name: `csc_branch_manager_${stamp}`,
+    });
+    await roles.addPermissions(tenantA, branchManagerRole.id, [
+      ...CANONICAL_ROLE_TEMPLATES.branch_manager.permissionCodes,
+    ]);
 
-    const assign = async (userId: string, roleId: string) => {
+    const assign = async (
+      userId: string,
+      roleId: string,
+      scope: { type: 'tenant' } | { type: 'branch'; branchId: string } = {
+        type: 'tenant',
+      },
+    ) => {
       const m = await admin.membership.findFirstOrThrow({
         where: { userId, tenantId: tenantA },
       });
       await membershipRoles.create(tenantA, null, {
         membershipId: m.id,
         roleId: roleId,
-        scope: { type: 'tenant' },
+        scope,
       });
     };
     await assign(userCashier, cashierRole.id);
@@ -377,6 +408,13 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     await assign(userNoClose, noCloseRole.id);
     await assign(userOpenMode, openModeRole.id);
     await assign(userCashier, dashboardRole.id); // reused as the dashboard actor
+    // Branch-scoped, not tenant-scoped: proves the manager's authority stops
+    // at branchA and does not leak to branchOpen (a different branch on the
+    // same tenant).
+    await assign(userBranchManager, branchManagerRole.id, {
+      type: 'branch',
+      branchId: branchA,
+    });
 
     const pinLogin = async (
       branchId: string,
@@ -393,6 +431,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     otherToken = await pinLogin(branchA, codeOther, PIN_OTHER);
     noCloseToken = await pinLogin(branchA, codeNoClose, PIN_NOCLOSE);
     openModeToken = await pinLogin(branchOpen, codeOpenMode, PIN_OPENMODE);
+    branchManagerToken = await pinLogin(branchA, codeBranchManager, PIN_BRANCHMGR);
 
     // Manager PIN is verified INSIDE the finalize route via
     // `APPROVER_PIN_VERIFIER` — `employeeManager`/`PIN_MANAGER` are used
@@ -841,6 +880,33 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
         countedTotalMinorUnits: '50000',
       });
       expect(res.status).toBe(201);
+    });
+  });
+
+  describe('Branch Manager canonical role (DEMO-AUTH-CASH-HOTFIX-P0)', () => {
+    it("GET close-context on a cashier's own-branch session succeeds (200)", async () => {
+      const sid = await openSession(employeeCashier, branchA);
+      const res = await context(branchManagerToken, sid);
+      expect(res.status).toBe(200);
+    });
+
+    it("closes a cashier's session via the real declare flow (cash.session.close_other)", async () => {
+      const sid = await openSession(employeeCashier, branchA);
+      await declare(branchManagerToken, sid, {
+        closeAttemptId: newId(),
+        countedTotalMinorUnits: '50000',
+      }).expect(201);
+
+      const session = await admin.cashSession.findUniqueOrThrow({
+        where: { id: sid },
+      });
+      expect(session.status).toBe('closed');
+    });
+
+    it('branch scope isolation: a manager scoped to branchA cannot touch a branchOpen session', async () => {
+      const sid = await openSession(employeeOpenMode, branchOpen);
+      const res = await context(branchManagerToken, sid);
+      expect(res.status).toBe(403);
     });
   });
 

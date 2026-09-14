@@ -1,5 +1,6 @@
 import { KDS_PERMISSIONS } from '../../kitchen/contract';
 import { SALES_PERMISSIONS } from '../../sales/contract';
+import { TREASURY_PERMISSIONS } from '../../treasury/contract';
 import { CANONICAL_ROLE_TEMPLATES } from './canonical-role-templates';
 
 /**
@@ -80,5 +81,33 @@ describe('canonical role templates — discount/comp/post-fire-void permission s
     expect(codes).not.toContain(SALES_PERMISSIONS.COMP_APPLY);
     expect(codes).not.toContain(SALES_PERMISSIONS.DISCOUNT_UNLIMITED);
     expect(codes).not.toContain(SALES_PERMISSIONS.ORDER_VOID_LINE_POSTFIRE);
+  });
+});
+
+/**
+ * DEMO-AUTH-CASH-HOTFIX-P0 (2026-09-14) — regression coverage for the
+ * canonical-role gap that let a live Branch Manager be refused with 403
+ * ("Insufficient permission for this scope.") on both their own cash
+ * session close and a cashier's: the template granted `cash.session.open`
+ * but neither `cash.session.close` nor `cash.session.close_other`. No prior
+ * spec asserted Branch Manager holds either code.
+ */
+describe('canonical role templates — Branch Manager can close cash sessions', () => {
+  it('Branch Manager can close their OWN cash session (cash.session.close)', () => {
+    expect(CANONICAL_ROLE_TEMPLATES.branch_manager.permissionCodes).toContain(
+      TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
+    );
+  });
+
+  it('Branch Manager can close ANOTHER employee\'s cash session (cash.session.close_other)', () => {
+    expect(CANONICAL_ROLE_TEMPLATES.branch_manager.permissionCodes).toContain(
+      TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
+    );
+  });
+
+  it('Cashier still cannot close another employee\'s cash session (close_other stays manager-tier)', () => {
+    expect(
+      CANONICAL_ROLE_TEMPLATES.cashier.permissionCodes,
+    ).not.toContain(TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER);
   });
 });
