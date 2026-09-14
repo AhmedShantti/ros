@@ -14,6 +14,7 @@ import type { CashVarianceDetectedPayload } from './../src/modules/treasury/cont
 import { PrismaClient } from './../src/generated/prisma/client';
 import { CANONICAL_ROLE_TEMPLATES } from './../src/modules/identity/authz/canonical-role-templates';
 import { MembershipRolesService } from './../src/modules/identity/authz/membership-roles.service';
+import { ALL_PERMISSION_DEFS } from './../src/modules/identity/authz/permission-catalog';
 import { PermissionsService } from './../src/modules/identity/authz/permissions.service';
 import { RolesService } from './../src/modules/identity/authz/roles.service';
 import { EmployeesService } from './../src/modules/identity/employees/employees.service';
@@ -202,6 +203,11 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     await permissions.ensureIdentityPermissions();
     await permissions.upsertMany(ORGANISATION_PERMISSION_DEFS);
     for (const def of TREASURY_PERMISSION_DEFS) await permissions.upsert(def);
+    // The real canonical Branch Manager template (DEMO-AUTH-CASH-HOTFIX-P0
+    // fixture below) spans several other modules' permissions too (sales,
+    // catalogue, inventory, workforce, reporting) — upsert the full catalog
+    // rather than hand-picking defs that happen to match today's template.
+    await permissions.upsertMany(ALL_PERMISSION_DEFS);
 
     const mkTenant = async (slug: string) =>
       (
