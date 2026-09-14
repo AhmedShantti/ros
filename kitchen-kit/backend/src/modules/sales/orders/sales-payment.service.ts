@@ -158,6 +158,7 @@ export class SalesPaymentService {
                 businessDay: input.businessDay,
               },
             },
+            include: { lines: { orderBy: { sequence: 'asc' } } },
           });
           return { order, payment: existing };
         }
@@ -426,6 +427,7 @@ export class SalesPaymentService {
       where: {
         id_businessDay: { id: order.id, businessDay: order.businessDay },
       },
+      include: { lines: { orderBy: { sequence: 'asc' } } },
     });
     return { order: finalOrder, payment };
   }
@@ -686,6 +688,7 @@ export class SalesPaymentService {
       where: {
         id_businessDay: { id: order.id, businessDay: order.businessDay },
       },
+      include: { lines: { orderBy: { sequence: 'asc' } } },
     });
     return { order: finalOrder, payment };
   }

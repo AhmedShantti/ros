@@ -615,6 +615,42 @@ describe('Sales P1C line capture (e2e)', () => {
       expect(res.headers.etag).toBe(`W/"${order.id}.${order.version + 1}"`);
     });
 
+    /**
+     * DEMO-POS-ORDER-CRITICAL-P0 — the addLine response's `order` came from
+     * a bare `tx.order.update()` with no `include: { lines }`, so Prisma
+     * never populated the relation and `toOrderView` (`sales.views.ts`)
+     * omitted the `lines` key entirely (never `[]` — genuinely absent). The
+     * frontend's `?? []` fallback then rendered a real, successfully-added
+     * line as an empty bill: "Line added." toast, but "Nothing on the bill
+     * yet." underneath, with Send/Pay staying disabled because both read
+     * `order.lines`. Every other mutation returning `order` (void, discount,
+     * comp, post-fire void, payment, refund) shared the same gap.
+     */
+    it('the returned order carries the just-added line in `order.lines` (not just `line`)', async () => {
+      const order = await openOrder();
+      const res = await addLine(order, { quantity: '2' });
+      const body = res.body as {
+        line: { id: string };
+        order: { lines: { id: string; quantity: string }[] };
+      };
+
+      expect(body.order.lines).toHaveLength(1);
+      expect(body.order.lines[0].id).toBe(body.line.id);
+      expect(body.order.lines[0].quantity).toBe('2');
+    });
+
+    it('a second addLine returns BOTH lines on the order, in sequence order', async () => {
+      const order = await openOrder();
+      const first = await addLine(order);
+      const orderAfterFirst = (first.body as { order: { version: number } }).order;
+      const second = await addLine(order, {}, {
+        ifMatch: `W/"${order.id}.${orderAfterFirst.version}"`,
+      });
+
+      const body = second.body as { order: { lines: { id: string }[] } };
+      expect(body.order.lines).toHaveLength(2);
+    });
+
     it('sums line taxes rather than taxing the order total (FR-FIN-034)', async () => {
       const order = await openOrder();
       let version = order.version;

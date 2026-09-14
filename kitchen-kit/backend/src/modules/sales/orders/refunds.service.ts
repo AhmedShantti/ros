@@ -182,6 +182,7 @@ export class RefundsService {
           }
           const order = await tx.order.findUniqueOrThrow({
             where: { id_businessDay: { id: orderId, businessDay } },
+            include: { lines: { orderBy: { sequence: 'asc' } } },
           });
           return { refund: existing, order };
         }
@@ -370,6 +371,7 @@ export class RefundsService {
         }
         const updatedOrder = await tx.order.findUniqueOrThrow({
           where: { id_businessDay: { id: order.id, businessDay } },
+          include: { lines: { orderBy: { sequence: 'asc' } } },
         });
 
         await this.audit.record(tx, {

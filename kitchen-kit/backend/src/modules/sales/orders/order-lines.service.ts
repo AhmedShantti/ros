@@ -454,6 +454,7 @@ export class OrderLinesService {
             version: nextVersion,
             updatedAt: new Date(),
           },
+          include: { lines: { orderBy: { sequence: 'asc' } } },
         });
 
         await this.audit.record(tx, {
@@ -584,6 +585,7 @@ export class OrderLinesService {
         const updated = await tx.order.update({
           where: { id_businessDay: { id: order.id, businessDay } },
           data: { ...totals, version: nextVersion, updatedAt: new Date() },
+          include: { lines: { orderBy: { sequence: 'asc' } } },
         });
 
         await this.audit.record(tx, {

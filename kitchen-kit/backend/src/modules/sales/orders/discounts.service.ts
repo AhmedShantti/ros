@@ -263,6 +263,7 @@ export class DiscountsService {
         }
         const updatedOrder = await tx.order.findUniqueOrThrow({
           where: { id_businessDay: { id: order.id, businessDay } },
+          include: { lines: { orderBy: { sequence: 'asc' } } },
         });
 
         const createdDiscount = await tx.discount.create({
@@ -482,6 +483,7 @@ export class DiscountsService {
         }
         const updatedOrder = await tx.order.findUniqueOrThrow({
           where: { id_businessDay: { id: order.id, businessDay } },
+          include: { lines: { orderBy: { sequence: 'asc' } } },
         });
 
         await this.audit.record(tx, {
@@ -608,6 +610,7 @@ export class DiscountsService {
         }
         const updatedOrder = await tx.order.findUniqueOrThrow({
           where: { id_businessDay: { id: order.id, businessDay } },
+          include: { lines: { orderBy: { sequence: 'asc' } } },
         });
 
         const createdDiscount = await tx.discount.create({

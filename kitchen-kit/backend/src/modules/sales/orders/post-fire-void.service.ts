@@ -329,6 +329,7 @@ export class PostFireVoidService {
         }
         const updatedOrder = await tx.order.findUniqueOrThrow({
           where: { id_businessDay: { id: order.id, businessDay } },
+          include: { lines: { orderBy: { sequence: 'asc' } } },
         });
 
         const voidedAt = new Date();
