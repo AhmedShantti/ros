@@ -644,6 +644,21 @@ export class WorkforceEmployeesService {
    * (FR-SEC-022 branch-PIN-uniqueness re-check on widened reach): no caller
    * in this repository supplies it today, on either service, and wiring it
    * is FR-SEC-022 scope, not HR-1's.
+   *
+   * POS-SESSION-RESILIENCE-P1 — also bumps the employee's own membership's
+   * `authzEpoch`, atomically with the `employeeBranch` write. This table is
+   * a second, independent input into what a LIVE POS/KDS session may do —
+   * `TenantContextService.resolveSessionBranch` re-checks it, live, on every
+   * request against the token's `brc` claim — but until now nothing here
+   * told an already-open session that its authorization picture had moved:
+   * `ScopeAuthorizationService`'s role-scope coverage check (a separate
+   * fact, `membership_roles.scope_branch_id`) does not automatically widen
+   * just because this table did, so a cashier on a still-valid token could
+   * be denied for a branch their role assignment never covered, with no
+   * signal distinguishing it from a genuine permission problem. The bump
+   * turns that into the SAME `STALE_SNAPSHOT` response
+   * `MembershipRolesService`'s own grant/re-scope/revoke paths already
+   * produce — see `bumpAuthzEpochIfMember`.
    */
   async addPermittedBranch(
     tenantId: string,
@@ -656,7 +671,7 @@ export class WorkforceEmployeesService {
       async (tx) => {
         const employee = await tx.employee.findUnique({
           where: { id: employeeId },
-          select: { id: true },
+          select: { id: true, userId: true },
         });
         if (!employee) {
           throw new NotFoundException('Employee not found.');
@@ -675,6 +690,7 @@ export class WorkforceEmployeesService {
         const row = await tx.employeeBranch.create({
           data: { tenantId, employeeId, branchId },
         });
+        await this.bumpAuthzEpochIfMember(tx, tenantId, employee.userId);
         await this.audit.record(tx, {
           tenantId,
           action: AUDIT_ACTION.EMPLOYEE_BRANCH_ASSIGNED,
@@ -687,6 +703,37 @@ export class WorkforceEmployeesService {
         return row;
       },
     );
+  }
+
+  /**
+   * POS-SESSION-RESILIENCE-P1 — the shared T-4-LIVE staleness bump, for
+   * mutations that change an employee's authorization-relevant CONTEXT
+   * (currently: `addPermittedBranch`) rather than their role assignments
+   * (already covered, atomically, by `MembershipRolesService.create` /
+   * `.update` / `.remove`). A no-op — deliberately, not an error — when the
+   * employee has no linked user: no `Membership` can exist for them, so
+   * there is no live session and nothing to invalidate. Never call this for
+   * a plain profile edit (`update()`) or a status change already covered by
+   * a live check on every request (`deactivate()`, via `Employee.status`
+   * inside `resolveSessionBranch`'s own join) — bumping there would
+   * invalidate every one of that employee's tokens for a change the next
+   * request already handles correctly on its own.
+   */
+  private async bumpAuthzEpochIfMember(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    userId: string | null,
+  ): Promise<void> {
+    if (!userId) return;
+    const membership = await tx.membership.findUnique({
+      where: { userId_tenantId: { userId, tenantId } },
+      select: { id: true },
+    });
+    if (!membership) return;
+    await tx.membership.update({
+      where: { id: membership.id },
+      data: { authzEpoch: { increment: 1 } },
+    });
   }
 
   /** FR-HRM-003 — a NEW immutable version, never an edit. */

@@ -23,6 +23,26 @@ export type AuthorizedRequest = Request & {
 const STALE_SNAPSHOT =
   'Authorization snapshot is stale; obtain a new access token.';
 
+/**
+ * POS-SESSION-RESILIENCE-P1 — a distinct `error` label, not the default
+ * "Forbidden" a bare `ForbiddenException(string)` would carry. A plain-string
+ * throw here would be byte-identical, on the wire, to `PermissionGuard`'s own
+ * generic scope-denial 403 (`error: "Forbidden"` either way) — indistinguishable
+ * from a genuine authorization denial by anything except fragile message-text
+ * matching. This gives the frontend's client a stable, purpose-built code
+ * (`STALE_AUTHORIZATION_SNAPSHOT`, via `codeFrom()`'s existing
+ * label-to-code convention) to gate its scoped re-authentication prompt on,
+ * without changing the refusal text, the status code, or anything about WHY
+ * it fires — see `resolve()` above.
+ */
+function staleSnapshotException(): ForbiddenException {
+  return new ForbiddenException({
+    statusCode: 403,
+    message: STALE_SNAPSHOT,
+    error: 'StaleAuthorizationSnapshot',
+  });
+}
+
 @Injectable()
 export class TenantContextService {
   constructor(private readonly prisma: PrismaService) {}
@@ -137,7 +157,7 @@ export class TenantContextService {
           principal.authzEpoch === undefined ||
           principal.authzEpoch !== membership.authzEpoch
         ) {
-          throw new ForbiddenException(STALE_SNAPSHOT);
+          throw staleSnapshotException();
         }
 
         const context: TenantContext = {
