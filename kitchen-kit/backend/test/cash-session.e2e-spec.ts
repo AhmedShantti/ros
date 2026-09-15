@@ -566,16 +566,30 @@ describe('Cash session open (e2e)', () => {
       ).toBe(1);
     });
 
-    it('is a PARTIAL index, not UNIQUE(drawer_id, status)', async () => {
+    it('is a PARTIAL index over open+closing, not UNIQUE(drawer_id, status) — CASH-SESSION-RESUME-AND-CLOSE-P0', async () => {
+      // Renamed from `uq_one_open_session_per_drawer` when the WHERE clause
+      // widened to include `closing` — a session frozen mid-close has not
+      // "closed the existing session" either (FR-FIN-001).
       const rows = await admin.$queryRawUnsafe<{ indexdef: string }[]>(
+        `SELECT indexdef FROM pg_indexes
+          WHERE schemaname = 'treasury' AND tablename = 'cash_sessions'
+            AND indexname = 'uq_one_active_session_per_drawer'`,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].indexdef).toMatch(/UNIQUE INDEX/i);
+      expect(rows[0].indexdef).toMatch(/WHERE/i);
+      expect(rows[0].indexdef).toMatch(/'open'/);
+      expect(rows[0].indexdef).toMatch(/'closing'/);
+      expect(rows[0].indexdef).not.toMatch(/'closed'/);
+      expect(rows[0].indexdef).not.toMatch(/status\)/);
+
+      // The old, narrower name/definition is gone, not merely superseded.
+      const old = await admin.$queryRawUnsafe<{ indexdef: string }[]>(
         `SELECT indexdef FROM pg_indexes
           WHERE schemaname = 'treasury' AND tablename = 'cash_sessions'
             AND indexname = 'uq_one_open_session_per_drawer'`,
       );
-      expect(rows).toHaveLength(1);
-      expect(rows[0].indexdef).toMatch(/UNIQUE INDEX/i);
-      expect(rows[0].indexdef).toMatch(/WHERE \(status = 'open'/i);
-      expect(rows[0].indexdef).not.toMatch(/status\)/);
+      expect(old).toHaveLength(0);
 
       // And no composite (drawer_id, status) unique exists anywhere — that shape
       // would permit only ONE closed session per drawer, for all time.
@@ -586,6 +600,13 @@ describe('Cash session open (e2e)', () => {
       );
       expect(composite).toHaveLength(0);
     });
+
+    // A "closing" session (frozen mid-close, over tolerance) occupying its
+    // drawer against a NEW open is proven end-to-end in
+    // cash-session-close.e2e-spec.ts, which already has the cash-close-policy
+    // fixture needed to actually declare an over-tolerance count — see
+    // "a session frozen mid-close occupies its drawer" there
+    // (CASH-SESSION-RESUME-AND-CLOSE-P0).
 
     it('permits MANY closed sessions on one drawer', async () => {
       // No close command exists, so the migrator writes the history directly —

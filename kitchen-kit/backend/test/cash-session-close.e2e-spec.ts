@@ -58,6 +58,7 @@ const PIN_MANAGER = '3333';
 const PIN_NOCLOSE = '4444';
 const PIN_OPENMODE = '5555';
 const PIN_BRANCHMGR = '6666';
+const PIN_RESUME = '7777';
 const TOLERANCE = 1_000n;
 
 interface DeclareBody {
@@ -115,12 +116,20 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
   let employeeOpenMode: string;
   let userBranchManager: string;
   let employeeBranchManager: string;
+  // CASH-SESSION-RESUME-AND-CLOSE-P0 — kept exclusively for that block's
+  // own tests: every other employee above accumulates leftover open/closing
+  // sessions across this file's many earlier tests (most never finalize),
+  // which would make `GET /cash-sessions/current` ambiguous (2+ matches ->
+  // null) for them by the time that block runs.
+  let userResume: string;
+  let employeeResume: string;
 
   let cashierToken: string;
   let otherToken: string;
   let noCloseToken: string;
   let openModeToken: string;
   let branchManagerToken: string;
+  let resumeToken: string;
 
   // Tenant B — cross-tenant proofs.
   let branchB: string;
@@ -263,6 +272,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     userNoClose = await mkUser(`csc.noclose.${stamp}@example.com`, tenantA);
     userOpenMode = await mkUser(`csc.openmode.${stamp}@example.com`, tenantA);
     userBranchManager = await mkUser(`csc.branchmgr.${stamp}@example.com`, tenantA);
+    userResume = await mkUser(`csc.resume.${stamp}@example.com`, tenantA);
     userB = await mkUser(`csc.b.${stamp}@example.com`, tenantB);
 
     const codeCashier = `CCA${stamp % 1000}`;
@@ -272,6 +282,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     const codeUnlinked = `CCU${stamp % 1000}`;
     const codeOpenMode = `CCO${stamp % 1000}`;
     const codeBranchManager = `CCG${stamp % 1000}`;
+    const codeResume = `CCR${stamp % 1000}`;
     const codeB = `CCX${stamp % 1000}`;
 
     employeeCashier = (
@@ -330,6 +341,14 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
         userId: userOpenMode,
       })
     ).id;
+    employeeResume = (
+      await employees.create(tenantA, userCashier, {
+        code: codeResume,
+        displayName: 'Resume Cashier',
+        homeBranchId: branchA,
+        userId: userResume,
+      })
+    ).id;
     employeeB = (
       await employees.create(tenantB, userB, {
         code: codeB,
@@ -345,6 +364,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     await pins.setPin(tenantA, userCashier, employeeNoClose, PIN_NOCLOSE);
     await pins.setPin(tenantA, userCashier, employeeOpenMode, PIN_OPENMODE);
     await pins.setPin(tenantA, userCashier, employeeBranchManager, PIN_BRANCHMGR);
+    await pins.setPin(tenantA, userCashier, employeeResume, PIN_RESUME);
 
     // ── Roles ──────────────────────────────────────────────────────────
     const cashierRole = await roles.createTenantRole(tenantA, {
@@ -409,6 +429,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
       });
     };
     await assign(userCashier, cashierRole.id);
+    await assign(userResume, cashierRole.id);
     await assign(userOther, otherRole.id);
     await assign(userManager, managerRole.id);
     await assign(userNoClose, noCloseRole.id);
@@ -438,6 +459,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     noCloseToken = await pinLogin(branchA, codeNoClose, PIN_NOCLOSE);
     openModeToken = await pinLogin(branchOpen, codeOpenMode, PIN_OPENMODE);
     branchManagerToken = await pinLogin(branchA, codeBranchManager, PIN_BRANCHMGR);
+    resumeToken = await pinLogin(branchA, codeResume, PIN_RESUME);
 
     // Manager PIN is verified INSIDE the finalize route via
     // `APPROVER_PIN_VERIFIER` — `employeeManager`/`PIN_MANAGER` are used
@@ -804,6 +826,119 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
         where: { id: sid },
       });
       expect(session.status).toBe('closing');
+    });
+  });
+
+  // ============================= CASH-SESSION-RESUME-AND-CLOSE-P0 =========
+  //
+  // FR-FIN-001's own 409 message reads "close the existing session first" —
+  // a session that is merely `closing` (frozen, over tolerance, awaiting a
+  // manager's finalize decision — this describe block's whole subject) has
+  // not done that. `uq_one_active_session_per_drawer`
+  // (20260915120000_cash_session_closing_occupies_drawer) widened the
+  // drawer-occupancy invariant from `WHERE status = 'open'` to `WHERE status
+  // IN ('open', 'closing')` to match, and `findCurrentForEmployee` now
+  // matches `closing` too, so a resumed session mid-close is not
+  // indistinguishable from "no session at all".
+
+  describe('a session frozen mid-close occupies its drawer', () => {
+    it('a second open on the SAME drawer is refused (409) while the existing session is only "closing", not closed', async () => {
+      const drawer = await drawers.create(tenantA, userCashier, {
+        branchId: branchA,
+        name: `CSC Occupied ${newId()}`,
+      });
+      const { session } = await cashSessions.open(tenantA, userCashier, {
+        shiftId: newId(),
+        cashSessionId: newId(),
+        drawerId: drawer.id,
+        openingFloat: '50000',
+        branchId: branchA,
+        employeeId: employeeResume,
+      });
+
+      const declared = await declare(resumeToken, session.id, {
+        closeAttemptId: newId(),
+        countedTotalMinorUnits: '55000', // 5000 over TOLERANCE (1000) -> freezes
+      });
+      expect(declared.status).toBe(201);
+      expect((declared.body as DeclareBody).status).toBe('closing');
+
+      await expect(
+        cashSessions.open(tenantA, userCashier, {
+          shiftId: newId(),
+          cashSessionId: newId(),
+          drawerId: drawer.id,
+          openingFloat: '0',
+          branchId: branchA,
+          employeeId: employeeResume,
+        }),
+      ).rejects.toThrow(/FR-FIN-001|already has an open/i);
+
+      // Finalize it so employeeResume's slate is clean for the next test —
+      // otherwise this leftover `closing` session makes the NEXT test's own
+      // `GET /current` ambiguous (2+ matches -> null) rather than resolving
+      // to the session that test opens for itself.
+      await finalize(resumeToken, session.id, finalizeBody()).expect(200);
+    });
+
+    it('GET /cash-sessions/current still surfaces it — the client must route back to the close flow, not Open Shift', async () => {
+      const sid = await openSession(employeeResume, branchA, userCashier, '50000');
+      const declared = await declare(resumeToken, sid, {
+        closeAttemptId: newId(),
+        countedTotalMinorUnits: '55000',
+      });
+      expect(declared.status).toBe(201);
+      expect((declared.body as DeclareBody).status).toBe('closing');
+
+      const res = await request(http)
+        .get('/cash-sessions/current')
+        .set(auth(resumeToken));
+      expect(res.status).toBe(200);
+      const body = res.body as {
+        cashSession: { id: string; status: string } | null;
+      };
+      expect(body.cashSession).not.toBeNull();
+      expect(body.cashSession!.id).toBe(sid);
+      expect(body.cashSession!.status).toBe('closing');
+
+      // Finalize it so this employee's slate is clean for the next test.
+      await finalize(resumeToken, sid, finalizeBody()).expect(200);
+    });
+
+    it('once genuinely closed, the drawer is free again and GET /current returns null', async () => {
+      const drawer = await drawers.create(tenantA, userCashier, {
+        branchId: branchA,
+        name: `CSC Freed ${newId()}`,
+      });
+      const { session } = await cashSessions.open(tenantA, userCashier, {
+        shiftId: newId(),
+        cashSessionId: newId(),
+        drawerId: drawer.id,
+        openingFloat: '50000',
+        branchId: branchA,
+        employeeId: employeeResume,
+      });
+
+      await declare(resumeToken, session.id, {
+        closeAttemptId: newId(),
+        countedTotalMinorUnits: '50000', // exact match -> closes immediately
+      }).expect(201);
+
+      const res = await request(http)
+        .get('/cash-sessions/current')
+        .set(auth(resumeToken));
+      expect((res.body as { cashSession: unknown }).cashSession).toBeNull();
+
+      // And a fresh open on the now-free drawer succeeds normally.
+      const { created } = await cashSessions.open(tenantA, userCashier, {
+        shiftId: newId(),
+        cashSessionId: newId(),
+        drawerId: drawer.id,
+        openingFloat: '10000',
+        branchId: branchA,
+        employeeId: employeeResume,
+      });
+      expect(created).toBe(true);
     });
   });
 

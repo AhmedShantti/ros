@@ -83,7 +83,7 @@ import { TREASURY_CASH_SESSION_TARGET_RESOLVER } from './contract';
  * deployment, not in the controller):
  *
  *   POST /cash-sessions                          open a cashier shift + its cash session
- *   GET  /cash-sessions/current                   DEMO-CASH-SESSION-RECOVERY-P0 — the caller's own open session, if any
+ *   GET  /cash-sessions/current                   DEMO-CASH-SESSION-RECOVERY-P0 — the caller's own open/closing session, if any
  *   POST /cash-sessions/{sessionId}/pay-in        FR-POS-091 — record cash in
  *   POST /cash-sessions/{sessionId}/pay-out       FR-POS-091 — record cash out
  *   POST /cash-sessions/{sessionId}/safe-drop     FR-POS-091 — remove excess cash to the safe
@@ -393,17 +393,19 @@ export class TreasuryController {
   }
 
   /**
-   * DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at
-   * THEIR OWN POS session branch, if exactly one exists.
+   * DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open (or closing) cash
+   * session at THEIR OWN POS session branch, if exactly one exists.
    *
    * Recovery contract: after a fresh PIN login (e.g. after a frontend
    * reload/deploy wiped the locally-remembered `cashSessionId`), the POS
    * calls this BEFORE showing Open Shift. A non-null `cashSession` means the
-   * employee already holds an open shift here — the client resumes it
-   * in-place; `POST /cash-sessions` is never called again for it, and no new
-   * drawer is opened. `null` means either no open session exists (normal
-   * Open Shift) or more than one does (ambiguous — see
-   * `CashSessionsService.findCurrentForEmployee`).
+   * employee already holds a session here — the client resumes it in-place;
+   * `POST /cash-sessions` is never called again for it, and no new drawer is
+   * opened. A `status: "closing"` session (CASH-SESSION-RESUME-AND-CLOSE-P0)
+   * means it is frozen awaiting a manager's finalize decision — the client
+   * routes back to the close flow, not ordinary POS. `null` means either no
+   * such session exists (normal Open Shift) or more than one does
+   * (ambiguous — see `CashSessionsService.findCurrentForEmployee`).
    *
    * Gated on `cash.session.open` — the SAME permission `POST /cash-sessions`
    * already requires, deliberately not a new/invented read permission. This
@@ -418,8 +420,8 @@ export class TreasuryController {
   @RequirePermission(TREASURY_PERMISSIONS.CASH_SESSION_OPEN)
   @ApiOkResponse({
     description:
-      "The caller's own open cash session at their own POS session " +
-      'branch, or null if none (or more than one) exists.',
+      "The caller's own open or closing cash session at their own POS " +
+      'session branch, or null if none (or more than one) exists.',
     schema: currentCashSessionSchema,
   })
   async getCurrentSession(

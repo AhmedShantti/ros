@@ -20,7 +20,7 @@
  * ── WHERE EACH INVARIANT ACTUALLY LIVES ────────────────────────────────────
  * Almost none of them are enforced by the code below, and that is the point:
  *
- *   one open session per drawer   partial unique index (FR-FIN-001)
+ *   one active session per drawer partial unique index, open+closing (FR-FIN-001)
  *   exactly one employee          NOT NULL + the four-column shift FK (FR-FIN-002)
  *   session employee == shift's   four-column composite FK
  *   session branch == drawer's    three-column composite FK
@@ -221,10 +221,13 @@ export class CashSessionsService {
             },
           });
         } catch (error) {
-          // FR-FIN-001, enforced by `uq_one_open_session_per_drawer`. Two racing
-          // opens both reach the index; PostgreSQL admits one and rejects the
-          // other, and the loser gets a deterministic business conflict rather
-          // than a 500. There is no read-then-write window to lose.
+          // FR-FIN-001, enforced by `uq_one_active_session_per_drawer`
+          // (`open` AND `closing` — CASH-SESSION-RESUME-AND-CLOSE-P0: a
+          // session frozen mid-close has not "closed the existing session"
+          // either). Two racing opens both reach the index; PostgreSQL
+          // admits one and rejects the other, and the loser gets a
+          // deterministic business conflict rather than a 500. There is no
+          // read-then-write window to lose.
           if (
             error instanceof Prisma.PrismaClientKnownRequestError &&
             error.code === UNIQUE_VIOLATION
@@ -310,8 +313,8 @@ export class CashSessionsService {
   }
 
   /**
-   * DEMO-CASH-SESSION-RECOVERY-P0 — the CALLER'S OWN open cash session at
-   * THEIR OWN POS session branch, for `GET /cash-sessions/current`.
+   * DEMO-CASH-SESSION-RECOVERY-P0 — the CALLER'S OWN open (or closing) cash
+   * session at THEIR OWN POS session branch, for `GET /cash-sessions/current`.
    *
    * ── WHY THIS IS NOT THE `findOne` READ D-20 WITHHOLDS ──────────────────────
    * `findOne` is unexposed because it is a BY-ID read of ANY session — an
@@ -335,6 +338,18 @@ export class CashSessionsService {
    * exists, exactly as when none does — recovering a specific session in
    * that case is a task for `GET /cash-sessions/drawers` (pick one to close
    * or continue on explicitly), not for this single-result endpoint.
+   *
+   * ── WHY `'closing'` TOO — CASH-SESSION-RESUME-AND-CLOSE-P0 ────────────────
+   * The original cut of this method (DEMO-CASH-SESSION-RECOVERY-P0) matched
+   * `status: 'open'` only — `closing` (the above-tolerance freeze between
+   * `declareClose` and `finalizeClose`, P1G-1/FR-FIN-006) did not exist as a
+   * scenario that mission considered. Left that way, an employee who signs
+   * out mid-close and back in gets `cashSession: null` — indistinguishable
+   * from never having opened a shift — and the frontend sends them to Open
+   * Shift instead of back to the pending manager-approval screen. Matching
+   * `uq_one_active_session_per_drawer` (widened the same way, same task) so
+   * this read and that write-side invariant agree on what "occupies the
+   * drawer" means.
    */
   async findCurrentForEmployee(
     tenantId: string,
@@ -343,7 +358,7 @@ export class CashSessionsService {
   ): Promise<CashSession | null> {
     return this.prisma.withAuthContext({ tenantId }, async (tx) => {
       const open = await tx.cashSession.findMany({
-        where: { branchId, employeeId, status: 'open' },
+        where: { branchId, employeeId, status: { in: ['open', 'closing'] } },
         take: 2,
       });
       return open.length === 1 ? open[0] : null;

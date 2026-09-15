@@ -309,6 +309,14 @@ describe('Cash session recovery (e2e) — GET /cash-sessions/current', () => {
     });
   });
 
+  // A "closing" session being surfaced by `/current` (rather than read as
+  // "no session") is proven end-to-end in cash-session-close.e2e-spec.ts,
+  // which already has the cash-close-policy fixture needed to actually
+  // declare an over-tolerance count — see "a session frozen mid-close
+  // occupies its drawer" there (CASH-SESSION-RESUME-AND-CLOSE-P0). This file
+  // stays scoped to the open-session recovery contract its own tests above
+  // already cover, per its header docblock.
+
   // ----------------------------------------------------------- authz
 
   describe('authorization', () => {
