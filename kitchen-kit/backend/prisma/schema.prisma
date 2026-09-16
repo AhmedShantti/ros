@@ -128,24 +128,64 @@ model PasswordResetToken {
   @@schema("identity")
 }
 
+/// POS-KDS-SESSION-CONTINUITY-P0. Session audience — mirrors the JWT `typ`
+/// claim (`AccessTokenPayload.typ`). `null` means an ordinary dashboard/
+/// back-office session (unchanged, pre-existing rows and every non-PIN
+/// login). Persisted so a POS/KDS session's identity survives independently
+/// of any one access token — see `Session.sessionType`'s own field comment.
+enum SessionType {
+  pos
+  kds
+
+  @@schema("identity")
+}
+
 // ---------------------------------------------------------------------------
 // Phase 3/4 — Sessions
 // Extends the approved schema (ADR 0001) with refresh-token rotation/reuse
 // fields. The client holds an opaque refresh token; we store only its hash.
+//
+// POS-KDS-SESSION-CONTINUITY-P0 — trusted POS/KDS context anchors
+// (`sessionType`/`employeeId`/`branchId`, design report Option A):
+// `AuthService.loginWithPin` persists these once, at PIN login;
+// `SessionsService.rotate()` carries them forward to each rotated child
+// exactly like `membershipId`/`terminalId` already are. They are NEVER
+// trusted as current truth on their own — `AuthService.refresh()`
+// live-revalidates employee/branch/membership state from them on every
+// refresh, the same way `TenantContextService.resolveSessionBranch()`
+// already does for every ordinary live POS/KDS request. All three are
+// nullable and additive: every existing/console session row keeps them
+// `NULL`, unchanged.
 // ---------------------------------------------------------------------------
 model Session {
-  id               String    @id @db.Uuid
-  userId           String    @map("user_id") @db.Uuid
-  terminalId       String?   @map("terminal_id") @db.Uuid
-  membershipId     String?   @map("membership_id") @db.Uuid
-  refreshTokenHash String    @unique @map("refresh_token_hash")
-  issuedAt         DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
-  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
-  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
-  lastUsedAt       DateTime? @map("last_used_at") @db.Timestamptz(6)
-  reuseDetectedAt  DateTime? @map("reuse_detected_at") @db.Timestamptz(6)
-  ipAddress        String?   @map("ip_address") @db.Inet
-  userAgent        String?   @map("user_agent")
+  id               String       @id @db.Uuid
+  userId           String       @map("user_id") @db.Uuid
+  terminalId       String?      @map("terminal_id") @db.Uuid
+  membershipId     String?      @map("membership_id") @db.Uuid
+  /// `pos`/`kds` for a PIN-originated session; `null` for console. Set once
+  /// at PIN login, carried forward unchanged across every rotation.
+  sessionType      SessionType? @map("session_type")
+  /// The employee behind a POS/KDS session (FR-SEC-021). `null` for console.
+  employeeId       String?      @map("employee_id") @db.Uuid
+  /// The operating branch a POS/KDS session was authenticated at — a
+  /// CANDIDATE anchor only, exactly like the JWT `brc` claim it backs:
+  /// re-verified live (never trusted alone) on every refresh and on every
+  /// ordinary request. `null` for console.
+  branchId         String?      @map("branch_id") @db.Uuid
+  refreshTokenHash String       @unique @map("refresh_token_hash")
+  issuedAt         DateTime     @default(now()) @map("issued_at") @db.Timestamptz(6)
+  expiresAt        DateTime     @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime?    @map("revoked_at") @db.Timestamptz(6)
+  /// Last recorded activity on this session's lineage (FR-SEC-026 idle
+  /// model) — initialized at issue(), carried forward as "now" at every
+  /// rotation (a rotation IS activity), and bumped by the debounced
+  /// POS/KDS request-time touch path (`SessionsService.touch()`). NEVER
+  /// written by `rotate()`'s claim-and-revoke step any more (that wrote it
+  /// onto the superseded row, which made it useless for idle tracking).
+  lastUsedAt       DateTime?    @map("last_used_at") @db.Timestamptz(6)
+  reuseDetectedAt  DateTime?    @map("reuse_detected_at") @db.Timestamptz(6)
+  ipAddress        String?      @map("ip_address") @db.Inet
+  userAgent        String?      @map("user_agent")
 
   // Rotation lineage: the session that superseded this one (1:1).
   replacedBySessionId String?  @unique @map("replaced_by_session_id") @db.Uuid
@@ -155,10 +195,14 @@ model Session {
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   membership Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
   terminal   Terminal?   @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  employee   Employee?   @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  branch     Branch?     @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([membershipId])
   @@index([terminalId])
+  @@index([employeeId])
+  @@index([branchId])
   @@map("sessions")
   @@schema("identity")
 }
@@ -805,6 +849,9 @@ model Branch {
   terminals         Terminal[]
   homeEmployees     Employee[]       @relation("EmployeeHomeBranch")
   permittedForStaff EmployeeBranch[]
+  // POS-KDS-SESSION-CONTINUITY-P0: back-relation only — no column, no
+  // behaviour change on `branches`.
+  sessions          Session[]
 
   // P1D-1 Workforce / Treasury back-relations (virtual; no DDL impact).
   shifts              Shift[]
@@ -1875,6 +1922,9 @@ model Employee {
   user       User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   homeBranch Branch           @relation("EmployeeHomeBranch", fields: [tenantId, homeBranchId], references: [tenantId, id], onDelete: Restrict)
   branches   EmployeeBranch[]
+  // POS-KDS-SESSION-CONTINUITY-P0: back-relation only — no column, no
+  // behaviour change on `employees`.
+  sessions   Session[]
 
   // P1D-1: the employee is the business financial actor (carried item P1D-E).
   shifts                  Shift[]

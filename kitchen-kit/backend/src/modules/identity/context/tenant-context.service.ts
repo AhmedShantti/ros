@@ -236,10 +236,8 @@ export class TenantContextService {
    * derive a branch from any more. `principal.branchId` (the JWT `brc`
    * claim, stamped at PIN login) is a CANDIDATE only; it grants nothing by
    * itself. Two live facts are required, both re-checked on every request
-   * (amendment clause 6):
-   *   1. the branch itself still exists and is `active`;
-   *   2. the session's employee is STILL permitted at that branch — so an HR
-   *      removal takes effect on the very next request.
+   * (amendment clause 6) — see `resolveEmployeeBranch()`, the shared
+   * definition of a valid POS/KDS branch identity.
    *
    * Any failure is the same generic 403: a POS/KDS session must not be able
    * to probe which of the two conditions it failed.
@@ -248,15 +246,47 @@ export class TenantContextService {
     tx: Prisma.TransactionClient,
     principal: AuthenticatedPrincipal,
   ): Promise<string> {
+    if (!principal.branchId || !principal.employeeId) {
+      throw new ForbiddenException('POS/KDS session is not permitted here.');
+    }
+    return this.resolveEmployeeBranch(
+      tx,
+      principal.employeeId,
+      principal.branchId,
+    );
+  }
+
+  /**
+   * POS-KDS-SESSION-CONTINUITY-P0 — the ONE definition of a valid POS/KDS
+   * branch identity, shared by request-time resolution
+   * (`resolveSessionBranch`, above) and `AuthService.refresh()`'s POS/KDS
+   * revalidation, so the two never drift into subtly different checks.
+   * `branchId` is a CANDIDATE only — never trusted by itself. Two live
+   * facts are required, both re-checked every call:
+   *   1. the branch itself still exists and is `active`;
+   *   2. `employeeId` is STILL permitted at that branch AND still `active`
+   *      — so an HR removal/deactivation takes effect immediately.
+   *
+   * `tx` must already carry the correct tenant RLS scope (`withAuthContext`)
+   * — `identity.employees`/`identity.employee_branches`/`org.branches` are
+   * all strictly tenant-scoped by RLS, so a cross-tenant `employeeId`/
+   * `branchId` pair is invisible here and fails exactly like a genuinely
+   * unpermitted one, with no distinguishing signal (fail closed, R-11).
+   *
+   * Any failure throws the same generic denial: a POS/KDS session must not
+   * be able to probe which of the two conditions it failed.
+   */
+  async resolveEmployeeBranch(
+    tx: Prisma.TransactionClient,
+    employeeId: string,
+    branchId: string,
+  ): Promise<string> {
     const denied = new ForbiddenException(
       'POS/KDS session is not permitted here.',
     );
 
-    if (!principal.branchId || !principal.employeeId) {
-      throw denied;
-    }
     const branch = await tx.branch.findUnique({
-      where: { id: principal.branchId },
+      where: { id: branchId },
       select: { id: true, status: true },
     });
     if (!branch || branch.status !== 'active') {
@@ -264,7 +294,7 @@ export class TenantContextService {
     }
     const permitted = await tx.employeeBranch.findFirst({
       where: {
-        employeeId: principal.employeeId,
+        employeeId,
         branchId: branch.id,
         employee: { status: 'active' },
       },

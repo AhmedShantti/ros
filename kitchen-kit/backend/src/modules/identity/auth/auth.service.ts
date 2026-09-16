@@ -9,6 +9,7 @@ import {
 } from '../../governance/audit/audit.constants';
 import { AuditService } from '../../governance/audit/audit.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { TenantContextService } from '../context/tenant-context.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { MembershipsService } from '../memberships/memberships.service';
 import { SessionContext, SessionsService } from '../sessions/sessions.service';
@@ -26,6 +27,9 @@ import { PinService } from '../employees/pin.service';
 @Injectable()
 export class AuthService {
   private readonly accessTtlSeconds: number;
+  /** FR-SEC-026 idle defaults — see env.validation.ts for the configured minutes/hours. */
+  private readonly posIdleTimeoutMs: number;
+  private readonly kdsIdleTimeoutMs: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -43,11 +47,22 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly pins: PinService,
     private readonly snapshots: AuthorizationSnapshotService,
+    /**
+     * POS-KDS-SESSION-CONTINUITY-P0 — reuses `resolveEmployeeBranch()`, the
+     * SAME definition of a valid POS/KDS branch identity every ordinary
+     * live request already uses, for `refresh()`'s POS/KDS revalidation.
+     * See `refresh()`'s own docblock.
+     */
+    private readonly tenantContext: TenantContextService,
     config: ConfigService,
   ) {
     this.accessTtlSeconds = Math.floor(
       parseDurationMs(config.getOrThrow<string>('JWT_ACCESS_TTL')) / 1000,
     );
+    this.posIdleTimeoutMs =
+      config.getOrThrow<number>('POS_IDLE_TIMEOUT_MINUTES') * 60_000;
+    this.kdsIdleTimeoutMs =
+      config.getOrThrow<number>('KDS_IDLE_TIMEOUT_HOURS') * 3_600_000;
   }
 
   /**
@@ -148,17 +163,18 @@ export class AuthService {
       throw new UnauthorizedException('Invalid PIN, branch or employee.');
     }
 
-    const { session, refreshToken } = await this.sessions.issue(user.id, ctx);
-    // NOTE: the membership is deliberately NOT persisted onto the session row.
-    // `refresh` rebuilds a token from `session.membershipId` and does not carry
-    // the `pos`/`kds` audience forward, so storing it there would let a PIN
-    // session refresh itself into a full dashboard session — the exact
-    // escalation FR-SEC-021 forbids. The consequence is that a POS/KDS session
-    // ends with its access token and the employee re-enters their PIN; that is
-    // a smaller cost than an escalation path, and POS/KDS refresh semantics
-    // are not source-decided.
-    // `mid` is what makes the session AUTHORIZABLE: permissions are resolved
-    // per request from the membership, so a POS/KDS token without it could
+    // POS-KDS-SESSION-CONTINUITY-P0 (FR-SEC-026 idle-expiry model, design
+    // report `docs/reports/claude/2026-09-16_POS-KDS-SESSION-CONTINUITY-P0_
+    // investigation.md`) — `sessionType`/`employeeId`/`branchId`/
+    // `membershipId` are now persisted onto the session row, server-derived
+    // from THIS authenticated PIN result only, never from client input.
+    // `refresh()` branches on `session.sessionType` FIRST and always mints
+    // `typ`/`emp`/`brc` together with `tid`/`mid` for a `pos`/`kds` row —
+    // never separately — so persisting `membershipId` here no longer risks
+    // a PIN session refreshing into an indistinguishable-from-console
+    // token, the escalation the OLD comment (removed) warned about. `mid`
+    // is what makes the session AUTHORIZABLE: permissions are resolved per
+    // request from the membership, so a POS/KDS token without it could
     // reach no permission-guarded route at all. `emp` names the employee
     // behind the session, which POS/KDS routes need as the acting party
     // (FR-SEC-021).
@@ -167,6 +183,16 @@ export class AuthService {
     // The snapshot never authorises — `TenantContextService` re-resolves live
     // on every request, and additionally re-checks this session's employee and
     // permitted-branch facts (`brc`).
+    const { session, refreshToken } = await this.sessions.issue(
+      user.id,
+      ctx,
+      {
+        sessionType: dto.sessionType,
+        employeeId: result.employeeId,
+        branchId: result.branchId,
+        membershipId: result.membershipId,
+      },
+    );
     const snapshot = await this.snapshots.build(
       user.id,
       dto.tenantId,
@@ -212,13 +238,32 @@ export class AuthService {
    * old refresh token is invalidated (rotation). Any invalid/expired/revoked/
    * reused token is a generic 401 (see SessionsService.rotate). If the account
    * has since become inactive, the freshly minted session is revoked and 401.
+   *
+   * POS-KDS-SESSION-CONTINUITY-P0 (FR-SEC-026) — a `pos`/`kds` session is
+   * handled entirely by `refreshPosOrKds()` below: the access-token TTL
+   * boundary is NOT a human-session boundary, so an actively operating
+   * POS/KDS terminal survives any number of ordinary rotations, and PIN is
+   * required only once the session's own idle timeout is exceeded or a
+   * genuine invalidation is found. This CORRECTS a previous, unratified
+   * assumption (removed) that a POS/KDS session was meant to simply end at
+   * every refresh, attributed in an earlier version of this comment to
+   * "the deliberate FR-SEC-021 boundary" — no ratified governance decision
+   * ever said that (`CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0` concerns only
+   * removing terminal/device binding; FR-SEC-021 concerns PIN's branch
+   * scoping and dashboard exclusion, not refresh-boundary session
+   * lifetime). See the design report's Phase 8 for the full governance
+   * trace. No governance deviation was needed: this restores FR-SEC-026's
+   * own required idle-expiry semantics.
    */
   async refresh(
     refreshToken: string,
     ctx: SessionContext,
   ): Promise<AuthTokens> {
-    const { session, refreshToken: nextRefreshToken } =
-      await this.sessions.rotate(refreshToken, ctx);
+    const {
+      session,
+      refreshToken: nextRefreshToken,
+      priorActivityAt,
+    } = await this.sessions.rotate(refreshToken, ctx);
 
     const user = await this.users.findById(session.userId);
     if (!user || user.status !== 'active') {
@@ -226,6 +271,17 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
+    if (session.sessionType === 'pos' || session.sessionType === 'kds') {
+      return this.refreshPosOrKds(
+        session,
+        session.sessionType,
+        nextRefreshToken,
+        user,
+        priorActivityAt,
+      );
+    }
+
+    // ── Console/dashboard path — UNCHANGED from before this task ─────────
     // Preserve tenant context across rotation, but only if the membership (and
     // its tenant) is still active; otherwise the refreshed token drops it.
     const context = session.membershipId
@@ -235,18 +291,14 @@ export class AuthService {
         )
       : null;
 
-    // CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0: no POS/KDS branch/employee-
-    // custody restoration happens here any more — POS/KDS sessions never
-    // carried `typ: 'pos'|'kds'` forward across refresh in the first place
-    // (the deliberate FR-SEC-021 boundary), and there is no terminal for a
-    // POS/KDS session to rebind to.
-    //
     // The Sync/offline device channel's OWN terminal binding (`trm`, minted
     // by `POST /auth/terminal` — see `terminal-session.service.ts`'s own
-    // docblock) IS still preserved across refresh, exactly as before this
-    // task: a long-lived Sync device session must not lose its binding on
-    // every token rotation. Re-checked live so a revoked/disabled terminal
-    // drops from the refreshed token, same as any other live-state check.
+    // docblock) IS preserved across refresh: a long-lived Sync device
+    // session must not lose its binding on every token rotation.
+    // Re-checked live so a revoked/disabled terminal drops from the
+    // refreshed token, same as any other live-state check. A `pos`/`kds`
+    // session never reaches this path (never sets `terminalId`) — see
+    // `refreshPosOrKds()` above.
     let terminalId: string | undefined;
     if (context && session.terminalId) {
       const terminal = await this.terminals.findInTenant(
@@ -275,6 +327,124 @@ export class AuthService {
       ...(snapshot
         ? { scp: [...snapshot.scp], pbr: snapshot.pbr, epo: snapshot.epo }
         : {}),
+    });
+    return this.buildTokens(accessToken, nextRefreshToken, user);
+  }
+
+  /**
+   * POS-KDS-SESSION-CONTINUITY-P0 — refresh for a session whose persisted
+   * `sessionType` is `pos`/`kds`. Restores FR-SEC-026's configurable
+   * IDLE-expiry model in place of the access-token TTL: idle time is
+   * measured from `priorActivityAt` (the session's activity timestamp AS
+   * IT WAS immediately before this rotation — see
+   * `SessionsService.rotate()`'s own docblock), NEVER from the JWT `exp`
+   * claim and NEVER from a client-supplied timestamp.
+   *
+   * Every fact restored into the new token — `typ`/`emp`/`brc`/`tid`/`mid`/
+   * `scp`/`pbr`/`epo` — is re-derived from CURRENT database state, reached
+   * through the session row's own persisted anchors
+   * (`sessionType`/`employeeId`/`branchId`/`membershipId`), using EXACTLY
+   * the same live invariants (`resolveActiveContext`,
+   * `TenantContextService.resolveEmployeeBranch`) every ordinary POS/KDS
+   * request already re-checks — never reconstructed from the old access
+   * token's claims and never accepted from client input. This is not a
+   * manufactured console context: it is the SAME real membership
+   * `PinService.authenticate()` already resolves at PIN login
+   * (`Membership` is unique per `[userId, tenantId]`), re-verified live.
+   *
+   * Any failure (idle-expired, account/membership/tenant/employee/branch no
+   * longer valid) revokes the freshly-rotated session and fails the SAME
+   * generic 401 `SessionsService.rotate()` already uses for every other
+   * refresh failure — a POS/KDS session must not be distinguishable, from
+   * the outside, from any other refresh failure, and it must NEVER
+   * silently degrade into a console-shaped token instead of ending.
+   */
+  private async refreshPosOrKds(
+    session: { id: string; employeeId: string | null; branchId: string | null; membershipId: string | null },
+    sessionType: 'pos' | 'kds',
+    nextRefreshToken: string,
+    user: User,
+    priorActivityAt: Date,
+  ): Promise<AuthTokens> {
+    const fail = async (): Promise<never> => {
+      await this.sessions.revoke(session.id);
+      throw new UnauthorizedException('Invalid refresh token');
+    };
+
+    // Defensive: `issue()`/`rotate()` always set these three together for a
+    // pos/kds row. Their absence means the row is inconsistent — never
+    // trust a partial POS/KDS identity.
+    if (!session.employeeId || !session.branchId || !session.membershipId) {
+      return fail();
+    }
+
+    // FR-SEC-026 idle expiry — the primary requirement this task restores.
+    // Checked BEFORE any identity is restored: idle time exceeded means the
+    // session is over, full stop, regardless of whether the account/
+    // employee/branch would otherwise still validate.
+    const idleTimeoutMs =
+      sessionType === 'pos' ? this.posIdleTimeoutMs : this.kdsIdleTimeoutMs;
+    if (Date.now() - priorActivityAt.getTime() >= idleTimeoutMs) {
+      return fail();
+    }
+
+    // The employee's tenant, reached WITHOUT an RLS chicken-and-egg:
+    // `identity.employees`/`org.branches` require `app.tenant_id` to
+    // already be set to be readable at all, so tenant must come from
+    // somewhere RLS-free first. `identity.memberships`' SELECT policy
+    // allows a user-scoped read of THEIR OWN membership by id
+    // (`identity_rls` migration) — the exact same mechanism the console
+    // path above already relies on via `resolveActiveContext`. This also
+    // re-verifies the membership and its tenant are still active.
+    const context = await this.memberships.resolveActiveContext(
+      user.id,
+      session.membershipId,
+    );
+    if (!context) {
+      return fail();
+    }
+
+    // Employee still exists, still active, still belongs to the SAME
+    // tenant (RLS-enforced — a cross-tenant employeeId is invisible here),
+    // and is still permitted at this branch, which itself still exists and
+    // is active. The SAME live check every ordinary POS/KDS request already
+    // runs per-request (`TenantContextService.resolveSessionBranch`) — one
+    // definition of a valid POS/KDS branch identity, never two.
+    let branchId: string;
+    try {
+      branchId = await this.prisma.withAuthContext(
+        { userId: user.id, tenantId: context.tenantId },
+        (tx) =>
+          this.tenantContext.resolveEmployeeBranch(
+            tx,
+            session.employeeId as string,
+            session.branchId as string,
+          ),
+      );
+    } catch {
+      return fail();
+    }
+
+    // A refreshed POS/KDS token gets a FRESH snapshot and epoch too — the
+    // same "refresh recovers from a stale snapshot" property the console
+    // path already had, now genuinely available to POS/KDS (it never was
+    // before this task: a bare PIN session's refresh restored nothing).
+    const snapshot = await this.snapshots.build(
+      user.id,
+      context.tenantId,
+      context.membershipId,
+    );
+    const accessToken = await this.tokens.sign({
+      sub: user.id,
+      sid: session.id,
+      tid: context.tenantId,
+      mid: context.membershipId,
+      brc: branchId,
+      emp: session.employeeId,
+      typ: sessionType,
+      scp: [...snapshot.scp],
+      pbr: snapshot.pbr,
+      epo: snapshot.epo,
     });
     return this.buildTokens(accessToken, nextRefreshToken, user);
   }

@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { TenantContextService } from '../context/tenant-context.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { MembershipsService } from '../memberships/memberships.service';
 import { SessionsService } from '../sessions/sessions.service';
@@ -53,7 +54,11 @@ describe('AuthService.login', () => {
       user: { update: jest.fn().mockResolvedValue(undefined) },
     };
     const config = {
-      getOrThrow: jest.fn().mockReturnValue('15m'),
+      getOrThrow: jest.fn((key: string) => {
+        if (key === 'POS_IDLE_TIMEOUT_MINUTES') return 15;
+        if (key === 'KDS_IDLE_TIMEOUT_HOURS') return 8;
+        return '15m';
+      }),
     } as unknown as ConfigService;
 
     const memberships = {
@@ -79,6 +84,12 @@ describe('AuthService.login', () => {
         epo: 0,
       }),
     } as unknown as AuthorizationSnapshotService;
+    // POS-KDS-SESSION-CONTINUITY-P0: these password/login/refresh specs never
+    // exercise a pos/kds-typed session, so resolveEmployeeBranch is never
+    // invoked; it exists only to satisfy the constructor's dependency.
+    const tenantContext = {
+      resolveEmployeeBranch: jest.fn(),
+    } as unknown as TenantContextService;
 
     service = new AuthService(
       prisma as unknown as PrismaService,
@@ -91,6 +102,7 @@ describe('AuthService.login', () => {
       audit,
       pins,
       snapshots,
+      tenantContext,
       config,
     );
   });

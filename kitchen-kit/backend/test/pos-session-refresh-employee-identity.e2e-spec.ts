@@ -38,17 +38,44 @@ import { PrismaService } from './../src/prisma/prisma.service';
  *    own docblock), so there is nothing left to test on that path either;
  *    the refreshed-dashboard-session assertion below is rewritten to match.
  *
- * A PURE PIN-issued session's OWN refresh remains deliberately unaffected:
- * `AuthService.loginWithPin` never persists `membershipId` onto its
- * `Session` row (a documented, ratified anti-escalation decision — "a POS
- * session ends with its access token and the employee re-enters their
- * PIN"), so refreshing it restores no tenant context at all and fails at
- * the EARLIER "session is not terminal-bound" stage. That is unchanged,
- * intentional behaviour, still verified below.
+ * ── POS-KDS-SESSION-CONTINUITY-P0 (2026-09-16) — SUPERSEDES the paragraph
+ * this replaces ────────────────────────────────────────────────────────────
+ * A PURE PIN-issued session's OWN refresh is NO LONGER treated as "the
+ * session simply ends" — that was never a ratified decision (see the
+ * design report's Phase 8: the code comment that used to justify it
+ * mischaracterized `CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0` and
+ * `FR-SEC-021`, neither of which says anything about refresh-boundary
+ * session lifetime), and it directly conflicted with FR-SEC-026's
+ * configurable IDLE-expiry requirement (15m POS / 60m dashboard / 8h KDS)
+ * — an access-token TTL boundary is not a human-session boundary.
+ * `AuthService.loginWithPin` now persists `sessionType`/`employeeId`/
+ * `branchId` (new, additive `identity.sessions` columns) AND
+ * `membershipId` (the SAME real membership `PinService.authenticate`
+ * already resolves — `Membership` is unique per `[userId, tenantId]`) onto
+ * the session row; `AuthService.refresh()` branches on `session.sessionType`
+ * FIRST and, for `pos`/`kds`, live-revalidates employee/branch/tenant state
+ * and mints `typ`/`emp`/`brc` together with `tid`/`mid` — never separately
+ * — before an idle timeout is exceeded. The tests below that used to prove
+ * "refresh fails closed, full stop" now prove "refresh preserves identity
+ * while active, and still fails closed on idle-expiry or genuine
+ * invalidation" instead. Full idle-timeout/rotation/revocation coverage
+ * lives in the dedicated `test/pos-kds-session-continuity.e2e-spec.ts`;
+ * this file keeps only the identity-specific and historical-regression
+ * cases it already owned.
  */
 
 function idemKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Test-only inspection of an already-verified JWT's own claims — never used
+ * for anything authorization-bearing. */
+function decodeJwtPayload(token: string): Record<string, unknown> {
+  const [, payload] = token.split('.');
+  return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<
+    string,
+    unknown
+  >;
 }
 
 describe('POS/terminal session employee identity (e2e)', () => {
@@ -287,8 +314,30 @@ describe('POS/terminal session employee identity (e2e)', () => {
       .expect(403);
   });
 
-  it('a refreshed PURE PIN session (never tenant-selected, membership never persisted) fails closed at the terminal-binding stage — unchanged, deliberate behaviour', async () => {
+  it('POS-KDS-SESSION-CONTINUITY-P0 (SUPERSEDES the old "fails closed at the terminal-binding stage" behaviour): a refreshed PURE PIN session now correctly PRESERVES its POS identity and access — FR-SEC-026 idle semantics, not a refresh-boundary session end', async () => {
+    // Historical note, kept for anyone diffing this file against an older
+    // version: before POS-KDS-SESSION-CONTINUITY-P0, `AuthService.refresh()`
+    // deliberately never persisted `session.membershipId` for a PIN session
+    // and restored no `typ`/`emp`/`brc` either, so a bare refresh always
+    // fell all the way back to "no scope at all" (403 here). That was
+    // ITSELF the defect this task fixes: FR-SEC-026 requires an IDLE
+    // timeout, not "the session ends at the very next access-token
+    // rotation" — see the design report's Phase 8, which also traces that
+    // the removed behaviour was never actually a ratified governance
+    // decision, only an unratified assumption in a code comment. The
+    // identity/employee/branch now persist on the `Session` row itself
+    // (`sessionType`/`employeeId`/`branchId`, plus `membershipId` — see
+    // `SessionsService.issue()`'s own docblock for why persisting it no
+    // longer risks the escalation the old comment warned about) and are
+    // live-revalidated, not merely replayed, on every refresh.
     const { tenantId, accessToken, branchId } = await signUpOwner();
+
+    await request(http)
+      .post(`/branches/${branchId}/drawers`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', idemKey())
+      .send({ name: 'Continuity Drawer' })
+      .expect(201);
 
     const employee = (
       await request(http)
@@ -314,7 +363,7 @@ describe('POS/terminal session employee identity (e2e)', () => {
         sessionType: 'pos',
       })
       .expect(200);
-    const original = login.body as { refreshToken: string };
+    const original = login.body as { accessToken: string; refreshToken: string };
 
     const refreshed = await request(http)
       .post('/auth/refresh')
@@ -322,14 +371,29 @@ describe('POS/terminal session employee identity (e2e)', () => {
       .expect(200);
     const refreshedToken = (refreshed.body as { accessToken: string }).accessToken;
 
-    // Fails closed — no tenant context was ever persisted for a PIN
-    // session, so nothing downstream can succeed until the employee
-    // re-enters their PIN. This must NOT be the "requires ... employee"
-    // message (that would mean a target was somehow resolved); it is the
-    // earlier, "no scope at all" refusal.
-    await request(http)
+    // Still a real, fully-functional POS session — genuinely preserved,
+    // not merely "not yet noticed as broken".
+    const drawers = await request(http)
       .get('/cash-sessions/drawers')
       .set('Authorization', `Bearer ${refreshedToken}`)
+      .expect(200);
+    expect((drawers.body as { id: string }[])).toHaveLength(1);
+
+    const before = decodeJwtPayload(original.accessToken);
+    const after = decodeJwtPayload(refreshedToken);
+    expect(after.typ).toBe('pos');
+    expect(after.emp).toBe(before.emp);
+    expect(after.brc).toBe(before.brc);
+
+    // The historical exploit path is now impossible, not merely unused:
+    // the refreshed token already carries `typ: 'pos'`, and `POST
+    // /auth/tenant` is not POS-opted-in — `JwtAuthGuard` refuses it
+    // outright, before `TenantSelectionService` (the thing that used to
+    // silently strip the POS identity) is ever reached.
+    await request(http)
+      .post('/auth/tenant')
+      .set('Authorization', `Bearer ${refreshedToken}`)
+      .send({ tenantId })
       .expect(403);
   });
 
@@ -407,5 +471,115 @@ describe('POS/terminal session employee identity (e2e)', () => {
     );
     expect(rowA?.employeeId).toBe(employeeA.id);
     expect(rowA?.employeeId).not.toBe(employeeB.id);
+  });
+
+  /**
+   * POS-SESSION-REFRESH-CONTEXT-P0 (historical defect) /
+   * POS-KDS-SESSION-CONTINUITY-P0 (the fix) — REGRESSION test.
+   *
+   * What this file's PHASE 5 reproduction originally proved, live: a bare
+   * `POST /auth/refresh` dropped `typ`/`emp`/`brc`, and the frontend's own
+   * `lib/api/client.ts#refreshSession()` then unconditionally followed it
+   * with `POST /auth/tenant` (a step written for console, with no
+   * awareness a POS/KDS session's context must never be re-established by
+   * tenant re-selection) — which SUCCEEDED, silently producing a token
+   * indistinguishable from an ordinary dashboard session's and turning
+   * `GET /cash-sessions/current` from `200` into the exact generic
+   * `"Insufficient permission for this scope."` 403 production showed.
+   *
+   * Both halves of that defect are now fixed, at their respective layers:
+   * `AuthService.refresh()` itself now restores `typ`/`emp`/`brc` (this
+   * file's preceding test), and the frontend no longer calls `/auth/tenant`
+   * for POS/KDS at all (`lib/api/client.ts#refreshSession()`,
+   * POS-KDS-SESSION-CONTINUITY-P0 Phase 7). This test proves the exact
+   * historical repro sequence NO LONGER reproduces the symptom: refresh
+   * alone keeps `GET /cash-sessions/current` at `200` throughout, with no
+   * `/auth/tenant` replay step needed or attempted.
+   */
+  it('REGRESSION: the historical refresh -> silent-dashboard-conversion -> 403 sequence no longer reproduces — GET /cash-sessions/current stays 200 across refresh, with no /auth/tenant replay', async () => {
+    const { tenantId, accessToken, branchId } = await signUpOwner();
+
+    const employee = (
+      await request(http)
+        .post('/workforce/employees')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .set('Idempotency-Key', idemKey())
+        .send(employeeBody(branchId))
+        .expect(201)
+    ).body as { id: string; code: string };
+    await request(http)
+      .post(`/workforce/employees/${employee.id}/pin`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', idemKey())
+      .send({ pin: '7777' })
+      .expect(204);
+
+    const login = await request(http)
+      .post('/auth/pin')
+      .send({
+        tenantId,
+        branchId,
+        employeeCode: employee.code,
+        pin: '7777',
+        sessionType: 'pos',
+      })
+      .expect(200);
+    const loginBody = login.body as { accessToken: string; refreshToken: string };
+    const posToken = loginBody.accessToken;
+
+    // 1. Fresh PIN principal: GET /cash-sessions/current succeeds (200).
+    await request(http)
+      .get('/cash-sessions/current')
+      .set('Authorization', `Bearer ${posToken}`)
+      .expect(200);
+
+    const before = decodeJwtPayload(posToken);
+    expect(before.typ).toBe('pos');
+    expect(before.brc).toBe(branchId);
+    expect(before.emp).toBe(employee.id);
+    expect(before.tid).toBe(tenantId);
+    expect(before.mid).toBeDefined();
+
+    // 2. The exact production rotation: POST /auth/refresh. NO further
+    // replay step follows — the frontend no longer makes one, and this
+    // test proves none is needed.
+    const refreshed = await request(http)
+      .post('/auth/refresh')
+      .send({ refreshToken: loginBody.refreshToken })
+      .expect(200);
+    const finalToken = (refreshed.body as { accessToken: string }).accessToken;
+
+    const after = decodeJwtPayload(finalToken);
+    // Tenant context is back...
+    expect(after.tid).toBe(tenantId);
+    expect(after.mid).toBeDefined();
+    expect(after.scp).toBeDefined();
+    expect(after.pbr).toBeDefined();
+    // ...and, unlike the historical defect, so is the POS identity —
+    // restored together, server-derived, never separately.
+    expect(after.typ).toBe('pos');
+    expect(after.brc).toBe(branchId);
+    expect(after.emp).toBe(employee.id);
+    expect(after.sid).not.toBe(before.sid); // SID rotation is unaffected
+
+    // 3. The historical symptom does NOT reproduce: same endpoint, same
+    // employee, same branch, same live permission grant — still 200.
+    await request(http)
+      .get('/cash-sessions/current')
+      .set('Authorization', `Bearer ${finalToken}`)
+      .expect(200);
+
+    // The rotated session row itself carries the SAME persisted POS
+    // identity forward (SessionsService.rotate()), never converted into a
+    // console-shaped row the way the historical /auth/tenant replay used
+    // to convert it.
+    const sessionRow = await prisma.session.findUnique({
+      where: { id: after.sid as string },
+      select: { sessionType: true, employeeId: true, branchId: true, membershipId: true },
+    });
+    expect(sessionRow?.sessionType).toBe('pos');
+    expect(sessionRow?.employeeId).toBe(employee.id);
+    expect(sessionRow?.branchId).toBe(branchId);
+    expect(sessionRow?.membershipId).toBe(after.mid);
   });
 });

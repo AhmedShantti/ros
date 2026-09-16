@@ -102,6 +102,36 @@ export class EnvironmentVariables {
   @Type(() => Number)
   PIN_LOCKOUT_MS: number = 900_000;
 
+  /**
+   * FR-SEC-026 [M] — "Sessions SHALL expire after a configurable idle
+   * period: default 15 minutes on POS, 60 minutes on dashboard, 8 hours on
+   * KDS." (POS-KDS-SESSION-CONTINUITY-P0.) These three are the
+   * "configurable" half of that requirement — a tenant-wide default, not
+   * per-tenant configuration (no such mechanism exists yet for auth
+   * timeouts; that is a separate, un-started scope). `AuthService.refresh()`
+   * enforces `POS_IDLE_TIMEOUT_MINUTES`/`KDS_IDLE_TIMEOUT_HOURS` today.
+   * `DASHBOARD_IDLE_TIMEOUT_MINUTES` is defined here for configuration-model
+   * coherence across all three FR-SEC-026 surfaces but is DELIBERATELY NOT
+   * enforced anywhere yet in this task — console idle enforcement remains a
+   * separate, pre-existing FR-SEC-026 gap, recorded, not silently changed
+   * (see the design report's Phase 5/8 and the implementation report).
+   */
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  POS_IDLE_TIMEOUT_MINUTES: number = 15;
+
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  KDS_IDLE_TIMEOUT_HOURS: number = 8;
+
+  /** Defined for FR-SEC-026 configuration-model coherence; NOT enforced yet — see above. */
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  DASHBOARD_IDLE_TIMEOUT_MINUTES: number = 60;
+
   // Express `trust proxy` setting. Unset/`false` trusts NO forwarding header
   // (safe default). Set to a hop count (e.g. `1`), `true`, or a subnet string
   // only when running behind a known, trusted reverse proxy. See docs/auth.

@@ -1,6 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { TenantContextService } from '../context/tenant-context.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { MembershipsService } from '../memberships/memberships.service';
 import { SessionsService } from '../sessions/sessions.service';
@@ -33,6 +34,9 @@ describe('AuthService refresh/logout', () => {
   let repo: { findById: jest.Mock };
   let sessions: { rotate: jest.Mock; revoke: jest.Mock };
   let tokens: { sign: jest.Mock };
+  let memberships: { resolveActiveContext: jest.Mock };
+  let tenantContextMock: { resolveEmployeeBranch: jest.Mock };
+  let prisma: { withAuthContext: jest.Mock };
 
   beforeEach(() => {
     repo = { findById: jest.fn() };
@@ -40,17 +44,22 @@ describe('AuthService refresh/logout', () => {
       rotate: jest.fn().mockResolvedValue({
         session: { id: 'sid-2', userId: 'user-1' },
         refreshToken: 'rt-2',
+        priorActivityAt: new Date(),
       }),
       revoke: jest.fn().mockResolvedValue(undefined),
     };
     tokens = { sign: jest.fn().mockResolvedValue('access-2') };
     const config = {
-      getOrThrow: jest.fn().mockReturnValue('15m'),
+      getOrThrow: jest.fn((key: string) => {
+        if (key === 'POS_IDLE_TIMEOUT_MINUTES') return 15;
+        if (key === 'KDS_IDLE_TIMEOUT_HOURS') return 8;
+        return '15m';
+      }),
     } as unknown as ConfigService;
 
-    const memberships = {
+    memberships = {
       resolveActiveContext: jest.fn().mockResolvedValue(null),
-    } as unknown as MembershipsService;
+    };
     // Sync/offline device channel only (trm-claim preservation on refresh).
     // `context` is null in every spec below (`resolveActiveContext`
     // resolves `null`), so this is never actually invoked; it exists only
@@ -72,18 +81,25 @@ describe('AuthService refresh/logout', () => {
         epo: 0,
       }),
     } as unknown as AuthorizationSnapshotService;
+    tenantContextMock = { resolveEmployeeBranch: jest.fn() };
+    prisma = {
+      withAuthContext: jest.fn((_scope: unknown, fn: (tx: unknown) => unknown) =>
+        fn({}),
+      ),
+    };
 
     service = new AuthService(
-      {} as unknown as PrismaService,
+      prisma as unknown as PrismaService,
       repo as unknown as UsersRepository,
       {} as unknown as CredentialsService,
       sessions as unknown as SessionsService,
       tokens as unknown as AccessTokenService,
-      memberships,
+      memberships as unknown as MembershipsService,
       terminals,
       audit,
       pins,
       snapshots,
+      tenantContextMock as unknown as TenantContextService,
       config,
     );
   });
@@ -114,5 +130,133 @@ describe('AuthService refresh/logout', () => {
   it('logout revokes the current session', async () => {
     await service.logout('user-9', 'sid-9');
     expect(sessions.revoke).toHaveBeenCalledWith('sid-9');
+  });
+
+  describe('POS-KDS-SESSION-CONTINUITY-P0 — pos/kds refresh', () => {
+    const posSession = {
+      id: 'sid-pos',
+      userId: 'user-1',
+      sessionType: 'pos' as const,
+      employeeId: 'emp-1',
+      branchId: 'branch-1',
+      membershipId: 'mem-1',
+    };
+
+    it('mints a fresh typ/emp/brc/tid/mid token when active and within the idle window', async () => {
+      repo.findById.mockResolvedValue(activeUser());
+      sessions.rotate.mockResolvedValue({
+        session: posSession,
+        refreshToken: 'rt-pos-2',
+        priorActivityAt: new Date(Date.now() - 60_000), // 1 minute ago, well under 15m
+      });
+      memberships.resolveActiveContext.mockResolvedValue({
+        tenantId: 'tenant-1',
+        membershipId: 'mem-1',
+      });
+      tenantContextMock.resolveEmployeeBranch.mockResolvedValue('branch-1');
+
+      const result = await service.refresh('rt-1', {});
+
+      expect(tenantContextMock.resolveEmployeeBranch).toHaveBeenCalledWith(
+        {},
+        'emp-1',
+        'branch-1',
+      );
+      expect(tokens.sign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sub: 'user-1',
+          sid: 'sid-pos',
+          tid: 'tenant-1',
+          mid: 'mem-1',
+          brc: 'branch-1',
+          emp: 'emp-1',
+          typ: 'pos',
+        }),
+      );
+      expect(result.accessToken).toBe('access-2');
+      expect(sessions.revoke).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when idle timeout has elapsed', async () => {
+      repo.findById.mockResolvedValue(activeUser());
+      sessions.rotate.mockResolvedValue({
+        session: posSession,
+        refreshToken: 'rt-pos-2',
+        priorActivityAt: new Date(Date.now() - 16 * 60_000), // 16 minutes ago, over the 15m default
+      });
+
+      await expect(service.refresh('rt-1', {})).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(sessions.revoke).toHaveBeenCalledWith('sid-pos');
+      expect(memberships.resolveActiveContext).not.toHaveBeenCalled();
+      expect(tokens.sign).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when the employee/branch is no longer valid', async () => {
+      repo.findById.mockResolvedValue(activeUser());
+      sessions.rotate.mockResolvedValue({
+        session: posSession,
+        refreshToken: 'rt-pos-2',
+        priorActivityAt: new Date(Date.now() - 60_000),
+      });
+      memberships.resolveActiveContext.mockResolvedValue({
+        tenantId: 'tenant-1',
+        membershipId: 'mem-1',
+      });
+      tenantContextMock.resolveEmployeeBranch.mockRejectedValue(
+        new Error('POS/KDS session is not permitted here.'),
+      );
+
+      await expect(service.refresh('rt-1', {})).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(sessions.revoke).toHaveBeenCalledWith('sid-pos');
+      expect(tokens.sign).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when the membership/tenant is no longer active', async () => {
+      repo.findById.mockResolvedValue(activeUser());
+      sessions.rotate.mockResolvedValue({
+        session: posSession,
+        refreshToken: 'rt-pos-2',
+        priorActivityAt: new Date(Date.now() - 60_000),
+      });
+      memberships.resolveActiveContext.mockResolvedValue(null);
+
+      await expect(service.refresh('rt-1', {})).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(sessions.revoke).toHaveBeenCalledWith('sid-pos');
+      expect(tenantContextMock.resolveEmployeeBranch).not.toHaveBeenCalled();
+    });
+
+    it('never falls through to the console token shape for a pos/kds row', async () => {
+      // Even though `posSession.membershipId` is set (now legitimately
+      // persisted — see SessionsService.issue()'s own docblock), a
+      // pos/kds-typed row must NEVER take the console branch, which would
+      // mint tid/mid without typ/emp/brc. Assert the signed payload always
+      // carries all five together, never a subset.
+      repo.findById.mockResolvedValue(activeUser());
+      sessions.rotate.mockResolvedValue({
+        session: posSession,
+        refreshToken: 'rt-pos-2',
+        priorActivityAt: new Date(Date.now() - 60_000),
+      });
+      memberships.resolveActiveContext.mockResolvedValue({
+        tenantId: 'tenant-1',
+        membershipId: 'mem-1',
+      });
+      tenantContextMock.resolveEmployeeBranch.mockResolvedValue('branch-1');
+
+      await service.refresh('rt-1', {});
+
+      const signedPayload = tokens.sign.mock.calls[0][0];
+      expect(signedPayload.typ).toBeDefined();
+      expect(signedPayload.emp).toBeDefined();
+      expect(signedPayload.brc).toBeDefined();
+      expect(signedPayload.tid).toBeDefined();
+      expect(signedPayload.mid).toBeDefined();
+    });
   });
 });

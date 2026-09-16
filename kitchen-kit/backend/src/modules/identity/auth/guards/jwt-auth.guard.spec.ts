@@ -6,6 +6,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AccessTokenService } from '../access-token.service';
 import { AuthenticatedPrincipal } from '../auth.types';
+import { SessionsService } from '../../sessions/sessions.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 function contextWithHeaders(
@@ -29,14 +30,21 @@ function contextWithHeaders(
 
 describe('JwtAuthGuard', () => {
   let tokens: { verify: jest.Mock };
+  let sessions: { touch: jest.Mock };
   let guard: JwtAuthGuard;
 
   beforeEach(() => {
     tokens = { verify: jest.fn() };
+    // POS-KDS-SESSION-CONTINUITY-P0: fire-and-forget activity touch — these
+    // specs assert authn/route-gating behaviour, not the touch mechanism
+    // itself (that has its own coverage in sessions.service.spec.ts), so a
+    // resolved stub suffices.
+    sessions = { touch: jest.fn().mockResolvedValue(undefined) };
     guard = new JwtAuthGuard(
       tokens as unknown as AccessTokenService,
       // A dashboard route never opts in, so the reflector yields undefined.
       { getAllAndOverride: () => undefined } as unknown as Reflector,
+      sessions as unknown as SessionsService,
     );
   });
 
@@ -78,6 +86,7 @@ describe('JwtAuthGuard', () => {
       const optedIn = new JwtAuthGuard(
         tokens as unknown as AccessTokenService,
         { getAllAndOverride: () => true } as unknown as Reflector,
+        sessions as unknown as SessionsService,
       );
       const [ctx] = contextWithHeaders({ authorization: 'Bearer t' });
       await expect(optedIn.canActivate(ctx)).resolves.toBe(true);
@@ -87,6 +96,51 @@ describe('JwtAuthGuard', () => {
       tokens.verify.mockResolvedValue({ sub: 'u', sid: 's' });
       const [ctx] = contextWithHeaders({ authorization: 'Bearer t' });
       await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
+  });
+
+  describe('POS-KDS-SESSION-CONTINUITY-P0 — activity touch', () => {
+    it('touches the session for a pos-typed principal', async () => {
+      tokens.verify.mockResolvedValue({ sub: 'u', sid: 's-pos', typ: 'pos' });
+      const optedIn = new JwtAuthGuard(
+        tokens as unknown as AccessTokenService,
+        { getAllAndOverride: () => true } as unknown as Reflector,
+        sessions as unknown as SessionsService,
+      );
+      const [ctx] = contextWithHeaders({ authorization: 'Bearer t' });
+      await optedIn.canActivate(ctx);
+      expect(sessions.touch).toHaveBeenCalledWith('s-pos');
+    });
+
+    it('touches the session for a kds-typed principal', async () => {
+      tokens.verify.mockResolvedValue({ sub: 'u', sid: 's-kds', typ: 'kds' });
+      const optedIn = new JwtAuthGuard(
+        tokens as unknown as AccessTokenService,
+        { getAllAndOverride: () => true } as unknown as Reflector,
+        sessions as unknown as SessionsService,
+      );
+      const [ctx] = contextWithHeaders({ authorization: 'Bearer t' });
+      await optedIn.canActivate(ctx);
+      expect(sessions.touch).toHaveBeenCalledWith('s-kds');
+    });
+
+    it('does NOT touch the session for a console/dashboard principal', async () => {
+      tokens.verify.mockResolvedValue({ sub: 'u', sid: 's-console' });
+      const [ctx] = contextWithHeaders({ authorization: 'Bearer t' });
+      await guard.canActivate(ctx);
+      expect(sessions.touch).not.toHaveBeenCalled();
+    });
+
+    it('never fails the request when the touch write itself fails', async () => {
+      sessions.touch.mockRejectedValue(new Error('db hiccup'));
+      tokens.verify.mockResolvedValue({ sub: 'u', sid: 's-pos', typ: 'pos' });
+      const optedIn = new JwtAuthGuard(
+        tokens as unknown as AccessTokenService,
+        { getAllAndOverride: () => true } as unknown as Reflector,
+        sessions as unknown as SessionsService,
+      );
+      const [ctx] = contextWithHeaders({ authorization: 'Bearer t' });
+      await expect(optedIn.canActivate(ctx)).resolves.toBe(true);
     });
   });
 });

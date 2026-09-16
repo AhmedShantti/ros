@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -11,6 +12,7 @@ import { AccessTokenService } from '../access-token.service';
 import { AuthenticatedPrincipal } from '../auth.types';
 import { ALLOW_POS_SESSION } from '../decorators/pos-session.decorator';
 import { ALLOW_KDS_SESSION } from '../decorators/kds-session.decorator';
+import { SessionsService } from '../../sessions/sessions.service';
 
 type AuthedRequest = Request & { principal?: AuthenticatedPrincipal };
 
@@ -21,9 +23,12 @@ type AuthedRequest = Request & { principal?: AuthenticatedPrincipal };
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  private readonly logger = new Logger(JwtAuthGuard.name);
+
   constructor(
     private readonly tokens: AccessTokenService,
     private readonly reflector: Reflector,
+    private readonly sessions: SessionsService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -63,6 +68,27 @@ export class JwtAuthGuard implements CanActivate {
       };
     } catch {
       throw new UnauthorizedException();
+    }
+
+    // POS-KDS-SESSION-CONTINUITY-P0 (FR-SEC-026 idle model) — authenticated
+    // POS/KDS traffic (including ordinary ticket polling — this counts as
+    // operational activity by explicit product decision, see the design
+    // report's Phase 4) keeps the session alive. `SessionsService.touch()`
+    // is itself debounced/atomic, so calling it on every request is cheap;
+    // it is additionally fire-and-forget here (never awaited, errors only
+    // logged) so a transient DB hiccup on this best-effort write can never
+    // fail or slow down an otherwise-valid authenticated request. Console
+    // requests are deliberately NOT touched here — dashboard idle
+    // enforcement is a separate, pre-existing, not-yet-addressed gap (see
+    // the design report); scoping this to POS/KDS only avoids changing any
+    // console behaviour in this task.
+    if (
+      request.principal?.sessionType === 'pos' ||
+      request.principal?.sessionType === 'kds'
+    ) {
+      this.sessions.touch(request.principal.sessionId).catch((err: unknown) => {
+        this.logger.warn(`Session activity touch failed: ${String(err)}`);
+      });
     }
 
     // FR-SEC-021: a PIN-issued session reaches its own opted-in routes only.
