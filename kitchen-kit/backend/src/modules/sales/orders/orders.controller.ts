@@ -990,9 +990,13 @@ export class OrdersController {
    *
    * DELETE is the HTTP verb; the domain operation is a VOID. The row is retained
    * in state `voided`, because a deleted line leaves no evidence that an item was
-   * rung up and removed. Once a line is fired this returns 422: the post-fire
-   * path is privileged and no ratified permission authorises it, so it is not
-   * implemented rather than approximated.
+   * rung up and removed. Once a line is fired this returns 422: a fired line is
+   * the privileged POST-fire path's (`voidLinePostFire`, below) — this route
+   * refuses it rather than approximating it.
+   *
+   * PREFIRE-VOID-NO-REASON-P0 — no reason is required, accepted, or looked
+   * up here (`VoidOrderLineDto` carries none); see the governance register's
+   * "Pre-Fire Void Reason Removed" entry. The post-fire route is unaffected.
    */
   @Delete(':businessDay/:id/lines/:lineId')
   @AuthorizationTarget(
@@ -1034,7 +1038,7 @@ export class OrdersController {
   })
   @ApiUnprocessableEntityResponse({
     description:
-      'The line has already been fired; the post-fire path is privileged and not implemented here, or a similar business-rule refusal.',
+      'The line has already been fired — use POST .../void-postfire instead — or a similar business-rule refusal.',
   })
   async voidLine(
     @CurrentTenantContext() context: TenantContext,
@@ -1050,10 +1054,7 @@ export class OrdersController {
       params.id,
       parseBusinessDay(params.businessDay),
       params.lineId,
-      {
-        expectedVersion: parseIfMatch(ifMatch, params.id),
-        reasonCodeId: dto.reasonCodeId,
-      },
+      { expectedVersion: parseIfMatch(ifMatch, params.id) },
     );
 
     response.setHeader('ETag', orderETag(order));

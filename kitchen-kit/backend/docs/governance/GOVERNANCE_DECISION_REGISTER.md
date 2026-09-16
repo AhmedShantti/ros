@@ -9686,3 +9686,108 @@ terminal-decoupling implementation described in the evidence report and
 supersedes any future Full-SRS pass that would otherwise re-mark
 FR-SEC-020/021/028 against their original literal terminal wording for
 POS/KDS without accounting for this entry.**
+
+## PREFIRE-VOID-NO-REASON-P0 — Pre-Fire Void Reason Removed — RATIFIED 2026-09-16
+
+> **RECORDED 2026-09-16 by explicit user governance action** — the product
+> decision was stated directly, as a binding owner instruction, in the task
+> brief authorizing this implementation ("OWNER PRODUCT DECISION"), not
+> derived or inferred by the implementing session.
+> **NOT a new numbered decision — no further D-N is created; the original
+> twenty-decision tally is unchanged.** Recorded as an unnumbered ratified
+> entry, matching the **P1C / P1G-1 / RCPT-R1 / D1-1 / AUD-R1 / P2A-R1 /
+> P2C1-R1 / P2D-R1 / CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0** convention.
+>
+> This entry narrows FR-POS-075 for ONE operation only — a PRE-fire line
+> void — and touches nothing else. POST-fire void, disposition, refunds,
+> comps, discounts, and order cancellation are all explicitly untouched and
+> still require a reason exactly as FR-POS-075 already demands.
+
+### The decision
+
+1. **A PRE-fire line void requires no reason and performs no reason-code
+   lookup.** The cashier may void a not-yet-fired line directly, once
+   otherwise authorized (`pos.order.void_line_prefire`, unchanged), with no
+   `GET /orders/reason-codes?purpose=void_prefire` call, no reason selector,
+   and no "no reason codes exist" blocker in the client. The line is still
+   VOIDED, never deleted — the audit trail is the evidence, not a reason
+   code.
+2. **The audit entry for a pre-fire void still records actor, before/after
+   state, and identifies the operation as a PRE_FIRE_VOID** — its reason
+   field is explicitly `null` (not-applicable), never fabricated or
+   defaulted to a placeholder value.
+3. **A POST-fire void is entirely unaffected.** Reason IS required, the
+   reason-code catalogue IS validated, disposition (`returned_to_stock` /
+   `wasted` / `given_to_staff`) IS mandatory, and the resulting
+   inventory/depletion/audit consequences are unchanged. No permission or
+   approval rule anywhere in the void/cancel family is weakened as a side
+   effect of this entry.
+
+### Why a pre-fire void has nothing for a reason to classify
+
+Nothing has reached the kitchen or inventory yet: `voidLinePreFire` only
+ever runs on a line still `isSentToProduction() === false` — no ticket was
+ever produced, no stock was ever consumed or planned for consumption (stock
+depletes at Order Completion, not at Fire, in this system — the same fact
+`PostFireVoidService`'s `returned_to_stock` disposition already relies on).
+A reason code exists, in this data model, to classify WHY inventory or a
+kitchen's work was disposed of a particular way; a pre-fire void disposes
+of neither. Requiring one bought no additional evidentiary value over the
+audit entry itself, and (per the task's LIVE-01-PREFIRE-LINE-VOID-P0
+predecessor) had already been shown to gate an otherwise fully-authorized
+cashier action on an unrelated permission surface.
+
+### Requirement impact
+
+- **FR-POS-075** ("all voids/cancellations/refunds include a reason in
+  audit evidence") — **NARROWED, for PRE-fire line void only.** Every
+  other action this requirement covers (post-fire void, order cancellation,
+  refunds) is unaffected and still fully satisfies FR-POS-075 as written.
+  This is a deliberate, ratified, narrow exception — not a silent
+  reinterpretation and not a general weakening of FR-POS-075's audit-reason
+  guarantee.
+- **FR-POS-013** ("a void carries a reason") — same narrowing, same scope:
+  no longer applies to a pre-fire void; unchanged for every other void
+  path.
+
+### Binding constraints on implementation
+
+- No default/fake/placeholder reason may be invented for a pre-fire void,
+  in the database, the audit entry, or the API response — the field is
+  `null`, genuinely not-applicable, never a fabricated value.
+- `ck_order_line_void_reason` (the DB CHECK backing FR-POS-013/075 for
+  `sales.order_lines`) must keep enforcing a reason for any voided line
+  that WAS fired (`fired_at IS NOT NULL`) — the constraint is narrowed by
+  exactly the same `fired_at IS NULL` boundary `ck_order_line_fired_at`
+  already uses to tell pre-fire and post-fire apart, not dropped outright.
+- `GET /orders/reason-codes?purpose=void_prefire` and its permission gate
+  (`pos.order.void_line_prefire`) are retained on the contract (not
+  deleted) even though the pre-fire void UI no longer calls it — removing
+  the route entirely was judged out of proportion to this entry's scope.
+- The shared `void-postfire` route, its DTO (`reasonCodeId` and
+  `disposition` both still required), and its permission
+  (`pos.order.void_line_postfire`) are untouched by this entry.
+
+### Preservation
+
+**D-1 … D-20, every prior unnumbered ratified entry (P-1, PL, SB, the P0
+closures, P1A/P1C/P1D, RCPT-R1, D1-1, AUD-R1, P2A-R1, P2C1-R1, P2D-R1,
+CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0), and every other FR-POS-075-covered
+action (post-fire void, order cancellation, refunds, comps, discounts) are
+unchanged.** This entry's scope is exactly one operation: a pre-fire line
+void's reason requirement.
+
+### Evidence (non-authoritative)
+
+`kitchen-kit/backend/docs/reports/claude/` — the implementation/verification
+report for PREFIRE-VOID-NO-REASON-P0 (filed alongside this entry).
+Non-authoritative evidence; where its own narrative differs from the
+clauses above, THESE CLAUSES GOVERN.
+
+**Status:** **RATIFIED, by explicit user governance action on 2026-09-16
+(the task brief's own stated OWNER PRODUCT DECISION). FR-POS-075 and
+FR-POS-013 are NARROWED for pre-fire line void only; both remain in full
+force for every other void/cancellation/refund action. This entry
+authorizes the PREFIRE-VOID-NO-REASON-P0 implementation and supersedes any
+future Full-SRS pass that would otherwise flag a reason-less pre-fire void
+as an FR-POS-075/013 violation without accounting for this entry.**

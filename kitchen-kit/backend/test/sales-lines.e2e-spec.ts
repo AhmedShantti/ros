@@ -1423,7 +1423,60 @@ describe('Sales P1C line capture (e2e)', () => {
   // ------------------------------------------------------ authority boundary
 
   describe('Clarification C — the fire boundary', () => {
-    it('lets the cashier void a PRE-FIRE line', async () => {
+    it('lets the cashier void a PRE-FIRE line — no reason sent, none required (PREFIRE-VOID-NO-REASON-P0)', async () => {
+      const order = await openOrder();
+      const added = await addLine(order);
+      const line = (added.body as { line: { id: string } }).line;
+      const version = (added.body as { order: { version: number } }).order
+        .version;
+
+      const res = await request(http)
+        .delete(
+          `/orders/${day(order.businessDay)}/${order.id}/lines/${line.id}`,
+        )
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('If-Match', `W/"${order.id}.${version}"`)
+        .send({});
+
+      expect(res.status).toBe(200);
+      expect((res.body as { line: { state: string } }).line.state).toBe(
+        'voided',
+      );
+      // Totals drop; the row is RETAINED as evidence.
+      expect(
+        (res.body as { order: { grandTotal: string } }).order.grandTotal,
+      ).toBe('0');
+      const persisted = await admin.orderLine.findFirst({
+        where: { id: line.id },
+      });
+      expect(persisted).not.toBeNull();
+      // No reason was sent, none was fabricated — not even the tenant's own
+      // reason catalogue was consulted for this operation.
+      expect(persisted!.voidReasonId).toBeNull();
+      expect(persisted!.voidedBy).toBe(userA);
+    });
+
+    it('a PRE-FIRE void still works with no request body at all', async () => {
+      const order = await openOrder();
+      const added = await addLine(order);
+      const line = (added.body as { line: { id: string } }).line;
+      const version = (added.body as { order: { version: number } }).order
+        .version;
+
+      const res = await request(http)
+        .delete(
+          `/orders/${day(order.businessDay)}/${order.id}/lines/${line.id}`,
+        )
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('If-Match', `W/"${order.id}.${version}"`);
+
+      expect(res.status).toBe(200);
+      expect((res.body as { line: { state: string } }).line.state).toBe(
+        'voided',
+      );
+    });
+
+    it('a PRE-FIRE void rejects an old-contract reasonCodeId rather than silently using it (400 — the field no longer exists on this request)', async () => {
       const order = await openOrder();
       const added = await addLine(order);
       const line = (added.body as { line: { id: string } }).line;
@@ -1438,17 +1491,69 @@ describe('Sales P1C line capture (e2e)', () => {
         .set('If-Match', `W/"${order.id}.${version}"`)
         .send({ reasonCodeId });
 
-      expect(res.status).toBe(200);
-      expect((res.body as { line: { state: string } }).line.state).toBe(
-        'voided',
+      expect(res.status).toBe(400);
+      const after = await admin.orderLine.findFirstOrThrow({
+        where: { id: line.id },
+      });
+      expect(after.state).toBe('pending');
+      expect(after.voidReasonId).toBeNull();
+    });
+
+    it('a PRE-FIRE void creates an ORDER_LINE_VOIDED audit entry with actor + before/after state and no fabricated reason', async () => {
+      const order = await openOrder();
+      const added = await addLine(order);
+      const line = (added.body as { line: { id: string } }).line;
+      const version = (added.body as { order: { version: number } }).order
+        .version;
+
+      await request(http)
+        .delete(
+          `/orders/${day(order.businessDay)}/${order.id}/lines/${line.id}`,
+        )
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('If-Match', `W/"${order.id}.${version}"`)
+        .send({})
+        .expect(200);
+
+      const entry = await admin.auditEntry.findFirstOrThrow({
+        where: { entityId: line.id, action: 'ORDER_LINE_VOIDED' },
+        orderBy: { sequenceNo: 'desc' },
+      });
+      expect(entry.actorId).toBe(userA);
+      expect(entry.actorType).toBe('user');
+      expect(entry.beforeState).toMatchObject({ state: 'pending' });
+      const afterState = entry.afterState as Record<string, unknown>;
+      expect(afterState.state).toBe('voided');
+      expect(afterState.reasonCodeId).toBeNull();
+      expect(afterState.voidType).toBe('PRE_FIRE_VOID');
+    });
+
+    it('a PRE-FIRE void has no inventory/waste effect — no stock movement, no disposition record', async () => {
+      const order = await openOrder();
+      const added = await addLine(order);
+      const line = (added.body as { line: { id: string } }).line;
+      const version = (added.body as { order: { version: number } }).order
+        .version;
+
+      await request(http)
+        .delete(
+          `/orders/${day(order.businessDay)}/${order.id}/lines/${line.id}`,
+        )
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('If-Match', `W/"${order.id}.${version}"`)
+        .send({})
+        .expect(200);
+
+      const movements = await admin.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*)::bigint AS n FROM inventory.stock_movements WHERE reference_type = 'post_fire_void' AND reference_id = $1`,
+        line.id,
       );
-      // Totals drop; the row is RETAINED as evidence.
+      expect(Number(movements[0].n)).toBe(0);
       expect(
-        (res.body as { order: { grandTotal: string } }).order.grandTotal,
-      ).toBe('0');
-      expect(
-        await admin.orderLine.findFirst({ where: { id: line.id } }),
-      ).not.toBeNull();
+        await admin.postFireVoidRecord.findFirst({
+          where: { orderLineId: line.id },
+        }),
+      ).toBeNull();
     });
 
     it('refuses a cashier void once the line is FIRED', async () => {
@@ -1471,7 +1576,7 @@ describe('Sales P1C line capture (e2e)', () => {
         )
         .set('Authorization', `Bearer ${posToken}`)
         .set('If-Match', `W/"${order.id}.${version}"`)
-        .send({ reasonCodeId });
+        .send({});
 
       expect(res.status).toBe(422);
       expect(JSON.stringify(res.body)).toMatch(/sent to production/i);

@@ -348,9 +348,14 @@ describe('POS reason codes (e2e)', () => {
           .query({ purpose })
           .set(auth(posCashierToken))
           .expect(200);
-        expect((res.body as { id: string }[]).map((r) => r.id)).toContain(
-          reasonAdjustmentA,
-        );
+        const rows = res.body as { id: string }[];
+        expect(rows.map((r) => r.id)).toContain(reasonAdjustmentA);
+        // PREFIRE-VOID-NO-REASON-P0: this read is now unused by the pre-fire
+        // void flow itself (it no longer fetches reasons at all), but the
+        // purpose is retained on the contract and must still never leak a
+        // waste-category reason code into it — same guarantee as every
+        // other POS purpose.
+        expect(rows.map((r) => r.id)).not.toContain(reasonWasteA);
       }
     });
 

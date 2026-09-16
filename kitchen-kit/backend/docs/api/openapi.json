@@ -3494,15 +3494,7 @@
         "type": "object"
       },
       "VoidOrderLineDto": {
-        "properties": {
-          "reasonCodeId": {
-            "description": "REQUIRED. FR-POS-013 demands a reason on a void, and the database agrees:\n`ck_order_line_void_reason` refuses a voided row without one. Making it\noptional here would only move the failure from a 400 to a 500.\n\nThe reason catalogue is `inventory.reason_codes`; this references one by id\nand the service checks it is visible to the tenant.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "reasonCodeId"
-        ],
+        "properties": {},
         "type": "object"
       },
       "VoidOrderLinePostFireDto": {
@@ -8341,7 +8333,7 @@
                 }
               }
             },
-            "description": "The caller's own open cash session at their own POS session branch, or null if none (or more than one) exists."
+            "description": "The caller's own open or closing cash session at their own POS session branch, or null if none (or more than one) exists."
           },
           "401": {
             "content": {
@@ -8369,7 +8361,7 @@
             "bearer": []
           }
         ],
-        "summary": "DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at\nTHEIR OWN POS session branch, if exactly one exists.\n\nRecovery contract: after a fresh PIN login (e.g. after a frontend\nreload/deploy wiped the locally-remembered `cashSessionId`), the POS\ncalls this BEFORE showing Open Shift. A non-null `cashSession` means the\nemployee already holds an open shift here — the client resumes it\nin-place; `POST /cash-sessions` is never called again for it, and no new\ndrawer is opened. `null` means either no open session exists (normal\nOpen Shift) or more than one does (ambiguous — see\n`CashSessionsService.findCurrentForEmployee`).\n\nGated on `cash.session.open` — the SAME permission `POST /cash-sessions`\nalready requires, deliberately not a new/invented read permission. This\nmirrors `GET /cash-sessions/drawers` immediately above: a narrow read of\nstate the caller may already act on, scoped to their own\nsession-derived branch and their own employee identity, never a\ngeneric CashSession read (`findOne` stays internal-only — see its own\ndocblock and D-20).",
+        "summary": "DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open (or closing) cash\nsession at THEIR OWN POS session branch, if exactly one exists.\n\nRecovery contract: after a fresh PIN login (e.g. after a frontend\nreload/deploy wiped the locally-remembered `cashSessionId`), the POS\ncalls this BEFORE showing Open Shift. A non-null `cashSession` means the\nemployee already holds a session here — the client resumes it in-place;\n`POST /cash-sessions` is never called again for it, and no new drawer is\nopened. A `status: \"closing\"` session (CASH-SESSION-RESUME-AND-CLOSE-P0)\nmeans it is frozen awaiting a manager's finalize decision — the client\nroutes back to the close flow, not ordinary POS. `null` means either no\nsuch session exists (normal Open Shift) or more than one does\n(ambiguous — see `CashSessionsService.findCurrentForEmployee`).\n\nGated on `cash.session.open` — the SAME permission `POST /cash-sessions`\nalready requires, deliberately not a new/invented read permission. This\nmirrors `GET /cash-sessions/drawers` immediately above: a narrow read of\nstate the caller may already act on, scoped to their own\nsession-derived branch and their own employee identity, never a\ngeneric CashSession read (`findOne` stays internal-only — see its own\ndocblock and D-20).",
         "tags": [
           "treasury"
         ]
@@ -23921,7 +23913,7 @@
                 }
               }
             },
-            "description": "The line has already been fired; the post-fire path is privileged and not implemented here, or a similar business-rule refusal."
+            "description": "The line has already been fired — use POST .../void-postfire instead — or a similar business-rule refusal."
           }
         },
         "security": [

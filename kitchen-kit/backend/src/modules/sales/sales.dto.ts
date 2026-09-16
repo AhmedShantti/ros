@@ -136,18 +136,20 @@ export class AddOrderLineDto {
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
 }
 
-/** Void a pre-fire line. */
-export class VoidOrderLineDto {
-  /**
-   * REQUIRED. FR-POS-013 demands a reason on a void, and the database agrees:
-   * `ck_order_line_void_reason` refuses a voided row without one. Making it
-   * optional here would only move the failure from a 400 to a 500.
-   *
-   * The reason catalogue is `inventory.reason_codes`; this references one by id
-   * and the service checks it is visible to the tenant.
-   */
-  @Matches(UUID_PATTERN) reasonCodeId!: string;
-}
+/**
+ * Void a pre-fire line.
+ *
+ * PREFIRE-VOID-NO-REASON-P0 — no reason is required, accepted, or looked up
+ * for this operation. See the "Pre-Fire Void Reason Removed" entry in
+ * `docs/governance/GOVERNANCE_DECISION_REGISTER.md`: FR-POS-075's "every
+ * void/cancellation/refund audit includes a reason" is a deliberate,
+ * ratified, narrow exception for this one operation only — nothing has
+ * reached the kitchen or inventory yet, so there is nothing for a reason to
+ * classify. `ck_order_line_void_reason` was relaxed accordingly (still
+ * enforced whenever `fired_at IS NOT NULL`). `VoidOrderLinePostFireDto`
+ * below is unaffected and still requires one.
+ */
+export class VoidOrderLineDto {}
 
 export class OrderLinePathParamsDto {
   @Matches(UUID_PATTERN) id!: string;

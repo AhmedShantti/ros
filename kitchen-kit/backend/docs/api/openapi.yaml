@@ -2599,18 +2599,7 @@ components:
         - value
       type: object
     VoidOrderLineDto:
-      properties:
-        reasonCodeId:
-          description: |-
-            REQUIRED. FR-POS-013 demands a reason on a void, and the database agrees:
-            `ck_order_line_void_reason` refuses a voided row without one. Making it
-            optional here would only move the failure from a 400 to a 500.
-
-            The reason catalogue is `inventory.reason_codes`; this references one by id
-            and the service checks it is visible to the tenant.
-          type: string
-      required:
-        - reasonCodeId
+      properties: {}
       type: object
     VoidOrderLinePostFireDto:
       properties:
@@ -5906,7 +5895,7 @@ paths:
                       - object
                       - 'null'
                 type: object
-          description: The caller's own open cash session at their own POS session branch, or null if none (or more than one) exists.
+          description: The caller's own open or closing cash session at their own POS session branch, or null if none (or more than one) exists.
         '401':
           content:
             application/json:
@@ -5922,17 +5911,19 @@ paths:
       security:
         - bearer: []
       summary: |-
-        DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at
-        THEIR OWN POS session branch, if exactly one exists.
+        DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open (or closing) cash
+        session at THEIR OWN POS session branch, if exactly one exists.
 
         Recovery contract: after a fresh PIN login (e.g. after a frontend
         reload/deploy wiped the locally-remembered `cashSessionId`), the POS
         calls this BEFORE showing Open Shift. A non-null `cashSession` means the
-        employee already holds an open shift here — the client resumes it
-        in-place; `POST /cash-sessions` is never called again for it, and no new
-        drawer is opened. `null` means either no open session exists (normal
-        Open Shift) or more than one does (ambiguous — see
-        `CashSessionsService.findCurrentForEmployee`).
+        employee already holds a session here — the client resumes it in-place;
+        `POST /cash-sessions` is never called again for it, and no new drawer is
+        opened. A `status: "closing"` session (CASH-SESSION-RESUME-AND-CLOSE-P0)
+        means it is frozen awaiting a manager's finalize decision — the client
+        routes back to the close flow, not ordinary POS. `null` means either no
+        such session exists (normal Open Shift) or more than one does
+        (ambiguous — see `CashSessionsService.findCurrentForEmployee`).
 
         Gated on `cash.session.open` — the SAME permission `POST /cash-sessions`
         already requires, deliberately not a new/invented read permission. This
@@ -16683,7 +16674,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: The line has already been fired; the post-fire path is privileged and not implemented here, or a similar business-rule refusal.
+          description: The line has already been fired — use POST .../void-postfire instead — or a similar business-rule refusal.
       security:
         - bearer: []
       summary: Void a pre-fire line (the ordinary cashier correction).

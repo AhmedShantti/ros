@@ -100,8 +100,6 @@ export interface AddLineInput {
 
 export interface VoidLineInput {
   readonly expectedVersion: number;
-  /** REQUIRED — FR-POS-013, and `ck_order_line_void_reason` enforces it. */
-  readonly reasonCodeId: string;
 }
 
 /**
@@ -553,24 +551,19 @@ export class OrderLinesService {
         assertCashierMayMutateLine(order.state, line.state);
         const nextVersion = assertVersion(order.version, input.expectedVersion);
 
-        // FR-POS-013: a void carries a reason. Read tenant-scoped, so a reason
-        // code from another tenant is invisible and cannot be attached.
-        const reason = await tx.reasonCode.findUnique({
-          where: { id: input.reasonCodeId },
-          select: { id: true },
-        });
-        if (!reason) {
-          throw new UnprocessableEntityException(
-            'A void requires a reason code that exists in this tenant (FR-POS-013).',
-          );
-        }
-
+        // PREFIRE-VOID-NO-REASON-P0 — deliberately no reason-code lookup:
+        // nothing has reached the kitchen or inventory yet, so there is
+        // nothing for a reason to classify. See the governance register's
+        // "Pre-Fire Void Reason Removed" entry. `voidReasonId` is left
+        // unset (null) — never fabricated — and `ck_order_line_void_reason`
+        // was relaxed to permit that specifically when `fired_at IS NULL`,
+        // which this line always is here (assertCashierMayMutateLine above
+        // already refused anything `isSentToProduction`).
         const voided = await tx.orderLine.update({
           where: { id_businessDay: { id: lineId, businessDay } },
           data: {
             state: 'voided',
             voidedBy: actorUserId,
-            voidReasonId: reason.id,
           },
         });
 
@@ -601,7 +594,10 @@ export class OrderLinesService {
             orderId: order.id,
             state: voided.state,
             orderVersion: nextVersion,
-            reasonCodeId: reason.id,
+            // PREFIRE-VOID-NO-REASON-P0 — deliberately null, never
+            // fabricated: this operation has no reason to record.
+            reasonCodeId: null,
+            voidType: 'PRE_FIRE_VOID',
           },
         });
 

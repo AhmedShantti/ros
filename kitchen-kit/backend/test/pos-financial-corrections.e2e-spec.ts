@@ -1792,6 +1792,27 @@ describe('POS-FIN-1 (e2e)', () => {
       expect(invalid.status).toBe(400);
     });
 
+    it('E2b. reasonCodeId is a required field for a POST-fire void — missing -> 400 (PREFIRE-VOID-NO-REASON-P0 narrows only pre-fire, never this route)', async () => {
+      const order = await mkOpenOrder();
+      const item = await mkSellable(`E2b-${newId()}`);
+      const line = await mkLine(order, item.itemId, item.variantId);
+      await fireDirectly(line.line.id, order.businessDay);
+
+      const missing = await postFresh(
+        cashierToken,
+        order,
+        `/lines/${line.line.id}/void-postfire`,
+        { disposition: 'wasted' },
+      );
+      expect(missing.status).toBe(400);
+
+      const after = await admin.orderLine.findFirstOrThrow({
+        where: { id: line.line.id },
+      });
+      expect(after.state).toBe('fired');
+      expect(after.voidReasonId).toBeNull();
+    });
+
     it('E3. returned_to_stock creates NO inventory movement, and removes the line from order totals', async () => {
       const order = await mkOpenOrder();
       const item = await mkSellable(`E3-${newId()}`, 10_000n);
