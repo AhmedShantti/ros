@@ -256,6 +256,52 @@ export function canonicalRoleKeyForName(
 }
 
 /**
+ * Idempotently ensures `roleId` carries every code in `permissionCodes` —
+ * ADDITIVE ONLY. Never removes a `RolePermission` row a tenant (or an
+ * earlier, narrower template version) already granted, so a role a tenant
+ * has since customised is only ever widened toward the current template,
+ * never reset to it. Shared by `ensureCanonicalRole` (create-or-reuse a
+ * role, then reconcile it) and `reconcileExistingCanonicalRoles`
+ * (CANONICAL-ROLE-PERMISSION-BACKFILL-P0 — reconcile a role that already
+ * exists, never creating one) so the upsert loop exists exactly once.
+ *
+ * Returns the codes that were actually missing (and have now been added),
+ * so a caller can report what a backfill run changed without a second,
+ * separate diff query.
+ */
+async function reconcileRolePermissions(
+  tx: Prisma.TransactionClient,
+  roleId: string,
+  permissionCodes: readonly string[],
+): Promise<{ addedPermissionCodes: string[] }> {
+  const existing = await tx.rolePermission.findMany({
+    where: { roleId },
+    select: { permission: { select: { code: true } } },
+  });
+  const have = new Set(existing.map((rp) => rp.permission.code));
+  const missing = permissionCodes.filter((code) => !have.has(code));
+
+  const addedPermissionCodes: string[] = [];
+  for (const code of missing) {
+    const permission = await tx.permission.findUnique({ where: { code } });
+    // Defensive: the permission catalog bootstrap (signup/auto-provision)
+    // runs immediately before this in every caller, so this should never
+    // miss — but never hard-fail role provisioning over a bootstrap race.
+    if (!permission) continue;
+    await tx.rolePermission.upsert({
+      where: {
+        roleId_permissionId: { roleId, permissionId: permission.id },
+      },
+      update: {},
+      create: { roleId, permissionId: permission.id },
+    });
+    addedPermissionCodes.push(code);
+  }
+
+  return { addedPermissionCodes };
+}
+
+/**
  * Idempotent create-or-reuse-by-name of a tenant role for the given template,
  * with every one of its permission codes upserted onto it. Safe to call on
  * every signup and every employee creation — never duplicates a role row or a
@@ -288,20 +334,90 @@ export async function ensureCanonicalRole(
     });
   }
 
-  for (const code of template.permissionCodes) {
-    const permission = await tx.permission.findUnique({ where: { code } });
-    // Defensive: the permission catalog bootstrap (signup/auto-provision)
-    // runs immediately before this in every caller, so this should never
-    // miss — but never hard-fail role provisioning over a bootstrap race.
-    if (!permission) continue;
-    await tx.rolePermission.upsert({
-      where: {
-        roleId_permissionId: { roleId: role.id, permissionId: permission.id },
-      },
-      update: {},
-      create: { roleId: role.id, permissionId: permission.id },
+  await reconcileRolePermissions(tx, role.id, template.permissionCodes);
+
+  return role;
+}
+
+/** One canonical role's reconciliation result, for a backfill run's report. */
+export interface CanonicalRoleReconciliationResult {
+  readonly tenantId: string;
+  readonly roleId: string;
+  readonly roleName: string;
+  readonly templateKey: CanonicalRoleTemplateKey;
+  readonly addedPermissionCodes: readonly string[];
+}
+
+/**
+ * CANONICAL-ROLE-PERMISSION-BACKFILL-P0 — reconciles every ALREADY-EXISTING
+ * canonical-named role in ONE tenant against the CURRENT template.
+ *
+ * ── WHY THIS EXISTS SEPARATELY FROM `ensureCanonicalRole` ───────────────────
+ * `ensureCanonicalRole` is a provisioning-time call: it names ONE template
+ * key and creates the role if the tenant never had it. A backfill must never
+ * do that — inventing a Role row for a canonical name a tenant deliberately
+ * never provisioned (e.g. no Kitchen Staff at a takeaway-only branch) would
+ * be a new grant, not a repair. This function only ever touches a `Role`
+ * row that ALREADY EXISTS; a canonical role the tenant never had is left
+ * alone, exactly as before.
+ *
+ * ── SAME "CUSTOM ROLE" SAFETY AS THE NAME-MATCH SELF-HEAL ───────────────────
+ * Matches roles by `name IN (canonical template names)` AND `isSystem:
+ * false` — the identical signal `canonicalRoleKeyForName` already uses to
+ * self-heal on the next (re)assignment (this module's own docblock above).
+ * Anything else — any other name — is a custom role and is never read or
+ * written here.
+ *
+ * ── ADDITIVE, NEVER DESTRUCTIVE ──────────────────────────────────────────
+ * Delegates the actual upsert to `reconcileRolePermissions`, the exact same
+ * routine `ensureCanonicalRole` uses — no second copy of "how to grant a
+ * missing code" exists. A tenant's own extra permissions on a canonical
+ * role are untouched; `MembershipRole` (assignment + scope) rows are never
+ * read or written by this function at all.
+ *
+ * Runs on the caller's own tenant-scoped transaction (mirrors
+ * `ensureCanonicalRole`'s signature) — the caller is responsible for
+ * establishing `PrismaService.withAuthContext({ tenantId })` per tenant, the
+ * same convention every other cross-tenant-unsafe call in this codebase
+ * already follows. Idempotent: a second call for the same tenant always
+ * returns results with empty `addedPermissionCodes` arrays.
+ */
+export async function reconcileExistingCanonicalRoles(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+): Promise<CanonicalRoleReconciliationResult[]> {
+  const canonicalNames = Object.values(CANONICAL_ROLE_TEMPLATES).map(
+    (template) => template.name,
+  );
+
+  const roles = await tx.role.findMany({
+    where: { tenantId, isSystem: false, name: { in: canonicalNames } },
+    select: { id: true, name: true },
+  });
+
+  const results: CanonicalRoleReconciliationResult[] = [];
+  for (const role of roles) {
+    const templateKey = canonicalRoleKeyForName(role.name);
+    // Unreachable given the `name: { in: canonicalNames } }` filter above —
+    // guarded anyway so a future rename of a template's `name` cannot ever
+    // silently touch a role it no longer recognises.
+    if (!templateKey) continue;
+    const template = CANONICAL_ROLE_TEMPLATES[templateKey];
+
+    const { addedPermissionCodes } = await reconcileRolePermissions(
+      tx,
+      role.id,
+      template.permissionCodes,
+    );
+
+    results.push({
+      tenantId,
+      roleId: role.id,
+      roleName: role.name,
+      templateKey,
+      addedPermissionCodes,
     });
   }
 
-  return role;
+  return results;
 }
