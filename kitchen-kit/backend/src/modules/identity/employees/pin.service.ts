@@ -43,6 +43,24 @@ export interface PinAuthResult {
   membershipId: string;
 }
 
+/** One reachable neighbour's PIN credential — identity + hash, nothing more. */
+interface NeighbourPinCredential {
+  credentialId: string;
+  userId: string;
+  secretHash: string;
+}
+
+/**
+ * A point-in-time FR-SEC-022 uniqueness snapshot: every OTHER employee's PIN
+ * credential reachable in a given set of branches, plus enough
+ * employee/branch shape to name the colliding branch in a conflict message.
+ */
+interface PinUniquenessSnapshot {
+  neighbourEmployeeBranches: { employeeId: string; branchId: string }[];
+  credentials: NeighbourPinCredential[];
+  userIdToEmployeeId: Map<string, string>;
+}
+
 /**
  * PIN authentication — FR-SEC-020 / FR-SEC-021 / FR-SEC-022, authorised by the
  * D-2 amendment.
@@ -59,9 +77,21 @@ export interface PinAuthResult {
  * comparison is impossible by construction and a UNIQUE index cannot express
  * this. Uniqueness is therefore verified in the application: the candidate PIN
  * is checked against the PIN of every other employee reachable in the branches
- * concerned. To keep that safe under concurrency, the check and the write run
- * inside one transaction holding a per-tenant advisory lock — the same
- * `pg_advisory_xact_lock` pattern `AuditService` already uses for its chain.
+ * concerned.
+ *
+ * EMPLOYEE-PIN-SET-500-P0 (2026-09-19): that verification is O(N) sequential
+ * Argon2id work (deliberately expensive — see `credentials.service.ts`). Doing
+ * it inside a single Prisma interactive transaction (as originally written)
+ * meant a branch with enough existing PIN holders could exceed Prisma's
+ * default 5000ms interactive-transaction timeout, surfacing as an unhandled
+ * `PrismaClientKnownRequestError` (P2028) — a 500, not a 409 — once N grew
+ * large enough. `setPin` below is therefore split into three phases: a cheap
+ * read-only snapshot, the expensive Argon2 verification with NO transaction
+ * open, then a short atomic write transaction (still holding the same
+ * per-tenant `pg_advisory_xact_lock` `AuditService`'s chain also uses) that
+ * re-checks only what changed since the snapshot — identity + hash, never a
+ * timestamp — before writing. See
+ * `docs/reports/claude/2026-09-19_EMPLOYEE-PIN-SET-500-P0_investigation.md`.
  *
  * ── LOCKOUT (FR-SEC-022) ────────────────────────────────────────────────────
  * The threshold is configurable. FR-SEC-022 does not state a number, so none is
@@ -109,54 +139,99 @@ export class PinService implements ApproverPinVerifier {
   }
 
   /**
-   * Reject the candidate PIN if any OTHER employee reachable in `branchIds`
-   * already uses it (FR-SEC-022 branch uniqueness).
+   * FR-SEC-022 branch-uniqueness snapshot — every OTHER employee's PIN
+   * credential reachable in `branchIds`, plus enough employee/branch shape
+   * to name the colliding branch in a conflict message. Pure reads, no
+   * Argon2 work, no throw. Reused identically by Phase 1 (a fresh snapshot)
+   * and Phase 3 (a fresh, CURRENT snapshot used to compute the delta).
    */
-  private async assertUniqueInBranches(
+  private async snapshotBranchUniqueness(
     tx: Prisma.TransactionClient,
     employeeId: string,
     branchIds: readonly string[],
-    pin: string,
-  ): Promise<void> {
-    if (branchIds.length === 0) return;
+  ): Promise<PinUniquenessSnapshot> {
+    const empty: PinUniquenessSnapshot = {
+      neighbourEmployeeBranches: [],
+      credentials: [],
+      userIdToEmployeeId: new Map(),
+    };
+    if (branchIds.length === 0) return empty;
 
-    const neighbours = await tx.employeeBranch.findMany({
+    const neighbourEmployeeBranches = await tx.employeeBranch.findMany({
       where: {
         branchId: { in: [...branchIds] },
         employeeId: { not: employeeId },
       },
       select: { employeeId: true, branchId: true },
     });
-    if (neighbours.length === 0) return;
+    if (neighbourEmployeeBranches.length === 0) return empty;
 
-    const employees = await tx.employee.findMany({
-      where: { id: { in: neighbours.map((n) => n.employeeId) } },
+    const neighbourEmployeeIds = [
+      ...new Set(neighbourEmployeeBranches.map((n) => n.employeeId)),
+    ];
+    const neighbourEmployees = await tx.employee.findMany({
+      where: { id: { in: neighbourEmployeeIds } },
       select: { id: true, userId: true },
     });
-    const userIds = employees
-      .map((e) => e.userId)
-      .filter((u): u is string => u !== null);
-    if (userIds.length === 0) return;
+    const userIdToEmployeeId = new Map<string, string>();
+    for (const e of neighbourEmployees) {
+      if (e.userId) userIdToEmployeeId.set(e.userId, e.id);
+    }
+    const userIds = [...userIdToEmployeeId.keys()];
+    if (userIds.length === 0) {
+      return { neighbourEmployeeBranches, credentials: [], userIdToEmployeeId };
+    }
 
     const creds = await tx.credential.findMany({
       where: { userId: { in: userIds }, credentialType: 'pin' },
-      select: { userId: true, secretHash: true },
+      select: { id: true, userId: true, secretHash: true },
     });
 
-    for (const cred of creds) {
+    return {
+      neighbourEmployeeBranches,
+      credentials: creds.map((c) => ({
+        credentialId: c.id,
+        userId: c.userId,
+        secretHash: c.secretHash,
+      })),
+      userIdToEmployeeId,
+    };
+  }
+
+  /**
+   * The expensive half of FR-SEC-022 uniqueness: verify `pin` against every
+   * credential in `credentials` (Argon2id, sequential). Deliberately takes
+   * NO `tx` — callers must invoke this with no DB transaction open, so this
+   * O(N) work never counts against Prisma's interactive-transaction timeout
+   * (root cause of EMPLOYEE-PIN-SET-500-P0 / P2028).
+   */
+  private async findPinClash(
+    pin: string,
+    credentials: readonly NeighbourPinCredential[],
+  ): Promise<NeighbourPinCredential | null> {
+    for (const cred of credentials) {
       const clash = await this.credentials.verifyPasswordSafe(
         cred.secretHash,
         pin,
       );
-      if (clash) {
-        const owner = employees.find((e) => e.userId === cred.userId);
-        const branch = neighbours.find((n) => n.employeeId === owner?.id);
-        throw new ConflictException(
-          `That PIN is already in use in branch ${branch?.branchId ?? 'this branch'}. ` +
-            'FR-SEC-022 requires PINs to be unique within a branch.',
-        );
-      }
+      if (clash) return cred;
     }
+    return null;
+  }
+
+  /** The exact FR-SEC-022 conflict, naming the colliding branch when known. */
+  private branchUniquenessConflict(
+    snapshot: Pick<PinUniquenessSnapshot, 'neighbourEmployeeBranches' | 'userIdToEmployeeId'>,
+    matchedUserId: string,
+  ): ConflictException {
+    const ownerEmployeeId = snapshot.userIdToEmployeeId.get(matchedUserId);
+    const branch = snapshot.neighbourEmployeeBranches.find(
+      (n) => n.employeeId === ownerEmployeeId,
+    );
+    return new ConflictException(
+      `That PIN is already in use in branch ${branch?.branchId ?? 'this branch'}. ` +
+        'FR-SEC-022 requires PINs to be unique within a branch.',
+    );
   }
 
   /**
@@ -200,7 +275,11 @@ export class PinService implements ApproverPinVerifier {
     );
   };
 
-  /** Set or rotate an employee's PIN. */
+  /**
+   * Set or rotate an employee's PIN — EMPLOYEE-PIN-SET-500-P0's three-phase
+   * design (see this class's docblock). Never runs Argon2 verification work
+   * with a DB transaction open.
+   */
   async setPin(
     tenantId: string,
     actorId: string,
@@ -209,22 +288,15 @@ export class PinService implements ApproverPinVerifier {
   ): Promise<void> {
     this.assertPinShape(pin);
 
-    // Password/PIN hashing is intentionally expensive. Performing it inside
-    // Prisma's interactive transaction can exhaust the transaction's timeout
-    // before the credential upsert runs, especially on constrained production
-    // instances. Compute the hash first, then keep the transaction limited to
-    // the operations that need to be atomic.
-    const secretHash = await this.credentials.hashPassword(pin);
-
-    await this.prisma.withAuthContext(
+    // ── PHASE 1 — short, read-only, RLS-scoped snapshot. No Argon2, no
+    // advisory lock, no write. The 404/409 employee-shape checks live here,
+    // unchanged from before this fix.
+    const phase1 = await this.prisma.withAuthContext(
       { userId: actorId, tenantId },
       async (tx) => {
-        await this.lockTenant(tx, tenantId);
-
         const employee = await tx.employee.findUnique({
           where: { id: employeeId },
           select: {
-            id: true,
             userId: true,
             branches: { select: { branchId: true } },
           },
@@ -241,18 +313,78 @@ export class PinService implements ApproverPinVerifier {
         }
 
         const branchIds = employee.branches.map((b) => b.branchId);
-        await this.assertUniqueInBranches(tx, employeeId, branchIds, pin);
+        const snapshot = await this.snapshotBranchUniqueness(
+          tx,
+          employeeId,
+          branchIds,
+        );
+        return { targetUserId: employee.userId, snapshot };
+      },
+    );
+
+    // ── PHASE 2 — outside any transaction / DB connection. This is the O(N)
+    // Argon2id work that used to run inside the write transaction and could
+    // exceed its 5000ms timeout (root cause). Candidate hashing (already
+    // outside any transaction before this fix) stays here too.
+    const secretHash = await this.credentials.hashPassword(pin);
+    const clash = await this.findPinClash(pin, phase1.snapshot.credentials);
+    if (clash) {
+      throw this.branchUniquenessConflict(phase1.snapshot, clash.userId);
+    }
+
+    // ── PHASE 3 — short atomic write transaction. Re-reads CURRENT branch
+    // reachability and CURRENT neighbour credentials, computes the DELTA
+    // against the Phase 1 snapshot by credential identity + secretHash
+    // (never a timestamp), verifies the candidate against ONLY that delta
+    // (bounded by how many credentials actually changed since Phase 1 — not
+    // by branch headcount), then performs the existing atomic write.
+    await this.prisma.withAuthContext(
+      { userId: actorId, tenantId },
+      async (tx) => {
+        await this.lockTenant(tx, tenantId);
+
+        const employee = await tx.employee.findUnique({
+          where: { id: employeeId },
+          select: { branches: { select: { branchId: true } } },
+        });
+        if (!employee) {
+          throw new NotFoundException('Employee not found.');
+        }
+        const currentBranchIds = employee.branches.map((b) => b.branchId);
+        const currentSnapshot = await this.snapshotBranchUniqueness(
+          tx,
+          employeeId,
+          currentBranchIds,
+        );
+
+        const phase1HashByCredentialId = new Map(
+          phase1.snapshot.credentials.map((c) => [c.credentialId, c.secretHash]),
+        );
+        const delta = currentSnapshot.credentials.filter((c) => {
+          const previousHash = phase1HashByCredentialId.get(c.credentialId);
+          return previousHash === undefined || previousHash !== c.secretHash;
+        });
+
+        if (delta.length > 0) {
+          const deltaClash = await this.findPinClash(pin, delta);
+          if (deltaClash) {
+            throw this.branchUniquenessConflict(
+              currentSnapshot,
+              deltaClash.userId,
+            );
+          }
+        }
 
         await tx.credential.upsert({
           where: {
             userId_credentialType: {
-              userId: employee.userId,
+              userId: phase1.targetUserId,
               credentialType: 'pin',
             },
           },
           create: {
             id: newId(),
-            userId: employee.userId,
+            userId: phase1.targetUserId,
             credentialType: 'pin',
             secretHash,
             pinForTerminal: true,
@@ -274,7 +406,7 @@ export class PinService implements ApproverPinVerifier {
           actorType: 'user',
           actorId,
           entityId: employeeId,
-          metadata: { branchCount: branchIds.length },
+          metadata: { branchCount: currentBranchIds.length },
         });
       },
     );
