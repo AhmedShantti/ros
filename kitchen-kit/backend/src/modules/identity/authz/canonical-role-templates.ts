@@ -119,6 +119,21 @@ const CASHIER_PERMISSION_CODES = [
  * branch's cash sessions. `seed-dev-data.ts` keeps its own literal copy
  * (outside `src/modules/`, not subject to the architecture test) and must be
  * updated identically.
+ *
+ * `cash.variance.approve` (CASH-VARIANCE-BRANCH-MANAGER-P0, 2026-09-19) —
+ * `FR-FIN-006` [M] requires a manager-tier approval for any above-tolerance
+ * cash-session close variance, checked by the Approval Runtime against a
+ * separately PIN-verified approver, never the calling cashier
+ * (`cash-session-close.service.ts`'s `finalizeClose`). The prior omission of
+ * this code from every canonical template meant NO role — other than the
+ * non-template, blanket-grant "Owner" — could ever approve one, even though
+ * Branch Manager already held `cash.session.close`/`close_other` and is, by
+ * this same docblock's own reasoning, "the role this system expects to
+ * reconcile a branch's cash sessions." Investigated and root-caused in
+ * `docs/reports/claude/2026-09-19_CASH-VARIANCE-APPROVE-REJECT-P0_investigation.md`;
+ * this entry implements only its Branch Manager finding. Deliberately NOT
+ * added to Shift Supervisor or Cashier by this task — see that report's
+ * explicit scope decision.
  */
 const BRANCH_MANAGER_PERMISSION_CODES = [
   ORGANISATION_PERMISSIONS.BRANCH_READ,
@@ -134,6 +149,7 @@ const BRANCH_MANAGER_PERMISSION_CODES = [
   TREASURY_PERMISSIONS.CASH_SESSION_OPEN,
   TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
   TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
+  TREASURY_PERMISSIONS.CASH_VARIANCE_APPROVE,
   WORKFORCE_PERMISSIONS.EMPLOYEE_VIEW,
   WORKFORCE_PERMISSIONS.EMPLOYEE_MANAGE,
   REPORTING_PERMISSIONS.VIEW_SALES,

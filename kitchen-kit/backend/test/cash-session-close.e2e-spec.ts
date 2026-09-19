@@ -116,6 +116,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
   let employeeOpenMode: string;
   let userBranchManager: string;
   let employeeBranchManager: string;
+  let branchManagerRoleId: string;
   // CASH-SESSION-RESUME-AND-CLOSE-P0 — kept exclusively for that block's
   // own tests: every other employee above accumulates leftover open/closing
   // sessions across this file's many earlier tests (most never finalize),
@@ -411,6 +412,7 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
     await roles.addPermissions(tenantA, branchManagerRole.id, [
       ...CANONICAL_ROLE_TEMPLATES.branch_manager.permissionCodes,
     ]);
+    branchManagerRoleId = branchManagerRole.id;
 
     const assign = async (
       userId: string,
@@ -1048,6 +1050,155 @@ describe('CashSession Close (e2e) — P1G-1 migration 34', () => {
       const sid = await openSession(employeeOpenMode, branchOpen);
       const res = await context(branchManagerToken, sid);
       expect(res.status).toBe(403);
+    });
+  });
+
+  // ============= CASH-VARIANCE-BRANCH-MANAGER-P0 (canonical role coverage) =
+  //
+  // The pre-existing approve/reject coverage above (`describe('above
+  // tolerance...')`) proves the MECHANISM using a synthetic tenant role
+  // (`managerRole`, granted `cash.variance.approve` directly in this file's
+  // own setup) — it never exercises the REAL canonical Branch Manager
+  // template, so it could not have caught the template's prior omission of
+  // the code. This block closes that gap using `branchManagerRole` — built,
+  // like the DEMO-AUTH-CASH-HOTFIX-P0 block immediately above, from
+  // `CANONICAL_ROLE_TEMPLATES.branch_manager.permissionCodes` verbatim.
+
+  describe('Branch Manager canonical role — cash.variance.approve (CASH-VARIANCE-BRANCH-MANAGER-P0)', () => {
+    it('A/B/C — the canonical template grants the code to Branch Manager only, not Cashier or Shift Supervisor', () => {
+      expect(CANONICAL_ROLE_TEMPLATES.branch_manager.permissionCodes).toContain(
+        'cash.variance.approve',
+      );
+      expect(CANONICAL_ROLE_TEMPLATES.cashier.permissionCodes).not.toContain(
+        'cash.variance.approve',
+      );
+      expect(CANONICAL_ROLE_TEMPLATES.shift_supervisor.permissionCodes).not.toContain(
+        'cash.variance.approve',
+      );
+    });
+
+    it('A — the real, DB-persisted canonical Branch Manager role actually carries the code (not just the in-memory template)', async () => {
+      const codes = (
+        await admin.rolePermission.findMany({
+          where: { roleId: branchManagerRoleId },
+          include: { permission: true },
+        })
+      ).map((rp) => rp.permission.code);
+      expect(codes).toContain('cash.variance.approve');
+    });
+
+    it('D/E/F/G/H — a Cashier who owns the session (holds neither close_other nor variance.approve) declares an above-tolerance count, then finalizes supplying a DIFFERENT, real canonical Branch Manager\'s employee code + PIN, whose approval closes the session with the frozen declared facts', async () => {
+      const sid = await openSession(employeeCashier, branchA);
+      const declared = await declare(cashierToken, sid, {
+        closeAttemptId: newId(),
+        countedTotalMinorUnits: '55000',
+      });
+      expect(declared.status).toBe(201);
+      expect((declared.body as DeclareBody).status).toBe('closing');
+      expect((declared.body as DeclareBody).varianceMinorUnits).toBe('5000');
+
+      // F — the calling cashier's own role (`cashierRole`, set up above)
+      // holds only cash.session.open/close — no close_other — yet the call
+      // below succeeds, because close_other is irrelevant to closing one's
+      // OWN session, and variance.approve is checked against the APPROVER,
+      // never the caller (see the investigation report's Section B).
+      const fBody = finalizeBody({
+        managerEmployeeCode: `CCG${stamp % 1000}`,
+        managerPin: PIN_BRANCHMGR,
+        reason: 'Branch Manager verified the drawer recount.',
+      });
+      const finalized = await finalize(cashierToken, sid, fBody);
+      expect(finalized.status).toBe(200);
+      expect((finalized.body as FinalizeBody).outcome).toBe('closed');
+
+      const session = await admin.cashSession.findUniqueOrThrow({ where: { id: sid } });
+      expect(session.status).toBe('closed');
+      expect(session.expectedCash).toBe(50_000n);
+      expect(session.countedCash).toBe(55_000n);
+      expect(session.variance).toBe(5_000n);
+      expect(session.approvalRequestId).toBe(fBody.approvalRequestId);
+
+      // G — the approver actually verified is the real canonical Branch
+      // Manager, and the Approval Runtime checked exactly this permission.
+      const req_ = await admin.approvalRequest.findUniqueOrThrow({
+        where: { id: fBody.approvalRequestId },
+      });
+      expect(req_.requiredPermission).toBe('cash.variance.approve');
+      const decision = await admin.approvalDecision.findUniqueOrThrow({
+        where: { id: fBody.approvalDecisionId },
+      });
+      expect(decision.approverId).toBe(userBranchManager);
+      expect(decision.decision).toBe('approved');
+    });
+
+    it('I — self-approval remains blocked even for a real canonical Branch Manager approving their own session variance', async () => {
+      const sid = await openSession(employeeBranchManager, branchA, userBranchManager);
+      await declare(branchManagerToken, sid, {
+        closeAttemptId: newId(),
+        countedTotalMinorUnits: '55000',
+      }).expect(201);
+
+      const res = await finalize(
+        branchManagerToken,
+        sid,
+        finalizeBody({
+          managerEmployeeCode: `CCG${stamp % 1000}`, // the OWNER's own code
+          managerPin: PIN_BRANCHMGR,
+        }),
+      );
+      expect(res.status).toBe(403);
+
+      const session = await admin.cashSession.findUniqueOrThrow({ where: { id: sid } });
+      expect(session.status).toBe('closing'); // unchanged
+    });
+
+    it('J/K/L — R-6(a) under the real canonical Branch Manager: REJECT leaves the session closing, a second declaration (recount) is refused, and a fresh-id retry APPROVES', async () => {
+      const sid = await openSession(employeeCashier, branchA);
+      await declare(cashierToken, sid, {
+        closeAttemptId: newId(),
+        countedTotalMinorUnits: '55000',
+      }).expect(201);
+
+      const rejectBody = finalizeBody({
+        managerEmployeeCode: `CCG${stamp % 1000}`,
+        managerPin: PIN_BRANCHMGR,
+        decision: 'rejected',
+        reason: 'Recount looks wrong, please redo it.',
+      });
+      const rejected = await finalize(cashierToken, sid, rejectBody);
+      expect(rejected.status).toBe(200);
+      expect((rejected.body as FinalizeBody).outcome).toBe('rejected');
+      expect((rejected.body as FinalizeBody).status).toBe('closing');
+
+      // L — R-6(a) point 7: rejection MUST NOT permit a recount. A second
+      // declaration attempt on the same, still-`closing` session is refused
+      // (declareClose's own guard: status !== 'open').
+      const secondDeclare = await declare(cashierToken, sid, {
+        closeAttemptId: newId(),
+        countedTotalMinorUnits: '50000',
+      });
+      expect(secondDeclare.status).toBe(409);
+
+      const sessionAfterReject = await admin.cashSession.findUniqueOrThrow({
+        where: { id: sid },
+      });
+      expect(sessionAfterReject.status).toBe('closing');
+      expect(sessionAfterReject.closedAt).toBeNull();
+
+      // K — retry with FRESH ids, same real Branch Manager approver, on the
+      // SAME declared count, approves.
+      const retryBody = finalizeBody({
+        managerEmployeeCode: `CCG${stamp % 1000}`,
+        managerPin: PIN_BRANCHMGR,
+        reason: 'Recount redone, verified.',
+      });
+      const approved = await finalize(cashierToken, sid, retryBody);
+      expect(approved.status).toBe(200);
+      expect((approved.body as FinalizeBody).outcome).toBe('closed');
+
+      const sessionFinal = await admin.cashSession.findUniqueOrThrow({ where: { id: sid } });
+      expect(sessionFinal.status).toBe('closed');
+      expect(sessionFinal.approvalRequestId).toBe(retryBody.approvalRequestId);
     });
   });
 

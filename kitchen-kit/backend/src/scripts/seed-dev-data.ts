@@ -236,6 +236,10 @@ async function main(): Promise<void> {
     // drawer but never close one — not their own, and not a cashier's.
     TREASURY_PERMISSIONS.CASH_SESSION_CLOSE,
     TREASURY_PERMISSIONS.CASH_SESSION_CLOSE_OTHER,
+    // CASH-VARIANCE-BRANCH-MANAGER-P0 (2026-09-19): matches the canonical
+    // Branch Manager template — a Branch Manager can approve an
+    // above-tolerance cash-variance close.
+    TREASURY_PERMISSIONS.CASH_VARIANCE_APPROVE,
     WORKFORCE_PERMISSIONS.EMPLOYEE_VIEW,
     WORKFORCE_PERMISSIONS.EMPLOYEE_MANAGE,
     REPORTING_PERMISSIONS.VIEW_SALES,
